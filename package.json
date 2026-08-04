@@ -2,18 +2,20 @@
   "name": "stylenow",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=22" },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "dev": "npm run dev -w @stylenow/web",
+    "build": "npm run build -w @stylenow/web",
+    "start": "npm run start -w @stylenow/web",
+    "test": "tsx apps/api/src/domain/__tests__/domain.test.ts",
+    "typecheck": "tsc -p tsconfig.domain.json",
+    "db:migrate": "for f in db/migrations/*.sql; do psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\"; done",
+    "api:lint-openapi": "redocly lint apps/api/openapi.yaml"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "@types/node": "^22.10.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
   }
 }

@@ -1,0 +1,10 @@
+{
+  "name": "@stylenow/shared",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./i18n": "./src/i18n.ts",
+    "./tokens": "./src/tokens.ts"
+  }
+}

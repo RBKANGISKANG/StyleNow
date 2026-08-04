@@ -1,0 +1,13 @@
+{
+  "name": "@stylenow/api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./domain/*": "./src/domain/*.ts",
+    "./modules/*": "./src/modules/*.ts"
+  },
+  "scripts": {
+    "test": "tsx src/domain/__tests__/domain.test.ts"
+  }
+}

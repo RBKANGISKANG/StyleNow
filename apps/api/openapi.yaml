@@ -1,0 +1,1934 @@
+openapi: 3.1.0
+info:
+  title: StyleNow Platform API
+  version: 1.0.0
+  description: |
+    Multi-shop beauty booking platform. Three audiences share one API surface,
+    separated by OAuth2 scopes:
+
+      * public.*  - anonymous discovery + guest checkout
+      * shop.*    - shop dashboard (owner, manager, staff)
+      * chain.*   - cross-location roll-ups
+      * admin.*   - platform operations
+
+    Conventions
+      * All times are RFC 3339 with offset. Shop-local rendering uses shop.timezone.
+      * All money is integer minor units plus an ISO-4217 currency.
+      * Idempotency-Key is REQUIRED on every mutating request; replays return the
+        original response with Idempotent-Replay: true.
+      * List endpoints are cursor-paginated: ?cursor=&limit= -> {data, next_cursor}.
+      * Errors are RFC 9457 problem+json and always carry a trace_id.
+  contact:
+    name: StyleNow Platform Team
+    email: api@stylenow.eu
+  license:
+    name: Proprietary
+servers:
+- url: https://api.stylenow.eu/v1
+  description: Production (eu-central-1, Frankfurt)
+- url: https://api.sandbox.stylenow.eu/v1
+  description: Sandbox
+tags:
+- name: discovery
+  description: Browse shops, services, availability
+- name: booking
+  description: Hold, confirm, reschedule, cancel
+- name: payments
+  description: Intents, refunds, payouts, invoices
+- name: reviews
+  description: Verified ratings and replies
+- name: loyalty
+  description: Points, tiers, vouchers, referrals
+- name: shop
+  description: Shop dashboard
+- name: staff
+  description: Staff, shifts, absences
+- name: admin
+  description: Approvals, analytics, disputes
+- name: mobile
+  description: Trips, live tracking, offline sync
+- name: notifications
+  description: Preferences, device tokens
+- name: gdpr
+  description: Consent and data subject rights
+- name: webhooks
+  description: Inbound provider callbacks
+security:
+- bearerAuth: []
+paths:
+  /shops:
+    get:
+      tags:
+      - discovery
+      summary: Search shops
+      security: []
+      parameters:
+      - name: lat
+        in: query
+        schema:
+          type: number
+      - name: lng
+        in: query
+        schema:
+          type: number
+      - name: radius_m
+        in: query
+        schema:
+          type: integer
+          default: 5000
+          maximum: 50000
+      - name: kind
+        in: query
+        schema:
+          type: string
+          enum:
+          - hair_salon
+          - nail_studio
+          - barbershop
+          - brow_lash
+          - spa
+          - mobile_stylist
+      - name: service
+        in: query
+        description: taxonomy key, e.g. hair.balayage
+        schema:
+          type: string
+      - name: q
+        in: query
+        description: free text
+        schema:
+          type: string
+      - name: available_from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: available_to
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: price_max_cents
+        in: query
+        schema:
+          type: integer
+      - name: min_rating
+        in: query
+        schema:
+          type: number
+      - name: language
+        in: query
+        schema:
+          type: string
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum:
+          - smart
+          - distance
+          - rating
+          - price
+          - soonest
+          default: smart
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Ranked shop list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShopCard'
+                  facets:
+                    type: object
+                    additionalProperties: true
+                  next_cursor:
+                    type: string
+                    nullable: true
+  /shops/{slug}:
+    get:
+      tags:
+      - discovery
+      summary: Shop landing page payload
+      security: []
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Shop detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /shops/{shopId}/availability:
+    get:
+      tags:
+      - discovery
+      summary: Free slots for a service over a date range
+      security: []
+      parameters:
+      - name: shopId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: service_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: variant_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: staff_id
+        in: query
+        description: omit for "any stylist"
+        schema:
+          type: string
+          format: uuid
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: lat
+        in: query
+        description: required for mobile stylists
+        schema:
+          type: number
+      - name: lng
+        in: query
+        schema:
+          type: number
+      responses:
+        '200':
+          description: Slots grouped by day, with live prices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        slots:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/Slot'
+                  price_quote_id:
+                    type: string
+                    format: uuid
+                    description: Signed, short-lived quote covering the prices in this response. Pass
+                      it to /bookings/hold and the customer pays what they were shown, even if the shop's
+                      rules changed meanwhile.
+                  quote_expires_at:
+                    type: string
+                    format: date-time
+                  generated_at:
+                    type: string
+                    format: date-time
+                  ttl_seconds:
+                    type: integer
+                    example: 30
+  /match:
+    post:
+      tags:
+      - discovery
+      summary: AI smart match — "find me someone for balayage on Saturday under 120 EUR"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - intent
+              properties:
+                intent:
+                  type: string
+                  example: Balayage, blonde, Saturday afternoon, near Prenzlauer Berg
+                lat:
+                  type: number
+                lng:
+                  type: number
+                budget_cents:
+                  type: integer
+                window:
+                  type: object
+                  properties:
+                    from:
+                      type: string
+                      format: date-time
+                    to:
+                      type: string
+                      format: date-time
+      responses:
+        '200':
+          description: Explained ranking
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        shop:
+                          $ref: '#/components/schemas/ShopCard'
+                        score:
+                          type: number
+                        reasons:
+                          type: array
+                          items:
+                            type: string
+                            example: matches_your_style
+                  model_version:
+                    type: string
+                  match_event_id:
+                    type: string
+      parameters:
+      - &id001
+        $ref: '#/components/parameters/IdempotencyKey'
+  /bookings/hold:
+    post:
+      tags:
+      - booking
+      summary: Reserve a slot and open a payment intent
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldRequest'
+      responses:
+        '201':
+          description: Held
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '409':
+          description: Slot taken while the user was deciding — alternatives supplied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/SlotTakenProblem'
+  /bookings/{id}/confirm:
+    post:
+      tags:
+      - booking
+      summary: Confirm after successful payment authorisation
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '410':
+          description: Hold expired
+  /bookings/{id}:
+    get:
+      tags:
+      - booking
+      summary: Booking detail
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+    patch:
+      tags:
+      - booking
+      summary: Reschedule or edit notes
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                starts_at:
+                  type: string
+                  format: date-time
+                staff_id:
+                  type: string
+                  format: uuid
+                customer_note:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '422':
+          description: Outside the reschedule window allowed by the policy
+  /bookings/{id}/cancel:
+    post:
+      tags:
+      - booking
+      summary: Cancel, applying the policy snapshot taken at booking time
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fee_cents:
+                    type: integer
+                  refund_cents:
+                    type: integer
+                  policy_reason:
+                    type: string
+                    enum:
+                    - within_free_window
+                    - late_cancellation
+                    - no_show
+                    - shop_cancelled_full_refund
+  /me/bookings:
+    get:
+      tags:
+      - booking
+      summary: My bookings
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - upcoming
+          - past
+          - cancelled
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Booking'
+                  next_cursor:
+                    type: string
+                    nullable: true
+  /waitlist:
+    post:
+      tags:
+      - booking
+      summary: Join the waitlist for a fully booked shop or stylist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - shop_id
+              - earliest
+              - latest
+              properties:
+                shop_id:
+                  type: string
+                  format: uuid
+                service_id:
+                  type: string
+                  format: uuid
+                staff_id:
+                  type: string
+                  format: uuid
+                earliest:
+                  type: string
+                  format: date-time
+                latest:
+                  type: string
+                  format: date-time
+                preferred_dows:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 0
+                    maximum: 6
+      responses:
+        '201':
+          description: Joined
+      parameters:
+      - *id001
+  /payments/intents/{id}:
+    get:
+      tags:
+      - payments
+      summary: Poll intent status (fallback for clients that miss the webhook)
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /bookings/{id}/tip:
+    post:
+      tags:
+      - payments
+      summary: Add a tip after the appointment
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - amount_cents
+              properties:
+                amount_cents:
+                  type: integer
+                  minimum: 100
+      responses:
+        '201':
+          description: Tip captured
+  /shop/{shopId}/payouts:
+    get:
+      tags:
+      - payments
+      - shop
+      summary: Payout history and next scheduled transfer
+      security:
+      - bearerAuth:
+        - shop.finance.read
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+  /bookings/{id}/review:
+    post:
+      tags:
+      - reviews
+      summary: Leave a verified review (only for completed bookings)
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - rating
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                rating_cleanliness:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                rating_value:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                rating_punctuality:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                title:
+                  type: string
+                  maxLength: 120
+                body:
+                  type: string
+                  maxLength: 4000
+                photo_media_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: Published (or held for moderation)
+        '409':
+          description: Already reviewed
+  /reviews/{id}/reply:
+    post:
+      tags:
+      - reviews
+      - shop
+      summary: Shop's public reply
+      security:
+      - bearerAuth:
+        - shop.reviews.write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - body
+              properties:
+                body:
+                  type: string
+      responses:
+        '201':
+          description: Replied
+  /me/loyalty:
+    get:
+      tags:
+      - loyalty
+      summary: Points balance, tier, and what the next tier unlocks
+      responses:
+        '200':
+          description: OK
+  /vouchers/{code}/validate:
+    post:
+      tags:
+      - loyalty
+      summary: Check a voucher against a basket before checkout
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+      - *id001
+      responses:
+        '200':
+          description: Valid, with computed discount
+        '422':
+          description: Not applicable to this basket
+  /shop/{shopId}:
+    patch:
+      tags:
+      - shop
+      summary: Update branding, description, policies, booking rules
+      security:
+      - bearerAuth:
+        - shop.profile.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopUpdate'
+      responses:
+        '200':
+          description: Updated — material changes re-enter moderation
+  /shop/{shopId}/media:
+    post:
+      tags:
+      - shop
+      summary: Request a pre-signed upload URL for gallery images
+      security:
+      - bearerAuth:
+        - shop.media.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - mime_type
+              - bytes
+              properties:
+                mime_type:
+                  type: string
+                bytes:
+                  type: integer
+                role:
+                  type: string
+                  enum:
+                  - gallery
+                  - logo
+                  - cover
+                  - before_after
+      responses:
+        '201':
+          description: '{ upload_url, media_id, expires_at }'
+  /shop/{shopId}/services:
+    get:
+      tags:
+      - shop
+      summary: Service catalogue
+      security:
+      - bearerAuth:
+        - shop.catalog.read
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      responses:
+        '200':
+          description: OK
+    post:
+      tags:
+      - shop
+      summary: Create a service
+      security:
+      - bearerAuth:
+        - shop.catalog.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceInput'
+      responses:
+        '201':
+          description: Created
+  /shop/{shopId}/services/{serviceId}:
+    put:
+      tags:
+      - shop
+      summary: Replace a service
+      security:
+      - bearerAuth:
+        - shop.catalog.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: serviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceInput'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags:
+      - shop
+      summary: Archive a service (never hard-deleted — historic bookings reference it)
+      security:
+      - bearerAuth:
+        - shop.catalog.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: serviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      responses:
+        '204':
+          description: Archived
+  /shop/{shopId}/calendar:
+    get:
+      tags:
+      - shop
+      summary: Calendar feed for the dashboard (day / week / staff-column view)
+      security:
+      - bearerAuth:
+        - shop.calendar.read
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: staff_ids
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Bookings, absences, blocks and free capacity
+  /shop/{shopId}/bookings/{bookingId}/status:
+    post:
+      tags:
+      - shop
+      summary: Check-in, start, complete, or mark no-show
+      security:
+      - bearerAuth:
+        - shop.calendar.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: bookingId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - status
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - checked_in
+                  - in_progress
+                  - completed
+                  - no_show
+      responses:
+        '200':
+          description: Updated
+  /shop/{shopId}/staff:
+    get:
+      tags:
+      - staff
+      summary: List staff
+      security:
+      - bearerAuth:
+        - shop.staff.read
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      responses:
+        '200':
+          description: OK
+    post:
+      tags:
+      - staff
+      summary: Invite a staff member
+      security:
+      - bearerAuth:
+        - shop.staff.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - *id001
+      responses:
+        '201':
+          description: Invited
+  /shop/{shopId}/staff/{staffId}/shifts:
+    put:
+      tags:
+      - staff
+      summary: Replace the weekly working pattern
+      security:
+      - bearerAuth:
+        - shop.staff.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: staffId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      responses:
+        '200':
+          description: Updated — availability is reprojected asynchronously
+  /shop/{shopId}/staff/{staffId}/absences:
+    post:
+      tags:
+      - staff
+      summary: Book holiday or sickness
+      security:
+      - bearerAuth:
+        - shop.staff.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: staffId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      responses:
+        '201':
+          description: Created
+        '409':
+          description: Conflicts with confirmed bookings — returns the list to reschedule
+  /shop/{shopId}/pricing-rules:
+    get:
+      tags:
+      - shop
+      summary: List dynamic pricing rules
+      security:
+      - bearerAuth:
+        - shop.pricing.read
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      responses:
+        '200':
+          description: OK
+    post:
+      tags:
+      - shop
+      summary: Create a rule
+      security:
+      - bearerAuth:
+        - shop.pricing.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - *id001
+      responses:
+        '201':
+          description: Created
+  /shop/{shopId}/analytics:
+    get:
+      tags:
+      - shop
+      summary: Revenue, occupancy, repeat rate, no-show rate, top services
+      security:
+      - bearerAuth:
+        - shop.analytics.read
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: granularity
+        in: query
+        schema:
+          type: string
+          enum:
+          - day
+          - week
+          - month
+      responses:
+        '200':
+          description: OK
+  /chains/{chainId}/overview:
+    get:
+      tags:
+      - shop
+      summary: Cross-location roll-up for multi-shop chains
+      security:
+      - bearerAuth:
+        - chain.analytics.read
+      parameters:
+      - name: chainId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Per-location KPIs, shared catalogue drift, staff utilisation
+  /admin/shops/pending:
+    get:
+      tags:
+      - admin
+      summary: Moderation queue
+      security:
+      - bearerAuth:
+        - admin.moderation.read
+      responses:
+        '200':
+          description: OK
+  /admin/shops/{shopId}/decision:
+    post:
+      tags:
+      - admin
+      summary: Approve, request changes, or reject a shop
+      security:
+      - bearerAuth:
+        - admin.moderation.write
+      parameters:
+      - $ref: '#/components/parameters/ShopId'
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - decision
+              properties:
+                decision:
+                  type: string
+                  enum:
+                  - approve
+                  - request_changes
+                  - reject
+                  - suspend
+                note:
+                  type: string
+                checklist:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+      responses:
+        '200':
+          description: Decided — writes an audit_log entry
+  /admin/disputes:
+    get:
+      tags:
+      - admin
+      summary: Dispute queue with SLA clocks
+      security:
+      - bearerAuth:
+        - admin.disputes.read
+      responses:
+        '200':
+          description: OK
+  /admin/disputes/{id}/resolve:
+    post:
+      tags:
+      - admin
+      summary: Resolve a dispute, optionally issuing a partial refund
+      security:
+      - bearerAuth:
+        - admin.disputes.write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      responses:
+        '200':
+          description: Resolved
+  /admin/analytics/platform:
+    get:
+      tags:
+      - admin
+      summary: GMV, take rate, cohort retention, supply/demand heatmap
+      security:
+      - bearerAuth:
+        - admin.analytics.read
+      responses:
+        '200':
+          description: OK
+  /trips/{id}:
+    get:
+      tags:
+      - mobile
+      summary: Trip status and ETA for a mobile appointment
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+  /trips/{id}/pings:
+    post:
+      tags:
+      - mobile
+      summary: Batched location pings from the stylist app
+      security:
+      - bearerAuth:
+        - staff.trip.write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pings:
+                  type: array
+                  maxItems: 200
+                  items:
+                    type: object
+                    required:
+                    - recorded_at
+                    - lat
+                    - lng
+                    properties:
+                      recorded_at:
+                        type: string
+                        format: date-time
+                      lat:
+                        type: number
+                      lng:
+                        type: number
+                      accuracy_m:
+                        type: number
+                      speed_mps:
+                        type: number
+      responses:
+        '202':
+          description: Accepted — recomputes ETA, may fire stylist_en_route
+  /track/{shareToken}:
+    get:
+      tags:
+      - mobile
+      summary: Public live-tracking view for the customer (token expires with the trip)
+      security: []
+      parameters:
+      - name: shareToken
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Coarse position, ETA, stylist first name and photo
+  /sync/pull:
+    get:
+      tags:
+      - mobile
+      summary: Offline delta sync — everything changed since a cursor
+      parameters:
+      - name: since
+        in: query
+        required: true
+        schema:
+          type: string
+          description: opaque sync cursor
+      - name: scopes
+        in: query
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - bookings
+            - shops
+            - services
+            - favourites
+            - messages
+      responses:
+        '200':
+          description: '{ changes, deletions, next_cursor, server_time }'
+  /sync/push:
+    post:
+      tags:
+      - mobile
+      summary: Replay actions queued while offline
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mutations:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                    - client_id
+                    - op
+                    - payload
+                    - queued_at
+                    properties:
+                      client_id:
+                        type: string
+                      op:
+                        type: string
+                        description: booking.create is deliberately absent — a slot held on a device with
+                          no network is a slot sold twice.
+                        enum:
+                        - booking.cancel
+                        - booking.status
+                        - review.create
+                        - favourite.toggle
+                        - profile.update
+                        - waitlist.join
+                        - trip.status
+                      payload:
+                        type: object
+                        additionalProperties: true
+                      queued_at:
+                        type: string
+                        format: date-time
+      responses:
+        '200':
+          description: 'Per-mutation results: applied | conflict | rejected, with server state for conflicts'
+  /me/notification-preferences:
+    get:
+      tags:
+      - notifications
+      summary: Read preferences
+      responses:
+        '200':
+          description: OK
+    put:
+      tags:
+      - notifications
+      summary: Update per-kind, per-channel preferences and quiet hours
+      responses:
+        '200':
+          description: Updated
+      parameters:
+      - *id001
+  /me/devices:
+    post:
+      tags:
+      - notifications
+      summary: Register a push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - platform
+              - token
+              properties:
+                platform:
+                  type: string
+                  enum:
+                  - ios
+                  - android
+                  - web
+                token:
+                  type: string
+      responses:
+        '201':
+          description: Registered
+      parameters:
+      - *id001
+  /me/consents:
+    get:
+      tags:
+      - gdpr
+      summary: Current consent state per purpose
+      responses:
+        '200':
+          description: OK
+    post:
+      tags:
+      - gdpr
+      summary: Grant or withdraw a consent (each write is an immutable record)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - purpose
+              - granted
+              - policy_version
+              properties:
+                purpose:
+                  type: string
+                  enum:
+                  - analytics
+                  - marketing_email
+                  - marketing_sms
+                  - marketing_whatsapp
+                  - personalisation
+                  - location_tracking
+                granted:
+                  type: boolean
+                policy_version:
+                  type: string
+      responses:
+        '201':
+          description: Recorded
+      parameters:
+      - *id001
+  /me/data-requests:
+    post:
+      tags:
+      - gdpr
+      summary: Exercise a data subject right (access, portability, erasure, …)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - kind
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - access
+                  - rectification
+                  - erasure
+                  - restriction
+                  - portability
+                  - objection
+      responses:
+        '202':
+          description: Accepted — response due within 30 days; returns { request_id, due_at }
+      parameters:
+      - *id001
+  /me/export:
+    get:
+      tags:
+      - gdpr
+      summary: Download the machine-readable export produced by an access request
+      responses:
+        '200':
+          description: Signed, short-lived URL to a JSON+media archive
+  /webhooks/stripe:
+    post:
+      tags:
+      - webhooks
+      summary: Stripe events (signature-verified, replay-safe)
+      security: []
+      responses:
+        '200':
+          description: Acknowledged
+  /webhooks/messaging/{provider}:
+    post:
+      tags:
+      - webhooks
+      summary: SMS/WhatsApp delivery receipts and inbound STOP handling
+      security: []
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - twilio
+          - messagebird
+          - meta
+      responses:
+        '200':
+          description: Acknowledged
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      schema:
+        type: string
+        example: de-DE
+    ShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BookingId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        trace_id:
+          type: string
+    SlotTakenProblem:
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        properties:
+          alternatives:
+            type: array
+            items:
+              $ref: '#/components/schemas/Slot'
+    Money:
+      type: object
+      required:
+      - amount_cents
+      - currency
+      properties:
+        amount_cents:
+          type: integer
+        currency:
+          type: string
+          example: EUR
+    ShopCard:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        is_mobile:
+          type: boolean
+        logo_url:
+          type: string
+          format: uri
+        cover_url:
+          type: string
+          format: uri
+        rating_avg:
+          type: number
+        rating_count:
+          type: integer
+        price_from:
+          $ref: '#/components/schemas/Money'
+        distance_m:
+          type: integer
+        next_slot_at:
+          type: string
+          format: date-time
+          nullable: true
+        badges:
+          type: array
+          items:
+            type: string
+            example: verified
+    ShopDetail:
+      allOf:
+      - $ref: '#/components/schemas/ShopCard'
+      - type: object
+        properties:
+          tagline:
+            type: string
+          description:
+            type: string
+          brand:
+            type: object
+            properties:
+              primary:
+                type: string
+              accent:
+                type: string
+              font:
+                type: string
+          gallery:
+            type: array
+            items:
+              type: object
+              properties:
+                url:
+                  type: string
+                blurhash:
+                  type: string
+                alt:
+                  type: string
+          address:
+            type: object
+            additionalProperties: true
+          geo:
+            type: object
+            properties:
+              lat:
+                type: number
+              lng:
+                type: number
+          opening_hours:
+            type: array
+            items:
+              type: object
+              properties:
+                dow:
+                  type: integer
+                opens:
+                  type: string
+                closes:
+                  type: string
+          amenities:
+            type: array
+            items:
+              type: string
+          languages:
+            type: array
+            items:
+              type: string
+          services:
+            type: array
+            items:
+              $ref: '#/components/schemas/ServicePublic'
+          staff:
+            type: array
+            items:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                title:
+                  type: string
+                avatar_url:
+                  type: string
+                rating_avg:
+                  type: number
+          cancellation_policy:
+            type: object
+            properties:
+              free_until_hours:
+                type: integer
+              text:
+                type: string
+          reviews_preview:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+    ServicePublic:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        duration_min:
+          type: integer
+        price:
+          $ref: '#/components/schemas/Money'
+        price_is_from:
+          type: boolean
+        variants:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+              price_delta_cents:
+                type: integer
+              duration_delta_min:
+                type: integer
+        mobile_available:
+          type: boolean
+        requires_patch_test:
+          type: boolean
+    ServiceInput:
+      type: object
+      required:
+      - name
+      - duration_min
+      - base_price_cents
+      properties:
+        name:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+        taxonomy_key:
+          type: string
+        description:
+          type: string
+        duration_min:
+          type: integer
+          minimum: 5
+        processing_gap_min:
+          type: integer
+          default: 0
+        finish_min:
+          type: integer
+          default: 0
+        base_price_cents:
+          type: integer
+          minimum: 0
+        vat_rate_bps:
+          type: integer
+          default: 1900
+        deposit_cents:
+          type: integer
+          default: 0
+        online_bookable:
+          type: boolean
+          default: true
+        mobile_available:
+          type: boolean
+          default: false
+        dynamic_pricing:
+          type: boolean
+          default: false
+        staff_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        translations:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+    ShopUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        tagline:
+          type: string
+        description:
+          type: string
+        brand:
+          type: object
+          additionalProperties: true
+        booking_lead_min:
+          type: integer
+        booking_horizon_days:
+          type: integer
+        slot_granularity_min:
+          type: integer
+          enum:
+          - 5
+          - 10
+          - 15
+          - 20
+          - 30
+        buffer_after_min:
+          type: integer
+        auto_confirm:
+          type: boolean
+        deposit_percent:
+          type: number
+        cancellation_policy_id:
+          type: string
+          format: uuid
+        languages_spoken:
+          type: array
+          items:
+            type: string
+    Slot:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        staff_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        suggested_staff_id:
+          type: string
+          format: uuid
+        price:
+          $ref: '#/components/schemas/Money'
+        price_note:
+          type: string
+          example: Last-minute -20 %
+    HoldRequest:
+      type: object
+      required:
+      - shop_id
+      - service_ids
+      - starts_at
+      properties:
+        shop_id:
+          type: string
+          format: uuid
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+        variant_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        addon_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        staff_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: omit for "any stylist"
+        starts_at:
+          type: string
+          format: date-time
+        guest:
+          type: object
+          description: Guest checkout. Only the phone number is required — it is what the shop calls if
+            something goes wrong, and what the OTP was sent to.
+          required:
+          - phone
+          properties:
+            phone:
+              type: string
+              example: '+4915112345678'
+            name:
+              type: string
+            email:
+              type: string
+              format: email
+        service_address:
+          type: object
+          description: required when the shop is mobile
+          additionalProperties: true
+        voucher_code:
+          type: string
+        loyalty_points_to_spend:
+          type: integer
+        price_quote_id:
+          type: string
+          format: uuid
+        customer_note:
+          type: string
+          maxLength: 500
+        locale:
+          type: string
+          example: de-DE
+    HoldResponse:
+      type: object
+      properties:
+        booking_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          example: SN-7QK4-2M
+        hold_expires_at:
+          type: string
+          format: date-time
+        quote:
+          type: object
+          properties:
+            subtotal_cents:
+              type: integer
+            travel_fee_cents:
+              type: integer
+            discount_cents:
+              type: integer
+            vat_cents:
+              type: integer
+            total_cents:
+              type: integer
+            deposit_cents:
+              type: integer
+            breakdown:
+              type: array
+              items:
+                type: object
+                properties:
+                  label:
+                    type: string
+                  cents:
+                    type: integer
+        payment_intent_client_secret:
+          type: string
+          nullable: true
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+        status:
+          type: string
+          enum:
+          - hold
+          - pending_payment
+          - confirmed
+          - checked_in
+          - in_progress
+          - completed
+          - cancelled_by_customer
+          - cancelled_by_shop
+          - no_show
+          - expired
+        shop:
+          $ref: '#/components/schemas/ShopCard'
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              service_name:
+                type: string
+              staff_name:
+                type: string
+              duration_min:
+                type: integer
+              price_cents:
+                type: integer
+        total:
+          $ref: '#/components/schemas/Money'
+        is_mobile:
+          type: boolean
+        trip:
+          type: object
+          nullable: true
+          properties:
+            status:
+              type: string
+            eta_at:
+              type: string
+              format: date-time
+            track_url:
+              type: string
+        cancellation:
+          type: object
+          properties:
+            free_until:
+              type: string
+              format: date-time
+            fee_if_cancelled_now_cents:
+              type: integer
+        can_review:
+          type: boolean

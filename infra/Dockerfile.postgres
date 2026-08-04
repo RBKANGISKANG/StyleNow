@@ -1,0 +1,9 @@
+# Postgres 16 with PostGIS *and* pgvector. StyleNow needs both in one database:
+# PostGIS answers "salons within 3 km", pgvector answers "shops like the ones you
+# already book", and keeping them together is what lets the discovery query be a
+# single statement instead of a join across two systems.
+FROM postgis/postgis:16-3.4
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-16-pgvector \
+ && rm -rf /var/lib/apt/lists/*

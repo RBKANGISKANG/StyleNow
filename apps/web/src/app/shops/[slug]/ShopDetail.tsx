@@ -1,0 +1,136 @@
+'use client';
+import Link from 'next/link';
+import { useI18n } from '@/lib/i18n';
+import { money } from '@/lib/format';
+
+const AVATAR_COLORS = ['#f0566e', '#12a594', '#8b6cf0', '#f6a53c'];
+
+export interface ShopData {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  tagline: { en: string; de: string };
+  about: { en: string; de: string };
+  address: string;
+  district: string;
+  gradient: [string, string];
+  emoji: string;
+  languagesSpoken: string[];
+  ratingAvg: number;
+  ratingCount: number;
+  isNew: boolean;
+  isMobile: boolean;
+  depositPercent: number;
+  policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
+  services: Array<{
+    id: string;
+    emoji: string;
+    name: { en: string; de: string };
+    durationMin: number;
+    processingGapMin: number;
+    finishMin: number;
+    basePriceCents: number;
+    dynamicPricing: boolean;
+    popular: boolean;
+  }>;
+  staff: Array<{ id: string; name: string; role: { en: string; de: string }; tier: string }>;
+  reviews: Array<{ author: string; rating: number; text: { en: string; de: string }; service: string; date: string }>;
+}
+
+export function ShopDetail({ shop }: { shop: ShopData }) {
+  const { t, lang } = useI18n();
+
+  return (
+    <div>
+      <section
+        className="shop-hero"
+        style={{ background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }}
+      >
+        <h1>
+          {shop.emoji} {shop.name}
+        </h1>
+        <p className="sub">{shop.tagline[lang]}</p>
+        <div className="meta-row">
+          <span>★ {shop.ratingAvg.toFixed(1)} ({shop.ratingCount})</span>
+          <span>📍 {shop.district}</span>
+          <span>🗣 {shop.languagesSpoken.map((l) => l.toUpperCase()).join(' · ')}</span>
+          {shop.isMobile && <span>🚗 {t('mobile_badge')}</span>}
+          {shop.isNew && <span>✨ {t('new_badge')}</span>}
+        </div>
+      </section>
+
+      <section className="section">
+        <h2>{t('services')}</h2>
+        <div className="svc-list">
+          {shop.services.map((s) => {
+            const totalMin = s.durationMin + s.processingGapMin + s.finishMin;
+            return (
+              <div className="svc-row" key={s.id}>
+                <div className="svc-ico">{s.emoji}</div>
+                <div className="svc-info">
+                  <div className="name">
+                    {s.name[lang]}
+                    {s.popular && <span className="mini-badge pop">{t('popular')}</span>}
+                    {s.dynamicPricing && <span className="mini-badge">{t('dynamic_badge')}</span>}
+                  </div>
+                  <div className="meta">
+                    {totalMin} {t('min')}
+                    {s.processingGapMin > 0 && ` · ${t('incl_processing', { m: s.processingGapMin })}`}
+                  </div>
+                </div>
+                <div className="svc-price">{money(s.basePriceCents, lang)}</div>
+                <Link className="btn btn-primary sm" href={`/shops/${shop.slug}/book?service=${s.id}`}>
+                  {t('book')}
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="section">
+        <h2>{t('about')}</h2>
+        <div className="panel">
+          <p style={{ fontSize: '0.93rem' }}>{shop.about[lang]}</p>
+          <p style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
+            📍 {shop.address} · {t('free_until', { h: shop.policy.freeUntilHours })}
+          </p>
+        </div>
+      </section>
+
+      <section className="section">
+        <h2>{t('team')}</h2>
+        <div className="team-grid">
+          {shop.staff.map((s, i) => (
+            <div className="team-card" key={s.id}>
+              <div className="avatar" style={{ background: AVATAR_COLORS[i % AVATAR_COLORS.length] }}>
+                {s.name[0]}
+              </div>
+              <div className="name">{s.name}</div>
+              <div className="role">{s.role[lang]}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section">
+        <h2>{t('reviews')}</h2>
+        {shop.reviews.map((r, i) => (
+          <div className="review-card" key={i}>
+            <div className="review-head">
+              <span className="who">{r.author}</span>
+              <span className="rating">
+                <span className="star">{'★'.repeat(r.rating)}</span>
+              </span>
+            </div>
+            <p>“{r.text[lang]}”</p>
+            <div className="svc">
+              {r.service} · {r.date}
+            </div>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}

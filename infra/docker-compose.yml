@@ -1,0 +1,44 @@
+# StyleNow local stack. Postgres carries PostGIS + pgvector; everything the
+# availability engine and smart matching need is in one database.
+services:
+  db:
+    # Neither the official postgis image nor the official pgvector image has the
+    # other extension, and 0001_core.sql needs both. Build once, locally.
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    environment:
+      POSTGRES_PASSWORD: stylenow
+      POSTGRES_DB: stylenow
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+
+  minio:                      # S3-compatible media store (eu-central-1 in prod)
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: stylenow
+      MINIO_ROOT_PASSWORD: stylenow123
+    ports: ["9000:9000", "9001:9001"]
+
+  mailpit:                    # catches transactional email in development
+    image: axllent/mailpit
+    ports: ["1025:1025", "8025:8025"]
+
+  meilisearch:                # optional: typo-tolerant shop/service search
+    image: getmeili/meilisearch:v1.11
+    environment: { MEILI_MASTER_KEY: stylenow }
+    ports: ["7700:7700"]
+
+volumes:
+  pgdata:

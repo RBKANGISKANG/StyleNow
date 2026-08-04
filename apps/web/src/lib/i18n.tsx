@@ -1,0 +1,286 @@
+'use client';
+/**
+ * UI catalogues for the two launch languages (spec: DE + EN). Locale
+ * resolution reuses @stylenow/shared/i18n — explicit choice, then browser
+ * language, then de-DE.
+ */
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { resolveLocale, type Locale } from '@stylenow/shared/i18n';
+
+export type Lang = 'en' | 'de';
+
+const CATALOGUE = {
+  en: {
+    tag: 'Beauty, booked in a minute',
+    nav_explore: 'Explore',
+    nav_bookings: 'My bookings',
+    nav_dashboard: 'For business',
+    hero_title: 'Look your best, today',
+    hero_sub: 'Salons, barbers, nails & brows near you — live availability, fair prices, instant booking.',
+    search_ph: 'Search shops, services, districts…',
+    all: 'All',
+    f_soon: 'Available soon',
+    f_personalise: 'Personalise my feed',
+    f_personalise_hint: 'Uses your taste profile (consent — GDPR Art. 22 explainable)',
+    budget: 'Budget',
+    any_budget: 'Any budget',
+    from: 'from',
+    away: 'away',
+    new_badge: 'New',
+    mobile_badge: 'Comes to you',
+    next_free: 'Next free',
+    in_min: 'in ~{m} min',
+    today: 'today',
+    no_results: 'Nothing matches — try another search or category.',
+    r_very_close: 'Very close',
+    r_highly_rated: 'Highly rated',
+    r_free_today: 'Free today',
+    r_matches_your_style: 'Matches your style',
+    r_within_budget: 'Within budget',
+    r_speaks_your_language: 'Speaks your language',
+    r_new_on_stylenow: 'New on StyleNow',
+    r_higher_cancellation_rate: 'Often cancels',
+    about: 'About',
+    services: 'Services',
+    team: 'Team',
+    reviews: 'Reviews',
+    popular: 'Popular',
+    min: 'min',
+    dynamic_badge: 'Smart price',
+    book: 'Book',
+    incl_processing: 'incl. {m} min processing time',
+    step_service: 'Service',
+    step_time: 'Time',
+    step_pay: 'Confirm',
+    choose_service: 'What are you booking?',
+    choose_staff: 'Who should take care of you?',
+    any_staff: 'Any available',
+    any_staff_hint: 'We pick the least-booked stylist',
+    pick_time: 'Pick a time',
+    no_slots: 'No free slots this day',
+    base_price: 'base',
+    your_details: 'Your details',
+    your_name: 'Your name',
+    continue: 'Continue',
+    back: 'Back',
+    summary: 'Booking summary',
+    subtotal: 'Subtotal',
+    travel_fee: 'Travel fee',
+    vat_incl: 'of which VAT (19 %)',
+    total: 'Total',
+    deposit_now: 'Deposit due now',
+    rest_at_shop: 'Rest is paid at the shop',
+    pay_confirm: 'Pay & confirm',
+    confirm_free: 'Confirm booking',
+    hold_note: 'Seat reserved — finish payment to keep it.',
+    hold_expired: 'Your hold expired — the seat went back on sale. Pick a new time.',
+    slot_taken_title: 'Someone was faster',
+    slot_taken_body: 'That time was just taken. Here are the nearest free alternatives:',
+    booked_title: 'Booking confirmed!',
+    booked_sub: 'Your reference',
+    view_bookings: 'View my bookings',
+    back_home: 'Back to explore',
+    price_note: 'Price locked at booking — dynamic rules can’t change it afterwards.',
+    upcoming: 'Upcoming',
+    past: 'Past & cancelled',
+    no_bookings: 'No bookings yet — your next appointment is one search away.',
+    explore_now: 'Explore shops',
+    cancel_booking: 'Cancel booking',
+    keep_booking: 'Keep it',
+    confirm_cancel: 'Yes, cancel',
+    cancel_free: 'Free cancellation — you’ll get {refund} back.',
+    cancel_fee: 'Late cancellation fee: {fee}. Refund: {refund}.',
+    free_until: 'Free cancellation until {h} h before',
+    st_pending_payment: 'Payment pending',
+    st_confirmed: 'Confirmed',
+    st_completed: 'Completed',
+    st_no_show: 'No-show',
+    st_cancelled_by_customer: 'Cancelled',
+    st_cancelled_by_shop: 'Cancelled by shop',
+    paid: 'paid',
+    deposit: 'deposit',
+    dash_title: 'Shop dashboard',
+    dash_pick: 'Shop',
+    occupancy: 'Occupancy',
+    revenue_today: 'Revenue',
+    bookings_today: 'Bookings',
+    avg_ticket: 'Avg. ticket',
+    calendar: 'Calendar',
+    walk_in: 'Walk-in / blocked',
+    list: 'Bookings',
+    no_bookings_day: 'No online bookings this day yet.',
+    mark_completed: 'Complete',
+    mark_no_show: 'No-show',
+    svc_manage: 'Services & prices',
+    price: 'Price',
+    duration: 'Duration',
+    smart_pricing: 'Smart pricing',
+    rules_title: 'Pricing rules',
+    rules_hint: 'Surge is capped at +25 % platform-wide and never hits returning customers on repeat services.',
+    rule_on: 'Active',
+    rule_off: 'Paused',
+    revenue_7d: 'Revenue — last 7 days',
+    lang_label: 'Deutsch',
+    demo_note: 'Demo environment — bookings are simulated, no real payments.',
+    all_districts: 'Berlin · around Prenzlauer Berg',
+  },
+  de: {
+    tag: 'Beauty, gebucht in einer Minute',
+    nav_explore: 'Entdecken',
+    nav_bookings: 'Meine Termine',
+    nav_dashboard: 'Für Salons',
+    hero_title: 'Sieh heute noch großartig aus',
+    hero_sub: 'Salons, Barbiere, Nägel & Brauen in deiner Nähe — echte Verfügbarkeit, faire Preise, sofort gebucht.',
+    search_ph: 'Salons, Services, Kieze suchen…',
+    all: 'Alle',
+    f_soon: 'Bald verfügbar',
+    f_personalise: 'Feed personalisieren',
+    f_personalise_hint: 'Nutzt dein Stilprofil (Einwilligung — DSGVO Art. 22, erklärbar)',
+    budget: 'Budget',
+    any_budget: 'Egal',
+    from: 'ab',
+    away: 'entfernt',
+    new_badge: 'Neu',
+    mobile_badge: 'Kommt zu dir',
+    next_free: 'Nächster Termin',
+    in_min: 'in ~{m} Min.',
+    today: 'heute',
+    no_results: 'Nichts gefunden — andere Suche oder Kategorie probieren.',
+    r_very_close: 'Ganz nah',
+    r_highly_rated: 'Top bewertet',
+    r_free_today: 'Heute frei',
+    r_matches_your_style: 'Passt zu deinem Stil',
+    r_within_budget: 'Im Budget',
+    r_speaks_your_language: 'Spricht deine Sprache',
+    r_new_on_stylenow: 'Neu bei StyleNow',
+    r_higher_cancellation_rate: 'Sagt öfter ab',
+    about: 'Über uns',
+    services: 'Services',
+    team: 'Team',
+    reviews: 'Bewertungen',
+    popular: 'Beliebt',
+    min: 'Min.',
+    dynamic_badge: 'Smart-Preis',
+    book: 'Buchen',
+    incl_processing: 'inkl. {m} Min. Einwirkzeit',
+    step_service: 'Service',
+    step_time: 'Zeit',
+    step_pay: 'Bestätigen',
+    choose_service: 'Was möchtest du buchen?',
+    choose_staff: 'Wer soll sich um dich kümmern?',
+    any_staff: 'Egal wer frei ist',
+    any_staff_hint: 'Wir wählen die Person mit den wenigsten Terminen',
+    pick_time: 'Wähle eine Uhrzeit',
+    no_slots: 'An diesem Tag keine freien Termine',
+    base_price: 'Basis',
+    your_details: 'Deine Daten',
+    your_name: 'Dein Name',
+    continue: 'Weiter',
+    back: 'Zurück',
+    summary: 'Buchungsübersicht',
+    subtotal: 'Zwischensumme',
+    travel_fee: 'Anfahrt',
+    vat_incl: 'davon MwSt. (19 %)',
+    total: 'Gesamt',
+    deposit_now: 'Anzahlung jetzt fällig',
+    rest_at_shop: 'Rest zahlst du im Salon',
+    pay_confirm: 'Bezahlen & bestätigen',
+    confirm_free: 'Termin bestätigen',
+    hold_note: 'Platz reserviert — schließe die Zahlung ab, um ihn zu behalten.',
+    hold_expired: 'Reservierung abgelaufen — der Platz ist wieder im Verkauf. Wähle eine neue Zeit.',
+    slot_taken_title: 'Jemand war schneller',
+    slot_taken_body: 'Diese Zeit wurde gerade gebucht. Die nächsten freien Alternativen:',
+    booked_title: 'Termin bestätigt!',
+    booked_sub: 'Deine Buchungsnummer',
+    view_bookings: 'Meine Termine ansehen',
+    back_home: 'Zurück zum Entdecken',
+    price_note: 'Preis bei Buchung fixiert — dynamische Regeln ändern ihn nachträglich nicht.',
+    upcoming: 'Anstehend',
+    past: 'Vergangen & storniert',
+    no_bookings: 'Noch keine Termine — dein nächster ist nur eine Suche entfernt.',
+    explore_now: 'Salons entdecken',
+    cancel_booking: 'Termin stornieren',
+    keep_booking: 'Behalten',
+    confirm_cancel: 'Ja, stornieren',
+    cancel_free: 'Kostenlos stornierbar — du erhältst {refund} zurück.',
+    cancel_fee: 'Stornogebühr: {fee}. Erstattung: {refund}.',
+    free_until: 'Kostenlos stornierbar bis {h} Std. vorher',
+    st_pending_payment: 'Zahlung offen',
+    st_confirmed: 'Bestätigt',
+    st_completed: 'Abgeschlossen',
+    st_no_show: 'Nicht erschienen',
+    st_cancelled_by_customer: 'Storniert',
+    st_cancelled_by_shop: 'Vom Salon storniert',
+    paid: 'bezahlt',
+    deposit: 'Anzahlung',
+    dash_title: 'Salon-Dashboard',
+    dash_pick: 'Salon',
+    occupancy: 'Auslastung',
+    revenue_today: 'Umsatz',
+    bookings_today: 'Termine',
+    avg_ticket: 'Ø Bon',
+    calendar: 'Kalender',
+    walk_in: 'Laufkundschaft / geblockt',
+    list: 'Termine',
+    no_bookings_day: 'Noch keine Online-Buchungen an diesem Tag.',
+    mark_completed: 'Abschließen',
+    mark_no_show: 'No-Show',
+    svc_manage: 'Services & Preise',
+    price: 'Preis',
+    duration: 'Dauer',
+    smart_pricing: 'Smart Pricing',
+    rules_title: 'Preisregeln',
+    rules_hint: 'Aufschläge sind plattformweit auf +25 % gedeckelt und treffen nie Stammkunden bei Wiederholungsterminen.',
+    rule_on: 'Aktiv',
+    rule_off: 'Pausiert',
+    revenue_7d: 'Umsatz — letzte 7 Tage',
+    lang_label: 'English',
+    demo_note: 'Demo-Umgebung — Buchungen sind simuliert, keine echten Zahlungen.',
+    all_districts: 'Berlin · rund um Prenzlauer Berg',
+  },
+} as const;
+
+export type MsgKey = keyof (typeof CATALOGUE)['en'];
+
+interface I18nCtx {
+  lang: Lang;
+  locale: Locale;
+  setLang: (l: Lang) => void;
+  t: (key: MsgKey, vars?: Record<string, string | number>) => string;
+}
+
+const Ctx = createContext<I18nCtx | null>(null);
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<Lang>('en');
+
+  useEffect(() => {
+    const stored = localStorage.getItem('sn-lang');
+    const locale = resolveLocale(
+      stored === 'de' ? 'de-DE' : stored === 'en' ? 'en-GB' : null,
+      navigator.language,
+      null,
+    );
+    setLangState(locale.startsWith('de') ? 'de' : 'en');
+  }, []);
+
+  const setLang = (l: Lang) => {
+    localStorage.setItem('sn-lang', l);
+    setLangState(l);
+  };
+
+  const t = (key: MsgKey, vars?: Record<string, string | number>) => {
+    let s: string = CATALOGUE[lang][key] ?? CATALOGUE.en[key] ?? key;
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+    return s;
+  };
+
+  const locale: Locale = lang === 'de' ? 'de-DE' : 'en-GB';
+  return <Ctx.Provider value={{ lang, locale, setLang, t }}>{children}</Ctx.Provider>;
+}
+
+export function useI18n(): I18nCtx {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error('useI18n outside provider');
+  return ctx;
+}
