@@ -1,0 +1,21 @@
+{
+  "name": "@stylenow/mobile-shell",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Capacitor shells that wrap the web app for Google Play and the Apple App Store",
+  "scripts": {
+    "sync": "cap sync",
+    "sync:android": "cap sync android",
+    "sync:ios": "cap sync ios",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/ios": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

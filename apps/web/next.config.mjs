@@ -13,6 +13,11 @@ const nextConfig = {
         images: { unoptimized: true },
       }
     : {}),
+  env: {
+    // PWA assets (manifest, service worker) need absolute paths that survive
+    // the GitHub Pages base path.
+    NEXT_PUBLIC_BASE_PATH: isExport ? process.env.PAGES_BASE_PATH || '' : '',
+  },
   // The domain layer is consumed as TypeScript source straight from the
   // workspace — no build step, no drift between API and web.
   transpilePackages: ['@stylenow/api', '@stylenow/shared'],

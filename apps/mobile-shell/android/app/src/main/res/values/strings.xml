@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">StyleNow</string>
+    <string name="title_activity_main">StyleNow</string>
+    <string name="package_name">com.stylenow.app</string>
+    <string name="custom_url_scheme">com.stylenow.app</string>
+</resources>

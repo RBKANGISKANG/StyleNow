@@ -3,13 +3,18 @@ import './globals.css';
 import { I18nProvider } from '@/lib/i18n';
 import { Header, BottomNav } from '@/components/Header';
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 export const metadata: Metadata = {
   title: 'StyleNow — beauty, booked in a minute',
   description:
     'Salons, barbers, nails & brows near you. Live availability, fair prices, instant booking.',
+  manifest: `${BASE}/manifest.webmanifest`,
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💇</text></svg>",
+    icon: `${BASE}/icons/icon-192.png`,
+    apple: `${BASE}/icons/icon-180.png`,
   },
+  appleWebApp: { capable: true, title: 'StyleNow', statusBarStyle: 'default' },
 };
 
 export const viewport: Viewport = { themeColor: '#f0566e' };
@@ -23,6 +28,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link
           href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('${BASE}/sw.js').catch(function(){})})}`,
+          }}
         />
       </head>
       <body>

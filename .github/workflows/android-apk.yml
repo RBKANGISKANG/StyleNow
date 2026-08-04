@@ -1,0 +1,77 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [claude/interactive-stylish-app-design-1mxyn4, main]
+    paths:
+      - 'apps/web/**'
+      - 'apps/mobile-shell/**'
+      - 'apps/api/src/domain/**'
+      - 'packages/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write # upload the APK to the android-latest release
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install
+        run: npm ci
+
+      - name: Build web app (bundled into the shell)
+        working-directory: apps/web
+        env:
+          STATIC_EXPORT: '1'
+          NEXT_PUBLIC_BACKEND: local
+        run: |
+          rm -rf src/app/api
+          npx next build
+
+      - name: Sync Capacitor
+        working-directory: apps/mobile-shell
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: apps/mobile-shell/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Collect artifact
+        run: cp apps/mobile-shell/android/app/build/outputs/apk/debug/app-debug.apk stylenow.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stylenow-apk
+          path: stylenow.apk
+
+      # Stable download URL for the website's "Download for Android" button:
+      # https://github.com/<owner>/<repo>/releases/download/android-latest/stylenow.apk
+      - name: Publish android-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: 'StyleNow for Android (latest)'
+          prerelease: true
+          body: |
+            Debug build of the StyleNow Android app, rebuilt on every push.
+            Install: allow "unknown sources", then open the APK.
+            Play Store submissions use a signed release build — see README.
+          files: stylenow.apk

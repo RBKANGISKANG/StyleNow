@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
 import { apiMatch } from '@/lib/api';
+import { GetApp } from '@/components/GetApp';
 
 const CATEGORIES = [
   { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
@@ -134,6 +135,8 @@ export default function Explore() {
           ))}
         </div>
       )}
+
+      <GetApp />
 
       <p className="demo-note">{t('demo_note')}</p>
     </div>

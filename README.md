@@ -32,15 +32,43 @@ stylenow/
 
 The repo ships a workflow (`.github/workflows/deploy-pages.yml`) that builds
 the web app as a static export and publishes it to
-**https://rbkangiskang.github.io/StyleNow/**. GitHub only serves Pages from
-public repositories on the free plan, so two clicks are needed once:
+**https://rbkangiskang.github.io/StyleNow/**. One-time setup (the Pages site
+itself cannot be created by a workflow token):
 
-1. Settings → General → Danger Zone → **Change visibility → Public**
-2. Actions → *Deploy web app to GitHub Pages* → **Run workflow**
+1. Repo must be public (GitHub free plan only serves Pages from public repos).
+2. Settings → **Pages** → Build and deployment → Source: **GitHub Actions**.
+3. Actions → *Deploy web app to GitHub Pages* → **Run workflow** (or push).
 
 Every later push deploys automatically. The published app runs entirely in
 the browser — against Supabase once the schema is applied (next section),
 otherwise on per-browser local storage.
+
+## Phone installs & the app stores
+
+Three distribution channels, one codebase:
+
+- **Install from the website (PWA).** The site ships a web-app manifest,
+  icons and a service worker — Android/desktop Chrome shows an “Install
+  StyleNow” button (also in the *Get the app* section of the home page);
+  iPhone installs via Share → *Add to Home Screen*. Works offline after the
+  first visit. Booking creation stays online-only by design — see
+  `apps/mobile/OFFLINE.md` for why a slot held offline is a slot sold twice.
+- **Download for Android (.apk).** `.github/workflows/android-apk.yml`
+  builds a real APK on every push (Capacitor shell bundling the web build)
+  and publishes it to the `android-latest` release — the website's
+  “Download for Android” button points there.
+- **Store submissions.** `apps/mobile-shell` contains the native projects:
+  - *Google Play*: open `apps/mobile-shell/android` in Android Studio,
+    configure a signing key, build a release AAB (`./gradlew bundleRelease`),
+    upload in the Play Console (one-time $25 developer fee).
+  - *Apple App Store*: on a Mac, `npx cap open ios`, set your signing team in
+    Xcode, archive, and upload via App Store Connect (requires the $99/year
+    Apple Developer Program; there is no sideload channel on iOS — the PWA is
+    the no-account path).
+
+  The long-term native client is the React Native app specified by the
+  scaffold (`apps/mobile/OFFLINE.md`); the shells are the pragmatic
+  store-distribution path until it ships.
 
 ## Supabase backend
 

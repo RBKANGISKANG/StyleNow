@@ -123,6 +123,11 @@ const CATALOGUE = {
     lang_label: 'Deutsch',
     demo_note: 'Demo environment — bookings are simulated, no real payments.',
     all_districts: 'Berlin · around Prenzlauer Berg',
+    getapp_title: 'Get the app',
+    getapp_install: 'Install StyleNow',
+    getapp_apk: 'Download for Android (.apk)',
+    getapp_ios_hint: 'On iPhone: tap Share, then “Add to Home Screen” — StyleNow installs like a native app.',
+    getapp_note: 'Works offline after the first visit. Play Store & App Store builds live in apps/mobile-shell.',
   },
   de: {
     tag: 'Beauty, gebucht in einer Minute',
@@ -237,6 +242,11 @@ const CATALOGUE = {
     lang_label: 'English',
     demo_note: 'Demo-Umgebung — Buchungen sind simuliert, keine echten Zahlungen.',
     all_districts: 'Berlin · rund um Prenzlauer Berg',
+    getapp_title: 'Hol dir die App',
+    getapp_install: 'StyleNow installieren',
+    getapp_apk: 'Für Android laden (.apk)',
+    getapp_ios_hint: 'Am iPhone: Teilen antippen, dann „Zum Home-Bildschirm“ — StyleNow installiert sich wie eine native App.',
+    getapp_note: 'Funktioniert nach dem ersten Besuch offline. Play-Store- & App-Store-Builds liegen in apps/mobile-shell.',
   },
 } as const;
 
