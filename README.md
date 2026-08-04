@@ -28,6 +28,36 @@ stylenow/
 └── infra/                    docker-compose, Terraform, k8s manifests
 ```
 
+## Live demo on GitHub Pages
+
+The repo ships a workflow (`.github/workflows/deploy-pages.yml`) that builds
+the web app as a static export and publishes it to
+**https://rbkangiskang.github.io/StyleNow/**. GitHub only serves Pages from
+public repositories on the free plan, so two clicks are needed once:
+
+1. Settings → General → Danger Zone → **Change visibility → Public**
+2. Actions → *Deploy web app to GitHub Pages* → **Run workflow**
+
+Every later push deploys automatically. The published app runs entirely in
+the browser — against Supabase once the schema is applied (next section),
+otherwise on per-browser local storage.
+
+## Supabase backend
+
+`apps/web` talks to Supabase when configured (already wired via
+`apps/web/supabase.config.json` — the publishable key is safe to commit by
+design). One step remains, because DDL needs owner rights:
+
+1. Open the Supabase dashboard → SQL Editor → paste and run
+   **`db/supabase/schema.sql`**.
+
+That creates `bookings` + `staff_occupancy` (with the GiST EXCLUDE constraint
+that makes double-booking physically impossible), the dashboard config
+tables, and the `create_hold` / `set_booking` RPCs. From the next page load
+every visitor shares the same bookings, and a lost race for a slot comes back
+as the standard conflict-with-alternatives response. Until the schema exists
+the app quietly falls back to per-browser storage.
+
 ## Quick start — the product, no infrastructure needed
 
 `apps/web` is the full product experience (consumer marketplace + booking flow
