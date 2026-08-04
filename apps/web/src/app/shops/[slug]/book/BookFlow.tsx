@@ -5,11 +5,13 @@
  * quote) → an 8-minute hold → pay → confirmed. A 409 on the hold renders the
  * six alternatives the API returns; an expired hold sends you back to the grid.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum } from '@/lib/format';
-import { deviceId, newIdempotencyKey } from '@/lib/device';
+import { apiAvailability, apiHold, apiConfirm } from '@/lib/api';
+import { todayIso, addDays } from '@/core/time';
 
 interface Svc {
   id: string;
@@ -57,16 +59,18 @@ interface Hold {
   };
 }
 
-export function BookFlow({
-  shop,
-  days,
-  initialServiceId,
-}: {
-  shop: ShopInfo;
-  days: string[];
-  initialServiceId: string | null;
-}) {
+export function BookFlow({ shop }: { shop: ShopInfo }) {
+  return (
+    <Suspense fallback={<div className="spinner" />}>
+      <BookFlowInner shop={shop} />
+    </Suspense>
+  );
+}
+
+function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const { t, lang } = useI18n();
+  const initialServiceId = useSearchParams().get('service');
+  const days = useMemo(() => Array.from({ length: 12 }, (_, i) => addDays(todayIso(), i)), []);
   const [step, setStep] = useState(0);
   const [serviceIds, setServiceIds] = useState<string[]>(
     initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
@@ -90,16 +94,7 @@ export function BookFlow({
     if (serviceIds.length === 0) return;
     setSlots(null);
     setSlot(null);
-    const params = new URLSearchParams({
-      shopId: shop.id,
-      serviceIds: serviceIds.join(','),
-      date,
-      deviceId: deviceId(),
-    });
-    if (staffId) params.set('staffId', staffId);
-    const res = await fetch(`/api/availability?${params}`);
-    const data = await res.json();
-    setSlots(data.slots ?? []);
+    setSlots(await apiAvailability(shop.id, serviceIds, date, staffId));
   }, [shop.id, serviceIds, date, staffId]);
 
   useEffect(() => {
@@ -130,43 +125,38 @@ export function BookFlow({
     setHolding(true);
     setAlternatives(null);
     setExpired(false);
-    const res = await fetch('/api/bookings/hold', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'idempotency-key': newIdempotencyKey() },
-      body: JSON.stringify({
-        shopId: shop.id,
-        serviceIds,
-        staffId: chosenStaff,
-        startsAt,
-        deviceId: deviceId(),
-        guestName: name.trim() || 'Guest',
-      }),
+    const outcome = await apiHold({
+      shopId: shop.id,
+      serviceIds,
+      staffId: chosenStaff,
+      startsAt,
+      guestName: name.trim() || 'Guest',
     });
     setHolding(false);
-    if (res.status === 409) {
-      const data = await res.json();
-      setAlternatives(data.alternatives ?? []);
-      setSlot(null);
-      setStep(1);
-      void loadSlots();
+    if (!outcome.ok) {
+      if (outcome.code === 'slot_taken') {
+        setAlternatives(outcome.alternatives);
+        setSlot(null);
+        setStep(1);
+        void loadSlots();
+      }
       return;
     }
-    if (!res.ok) return;
-    setHold(await res.json());
+    setHold(outcome.hold);
   };
 
   const confirm = async () => {
     if (!hold) return;
-    const res = await fetch(`/api/bookings/${hold.bookingId}/confirm`, { method: 'POST' });
-    if (res.status === 410) {
-      setHold(null);
-      setExpired(true);
-      setStep(1);
+    const outcome = await apiConfirm(hold.bookingId);
+    if (!outcome.ok) {
+      if (outcome.code === 'hold_expired') {
+        setHold(null);
+        setExpired(true);
+        setStep(1);
+      }
       return;
     }
-    if (!res.ok) return;
-    const data = await res.json();
-    setConfirmed({ reference: data.reference });
+    setConfirmed({ reference: outcome.reference });
   };
 
   // ---- confirmation screen ----------------------------------------------

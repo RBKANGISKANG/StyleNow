@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, dateOf, timeOf } from '@/lib/format';
-import { deviceId } from '@/lib/device';
+import { apiMyBookings, apiCancel } from '@/lib/api';
 
 interface Bk {
   id: string;
@@ -29,9 +29,7 @@ export default function BookingsPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/me/bookings?deviceId=${encodeURIComponent(deviceId())}`);
-    const data = await res.json();
-    setBookings(data.bookings);
+    setBookings(await apiMyBookings());
   }, []);
 
   useEffect(() => {
@@ -52,23 +50,13 @@ export default function BookingsPage() {
   const list = tab === 'upcoming' ? upcoming : past;
 
   const previewCancel = async (id: string) => {
-    const res = await fetch(`/api/bookings/${id}/cancel`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preview: true }),
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    setCancelFor({ id, ...data });
+    const data = await apiCancel(id, true);
+    if (data) setCancelFor({ id, ...data });
   };
 
   const doCancel = async () => {
     if (!cancelFor) return;
-    await fetch(`/api/bookings/${cancelFor.id}/cancel`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preview: false }),
-    });
+    await apiCancel(cancelFor.id, false);
     setCancelFor(null);
     setToast('✅ ' + t('st_cancelled_by_customer'));
     void load();

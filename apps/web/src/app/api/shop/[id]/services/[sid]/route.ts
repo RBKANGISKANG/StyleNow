@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { patchService } from '@/server/store';
+import { patchService } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 

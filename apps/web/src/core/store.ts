@@ -95,6 +95,83 @@ const state: State =
   });
 
 // ---------------------------------------------------------------------------
+// persistence — in the browser (static/local mode) state survives reloads via
+// localStorage; in supabase mode the same state is hydrated from Postgres and
+// localStorage is left alone.
+// ---------------------------------------------------------------------------
+
+const IS_BROWSER = typeof window !== 'undefined';
+const LS_KEY = 'sn-state-v1';
+let persistenceEnabled = IS_BROWSER;
+
+export function setLocalPersistence(on: boolean): void {
+  persistenceEnabled = IS_BROWSER && on;
+}
+
+function persist(): void {
+  if (!persistenceEnabled) return;
+  try {
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({
+        bookings: [...state.bookings.values()],
+        ruleDisabled: [...state.ruleDisabled],
+        serviceOverrides: [...state.serviceOverrides.entries()],
+        seq: state.seq,
+      }),
+    );
+  } catch {
+    // quota exceeded / private mode — demo keeps working in memory
+  }
+}
+
+if (IS_BROWSER && state.bookings.size === 0) {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const d = JSON.parse(raw) as {
+        bookings: Booking[];
+        ruleDisabled: string[];
+        serviceOverrides: Array<[string, Partial<SeedService>]>;
+        seq: number;
+      };
+      state.bookings = new Map(d.bookings.map((b) => [b.id, b]));
+      state.ruleDisabled = new Set(d.ruleDisabled);
+      state.serviceOverrides = new Map(d.serviceOverrides);
+      state.seq = d.seq ?? state.bookings.size + 1;
+    }
+  } catch {
+    // corrupted snapshot — start fresh
+  }
+}
+
+/** Replace live state from an external source of truth (Supabase sync). */
+export function applyExternalState(snapshot: {
+  bookings: Booking[];
+  ruleDisabled: string[];
+  serviceOverrides: Array<[string, Partial<SeedService>]>;
+}): void {
+  state.bookings = new Map(snapshot.bookings.map((b) => [b.id, b]));
+  state.ruleDisabled = new Set(snapshot.ruleDisabled);
+  state.serviceOverrides = new Map(snapshot.serviceOverrides);
+  state.seq = Math.max(state.seq, state.bookings.size + 1);
+}
+
+export function ruleDisabledIds(): string[] {
+  return [...state.ruleDisabled];
+}
+
+export function serviceOverrideEntries(): Array<[string, Partial<SeedService>]> {
+  return [...state.serviceOverrides.entries()];
+}
+
+/** Roll a locally created booking back (Supabase race lost). */
+export function deleteBooking(id: string): void {
+  state.bookings.delete(id);
+  persist();
+}
+
+// ---------------------------------------------------------------------------
 // shop lookups
 // ---------------------------------------------------------------------------
 
@@ -607,6 +684,7 @@ export function createHold(input: HoldInput): HoldResult {
     clientSecret: `demo_pi_${id}`,
   };
   state.idempotency.set(input.idempotencyKey, result);
+  persist();
   return result;
 }
 
@@ -619,6 +697,7 @@ export function confirmBooking(id: string): Booking {
   b.status = 'confirmed';
   b.holdExpiresAt = null;
   b.paidCents = b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
+  persist();
   return b;
 }
 
@@ -646,6 +725,7 @@ export function cancelBooking(
         ? 'cancelled_by_customer'
         : 'cancelled_by_shop';
     b.cancellation = outcome;
+    persist();
   }
   return { ...outcome, booking: b };
 }
@@ -773,6 +853,7 @@ export function setBookingStatus(
   if (status === 'completed') {
     b.status = 'completed';
     b.paidCents = b.quote.totalCents;
+    persist();
     return b;
   }
   return cancelBooking(bookingId, {
@@ -791,6 +872,7 @@ export function patchService(
   if (!shop || !shop.services.some((s) => s.id === serviceId)) throw new Error('not_found');
   const current = state.serviceOverrides.get(serviceId) ?? {};
   state.serviceOverrides.set(serviceId, { ...current, ...patch });
+  persist();
 }
 
 export function toggleRule(shopId: string, ruleId: string): boolean {
@@ -798,5 +880,52 @@ export function toggleRule(shopId: string, ruleId: string): boolean {
   if (!shop || !shop.pricingRules.some((r) => r.id === ruleId)) throw new Error('not_found');
   if (state.ruleDisabled.has(ruleId)) state.ruleDisabled.delete(ruleId);
   else state.ruleDisabled.add(ruleId);
+  persist();
   return !state.ruleDisabled.has(ruleId);
+}
+
+// ---------------------------------------------------------------------------
+// customer-facing booking view (shared by the API route and the local backend)
+// ---------------------------------------------------------------------------
+
+export interface BookingView {
+  id: string;
+  reference: string;
+  status: BookingStatus;
+  startsAt: number;
+  endsAt: number;
+  totalCents: number;
+  paidCents: number;
+  depositCents: number;
+  cancellation: { feeCents: number; refundCents: number; reason: string } | null;
+  policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
+  shop: { slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
+  services: Array<{ name: { en: string; de: string }; emoji: string }>;
+  staffName: string | null;
+}
+
+export function bookingsForDeviceView(deviceId: string): BookingView[] {
+  return bookingsForDevice(deviceId).map((b) => {
+    const shop = shopById(b.shopId);
+    return {
+      id: b.id,
+      reference: b.reference,
+      status: b.status,
+      startsAt: b.startsAt,
+      endsAt: b.endsAt,
+      totalCents: b.quote.totalCents,
+      paidCents: b.paidCents,
+      depositCents: b.quote.depositCents,
+      cancellation: b.cancellation ?? null,
+      policy: b.policySnapshot,
+      shop: shop
+        ? { slug: shop.slug, name: shop.name, emoji: shop.emoji, district: shop.district, gradient: shop.gradient }
+        : null,
+      services: b.serviceIds.map((id) => {
+        const s = shop ? serviceOf(shop, id) : undefined;
+        return s ? { name: s.name, emoji: s.emoji } : { name: { en: id, de: id }, emoji: '✨' };
+      }),
+      staffName: shop?.staff.find((s) => s.id === b.staffId)?.name ?? null,
+    };
+  });
 }

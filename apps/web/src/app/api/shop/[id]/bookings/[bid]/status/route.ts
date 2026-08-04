@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { setBookingStatus } from '@/server/store';
+import { setBookingStatus } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
+import { apiMatch } from '@/lib/api';
 
 const CATEGORIES = [
   { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
@@ -58,13 +59,7 @@ export default function Explore() {
   useEffect(() => {
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(async () => {
-      const res = await fetch('/api/match', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(query),
-      });
-      const data = await res.json();
-      setCards(data.shops);
+      setCards(await apiMatch(query));
     }, 180);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);

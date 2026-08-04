@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { dashboardOverview } from '@/server/store';
-import { todayIso } from '@/server/time';
+import { dashboardOverview } from '@/core/store';
+import { todayIso } from '@/core/time';
 
 export const dynamic = 'force-dynamic';
 

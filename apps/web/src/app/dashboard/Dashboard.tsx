@@ -4,9 +4,11 @@
  * service & price editing, and the pricing-rule switches that drive the
  * consumer side's smart prices.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, timeOf, weekdayShort, dayNum } from '@/lib/format';
+import { apiOverview, apiSetStatus, apiPatchService, apiToggleRule } from '@/lib/api';
+import { todayIso, addDays } from '@/core/time';
 
 const DAY_START_MIN = 8 * 60;
 const DAY_END_MIN = 20 * 60;
@@ -76,22 +78,17 @@ interface Overview {
   week: Array<{ iso: string; revenueCents: number }>;
 }
 
-export function Dashboard({
-  shops,
-  days,
-}: {
-  shops: Array<{ id: string; name: string; emoji: string }>;
-  days: string[];
-}) {
+export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; emoji: string }> }) {
   const { t, lang } = useI18n();
+  const days = useMemo(() => Array.from({ length: 8 }, (_, i) => addDays(todayIso(), i)), []);
   const [shopId, setShopId] = useState(shops[0]?.id ?? '');
   const [date, setDate] = useState(days[0]);
   const [data, setData] = useState<Overview | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/shop/${shopId}/overview?date=${date}`);
-    if (res.ok) setData(await res.json());
+    const overview = await apiOverview(shopId, date);
+    if (overview) setData(overview);
   }, [shopId, date]);
 
   useEffect(() => {
@@ -105,27 +102,22 @@ export function Dashboard({
   }, [toast]);
 
   const setStatus = async (bookingId: string, status: 'completed' | 'no_show') => {
-    await fetch(`/api/shop/${shopId}/bookings/${bookingId}/status`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
+    await apiSetStatus(shopId, bookingId, status);
     setToast(status === 'completed' ? '✅ ' + t('st_completed') : '🚫 ' + t('st_no_show'));
     void load();
   };
 
-  const patchService = async (sid: string, patch: Record<string, unknown>) => {
-    await fetch(`/api/shop/${shopId}/services/${sid}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
+  const patchService = async (
+    sid: string,
+    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean },
+  ) => {
+    await apiPatchService(shopId, sid, patch);
     setToast('💾 OK');
     void load();
   };
 
   const toggleRule = async (rid: string) => {
-    await fetch(`/api/shop/${shopId}/pricing-rules/${rid}`, { method: 'PATCH' });
+    await apiToggleRule(shopId, rid);
     void load();
   };
 

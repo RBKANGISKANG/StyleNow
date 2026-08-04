@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { toggleRule } from '@/server/store';
+import { toggleRule } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 

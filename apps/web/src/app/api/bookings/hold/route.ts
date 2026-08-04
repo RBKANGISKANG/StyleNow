@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHold, SlotTaken } from '@/server/store';
+import { createHold, SlotTaken } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 

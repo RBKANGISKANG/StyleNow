@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { shopBySlug, allShops } from '@/server/store';
+import { shopBySlug, allShops } from '@/core/store';
 import { ShopDetail } from './ShopDetail';
 
 export function generateStaticParams() {

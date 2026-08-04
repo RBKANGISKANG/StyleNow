@@ -1,0 +1,5 @@
+{
+  "_comment": "Publishable key is safe to ship to browsers by design. Fill in `url` (https://<project-ref>.supabase.co) and run db/supabase/schema.sql in the Supabase SQL editor to switch the app from local demo storage to Supabase.",
+  "url": "https://chlgwqpsxzaudpfrgohx.supabase.co",
+  "publishableKey": "sb_publishable_xlBnzNj0yINtBotJdWrpyw_veEv0KKc"
+}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { availability } from '@/server/store';
+import { availability } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
