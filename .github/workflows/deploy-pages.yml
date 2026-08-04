@@ -1,23 +1,24 @@
 name: Deploy web app to GitHub Pages
 
+# Publishes by pushing the static export to the gh-pages branch — GitHub
+# serves it automatically. This route needs no Pages API access, which the
+# workflow token does not have (site creation via actions/configure-pages
+# consistently fails with "Resource not accessible by integration").
+
 on:
   push:
     branches: [claude/interactive-stylish-app-design-1mxyn4, main]
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write # push to gh-pages
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
-    # GitHub Pages needs a public repo on the free plan — the job skips
-    # cleanly while the repo is private and activates the moment it is public.
+  build-deploy:
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
@@ -27,12 +28,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
-      - name: Configure Pages
-        id: pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Install
         run: npm ci
@@ -44,7 +39,7 @@ jobs:
         working-directory: apps/web
         env:
           STATIC_EXPORT: '1'
-          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          PAGES_BASE_PATH: /StyleNow
           NEXT_PUBLIC_BACKEND: local
         run: |
           # API routes don't exist in a static export — the client runs the
@@ -52,16 +47,9 @@ jobs:
           rm -rf src/app/api
           npx next build
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: apps/web/out
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apps/web/out
+          force_orphan: true
