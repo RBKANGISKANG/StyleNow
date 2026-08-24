@@ -5,6 +5,7 @@ import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
 import { apiMatch } from '@/lib/api';
 import { GetApp } from '@/components/GetApp';
+import { useFavourites } from '@/lib/favs';
 
 const CATEGORIES = [
   { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
@@ -43,6 +44,8 @@ export default function Explore() {
   const [wantsSoon, setWantsSoon] = useState(false);
   const [personalise, setPersonalise] = useState(false);
   const [budget, setBudget] = useState<number | null>(null);
+  const [favsOnly, setFavsOnly] = useState(false);
+  const [favs, toggleFav] = useFavourites();
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const query = useMemo(
@@ -108,6 +111,9 @@ export default function Explore() {
         >
           ✨ {t('f_personalise')}
         </button>
+        <button className={`chip ${favsOnly ? 'on-primary' : ''}`} onClick={() => setFavsOnly(!favsOnly)}>
+          ❤️ {t('fav_only')}{favs.length ? ` (${favs.length})` : ''}
+        </button>
         <label className="chip">
           💶 {t('budget')}
           <select value={budget ?? ''} onChange={(e) => setBudget(e.target.value ? Number(e.target.value) : null)}>
@@ -123,18 +129,21 @@ export default function Explore() {
 
       {cards === null ? (
         <div className="spinner" />
-      ) : cards.length === 0 ? (
-        <div className="empty">
-          <div className="big">🪞</div>
-          {t('no_results')}
-        </div>
-      ) : (
-        <div className="feed-grid">
-          {cards.map((c) => (
-            <ShopCard key={c.shopId} card={c} />
-          ))}
-        </div>
-      )}
+      ) : (() => {
+        const visible = favsOnly ? cards.filter((c) => favs.includes(c.shopId)) : cards;
+        return visible.length === 0 ? (
+          <div className="empty">
+            <div className="big">🪞</div>
+            {t('no_results')}
+          </div>
+        ) : (
+          <div className="feed-grid">
+            {visible.map((c) => (
+              <ShopCard key={c.shopId} card={c} fav={favs.includes(c.shopId)} onFav={() => toggleFav(c.shopId)} />
+            ))}
+          </div>
+        );
+      })()}
 
       <GetApp />
 
@@ -143,7 +152,7 @@ export default function Explore() {
   );
 }
 
-function ShopCard({ card }: { card: Card }) {
+function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () => void }) {
   const { t, lang } = useI18n();
   const reasonLabel = (r: string): string | null => {
     const key = `r_${r}` as MsgKey;
@@ -161,6 +170,17 @@ function ShopCard({ card }: { card: Card }) {
           {card.isNew && <span className="badge amber">{t('new_badge')}</span>}
           {card.isMobile && <span className="badge teal">{t('mobile_badge')}</span>}
         </div>
+        <button
+          className="fav-btn"
+          aria-label="favourite"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onFav();
+          }}
+        >
+          {fav ? '❤️' : '🤍'}
+        </button>
       </div>
       <div className="shop-body">
         <div className="shop-title">

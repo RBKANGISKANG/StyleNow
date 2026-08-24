@@ -28,7 +28,16 @@ import {
   occupancyForBasket,
   HOLD_TTL_SECONDS,
 } from '@stylenow/api/modules/booking/booking.service';
-import { SHOPS, USER_LOCATION, type SeedShop, type SeedService } from './seed';
+import {
+  SHOPS,
+  USER_LOCATION,
+  VOUCHERS,
+  LOYALTY_EARN_PER_EURO,
+  LOYALTY_POINTS_PER_EURO_REDEEMED,
+  type SeedShop,
+  type SeedService,
+  type Voucher,
+} from './seed';
 import { dayStart, isoDateOf, isoDow, minuteOfDay, addDays, todayIso } from './time';
 
 const MIN = 60_000;
@@ -71,6 +80,19 @@ export interface Booking {
   guestName: string;
   policySnapshot: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
   cancellation?: { feeCents: number; refundCents: number; reason: string };
+  review?: { rating: number; text: string; date: string };
+  tipCents?: number;
+  pointsSpent?: number;
+  voucherCode?: string;
+  createdAt: number;
+}
+
+export interface WaitlistEntry {
+  id: string;
+  deviceId: string;
+  shopId: string;
+  serviceIds: string[];
+  isoDate: string;
   createdAt: number;
 }
 
@@ -79,6 +101,7 @@ interface State {
   idempotency: Map<string, unknown>;
   ruleDisabled: Set<string>;
   serviceOverrides: Map<string, Partial<SeedService>>;
+  waitlist: Map<string, WaitlistEntry>;
   seq: number;
 }
 
@@ -91,6 +114,7 @@ const state: State =
     idempotency: new Map(),
     ruleDisabled: new Set(),
     serviceOverrides: new Map(),
+    waitlist: new Map(),
     seq: 1,
   });
 
@@ -117,6 +141,7 @@ function persist(): void {
         bookings: [...state.bookings.values()],
         ruleDisabled: [...state.ruleDisabled],
         serviceOverrides: [...state.serviceOverrides.entries()],
+        waitlist: [...state.waitlist.values()],
         seq: state.seq,
       }),
     );
@@ -133,11 +158,13 @@ if (IS_BROWSER && state.bookings.size === 0) {
         bookings: Booking[];
         ruleDisabled: string[];
         serviceOverrides: Array<[string, Partial<SeedService>]>;
+        waitlist?: WaitlistEntry[];
         seq: number;
       };
       state.bookings = new Map(d.bookings.map((b) => [b.id, b]));
       state.ruleDisabled = new Set(d.ruleDisabled);
       state.serviceOverrides = new Map(d.serviceOverrides);
+      state.waitlist = new Map((d.waitlist ?? []).map((w) => [w.id, w]));
       state.seq = d.seq ?? state.bookings.size + 1;
     }
   } catch {
@@ -583,6 +610,8 @@ export interface HoldInput {
   startsAt: number;
   deviceId: string;
   guestName: string;
+  voucherCode?: string;
+  pointsToSpend?: number;
   idempotencyKey: string;
 }
 
@@ -639,7 +668,33 @@ export function createHold(input: HoldInput): HoldResult {
   const tier = shop.staff.find((s) => s.id === staffId)?.tier ?? 'stylist';
   const q = priceBasket(shop, services, input.startsAt, now, input.deviceId, tier);
   const travelFeeCents = shop.isMobile ? 1500 : 0;
-  const totalCents = Math.max(q.subtotalCents + travelFeeCents, 0);
+
+  // Discounts: voucher first, then loyalty points on the remainder.
+  let discountCents = 0;
+  const discountLines: Array<{ label: string; cents: number }> = [];
+  if (input.voucherCode) {
+    const v = validateVoucher(input.voucherCode, q.subtotalCents);
+    if (!v.ok) throw new Error('voucher_invalid');
+    discountCents += v.discountCents;
+    discountLines.push({ label: `Voucher ${v.voucher.code}`, cents: -v.discountCents });
+  }
+  let pointsSpent = 0;
+  if (input.pointsToSpend && input.pointsToSpend > 0) {
+    const balance = loyaltyBalance(input.deviceId);
+    const remainder = Math.max(q.subtotalCents + travelFeeCents - discountCents, 0);
+    pointsSpent = Math.min(input.pointsToSpend, balance);
+    let pointsValue = Math.floor((pointsSpent / LOYALTY_POINTS_PER_EURO_REDEEMED) * 100);
+    pointsValue = Math.min(pointsValue, remainder);
+    pointsSpent = Math.ceil((pointsValue / 100) * LOYALTY_POINTS_PER_EURO_REDEEMED);
+    if (pointsValue > 0) {
+      discountCents += pointsValue;
+      discountLines.push({ label: `Loyalty points (${pointsSpent})`, cents: -pointsValue });
+    } else {
+      pointsSpent = 0;
+    }
+  }
+
+  const totalCents = Math.max(q.subtotalCents + travelFeeCents - discountCents, 0);
   const vatCents = services.reduce((sum, s) => {
     const share = q.subtotalCents === 0 ? 0 : s.basePriceCents / q.baseCents;
     const line = Math.round(q.subtotalCents * share);
@@ -653,6 +708,7 @@ export function createHold(input: HoldInput): HoldResult {
   }));
   for (const a of q.applied) if (a.deltaCents !== 0) breakdown.push({ label: a.name, cents: a.deltaCents });
   if (travelFeeCents) breakdown.push({ label: 'Travel fee', cents: travelFeeCents });
+  breakdown.push(...discountLines);
 
   const id = `bk-${state.seq++}-${now.toString(36)}`;
   const reference = `SN-${(hash(id) % 100_000_000).toString().padStart(8, '0')}`;
@@ -668,9 +724,11 @@ export function createHold(input: HoldInput): HoldResult {
     staffRanges: occupancyForBasket(input.startsAt, services, shop.rules),
     status: 'pending_payment',
     holdExpiresAt: now + HOLD_TTL_SECONDS * 1000,
-    quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents: 0, vatCents, totalCents, depositCents, breakdown },
+    quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown },
     paidCents: 0,
     guestName: input.guestName,
+    pointsSpent: pointsSpent || undefined,
+    voucherCode: input.voucherCode || undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -901,7 +959,10 @@ export interface BookingView {
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
   shop: { slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
   services: Array<{ name: { en: string; de: string }; emoji: string }>;
+  serviceIds: string[];
   staffName: string | null;
+  review: { rating: number; text: string; date: string } | null;
+  tipCents: number;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -925,7 +986,139 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
         const s = shop ? serviceOf(shop, id) : undefined;
         return s ? { name: s.name, emoji: s.emoji } : { name: { en: id, de: id }, emoji: '✨' };
       }),
+      serviceIds: b.serviceIds,
       staffName: shop?.staff.find((s) => s.id === b.staffId)?.name ?? null,
+      review: b.review ?? null,
+      tipCents: b.tipCents ?? 0,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// vouchers & loyalty
+// ---------------------------------------------------------------------------
+
+export type VoucherResult =
+  | { ok: true; voucher: Voucher; discountCents: number }
+  | { ok: false; reason: 'unknown_code' | 'min_subtotal'; minSubtotalCents?: number };
+
+export function validateVoucher(code: string, subtotalCents: number): VoucherResult {
+  const voucher = VOUCHERS.find((v) => v.code === code.trim().toUpperCase());
+  if (!voucher) return { ok: false, reason: 'unknown_code' };
+  if (subtotalCents < voucher.minSubtotalCents) {
+    return { ok: false, reason: 'min_subtotal', minSubtotalCents: voucher.minSubtotalCents };
+  }
+  const discountCents =
+    voucher.kind === 'percent'
+      ? Math.round((subtotalCents * voucher.value) / 100)
+      : Math.min(voucher.value, subtotalCents);
+  return { ok: true, voucher, discountCents };
+}
+
+/** 1 point per euro on completed visits (tips included); spending is recorded on the booking. */
+export function loyaltyBalance(deviceId: string): number {
+  let earned = 0;
+  let spent = 0;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId) continue;
+    if (b.status === 'completed') {
+      earned += Math.floor(((b.quote.totalCents + (b.tipCents ?? 0)) / 100) * LOYALTY_EARN_PER_EURO);
+    }
+    if (['hold', 'pending_payment', 'confirmed', 'completed'].includes(b.status)) {
+      spent += b.pointsSpent ?? 0;
+    }
+  }
+  return Math.max(earned - spent, 0);
+}
+
+// ---------------------------------------------------------------------------
+// reviews & tips (stored on the booking → sync through Supabase for free)
+// ---------------------------------------------------------------------------
+
+export function setReview(bookingId: string, rating: number, text: string): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b) throw new Error('not_found');
+  if (b.status !== 'completed') throw new Error('not_completed');
+  b.review = { rating: Math.min(Math.max(Math.round(rating), 1), 5), text: text.slice(0, 500), date: isoDateOf(Date.now()) };
+  persist();
+  return b;
+}
+
+export function setTip(bookingId: string, tipCents: number): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b) throw new Error('not_found');
+  if (b.status !== 'completed') throw new Error('not_completed');
+  b.tipCents = Math.min(Math.max(Math.round(tipCents), 0), 50_000);
+  persist();
+  return b;
+}
+
+export interface UserReview {
+  author: string;
+  rating: number;
+  text: string;
+  date: string;
+  serviceNames: Array<{ en: string; de: string }>;
+}
+
+export function userReviewsForShop(shopId: string): UserReview[] {
+  const shop = shopById(shopId);
+  const out: UserReview[] = [];
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !b.review) continue;
+    out.push({
+      author: b.guestName,
+      rating: b.review.rating,
+      text: b.review.text,
+      date: b.review.date,
+      serviceNames: b.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
+    });
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+// ---------------------------------------------------------------------------
+// waitlist (device-scoped)
+// ---------------------------------------------------------------------------
+
+export function joinWaitlist(deviceId: string, shopId: string, serviceIds: string[], isoDate: string): WaitlistEntry {
+  const existing = [...state.waitlist.values()].find(
+    (w) => w.deviceId === deviceId && w.shopId === shopId && w.isoDate === isoDate,
+  );
+  if (existing) return existing;
+  const entry: WaitlistEntry = {
+    id: `wl-${state.seq++}-${Date.now().toString(36)}`,
+    deviceId,
+    shopId,
+    serviceIds,
+    isoDate,
+    createdAt: Date.now(),
+  };
+  state.waitlist.set(entry.id, entry);
+  persist();
+  return entry;
+}
+
+export function leaveWaitlist(id: string): void {
+  state.waitlist.delete(id);
+  persist();
+}
+
+export interface WaitlistView extends WaitlistEntry {
+  shop: { slug: string; name: string; emoji: string } | null;
+  serviceNames: Array<{ en: string; de: string }>;
+}
+
+export function waitlistForDevice(deviceId: string): WaitlistView[] {
+  return [...state.waitlist.values()]
+    .filter((w) => w.deviceId === deviceId)
+    .sort((a, b) => (a.isoDate < b.isoDate ? -1 : 1))
+    .map((w) => {
+      const shop = shopById(w.shopId);
+      return {
+        ...w,
+        shop: shop ? { slug: shop.slug, name: shop.name, emoji: shop.emoji } : null,
+        serviceNames: w.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
+      };
+    });
 }

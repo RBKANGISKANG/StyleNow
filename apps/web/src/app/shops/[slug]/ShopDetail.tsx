@@ -1,7 +1,18 @@
 'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
+import { apiShopReviews } from '@/lib/api';
+import { useFavourites } from '@/lib/favs';
+
+interface LiveReview {
+  author: string;
+  rating: number;
+  text: string;
+  date: string;
+  serviceNames: Array<{ en: string; de: string }>;
+}
 
 const AVATAR_COLORS = ['#f0566e', '#12a594', '#8b6cf0', '#f6a53c'];
 
@@ -40,6 +51,13 @@ export interface ShopData {
 
 export function ShopDetail({ shop }: { shop: ShopData }) {
   const { t, lang } = useI18n();
+  const [favs, toggleFav] = useFavourites();
+  const [liveReviews, setLiveReviews] = useState<LiveReview[]>([]);
+  const fav = favs.includes(shop.id);
+
+  useEffect(() => {
+    void apiShopReviews(shop.id).then(setLiveReviews);
+  }, [shop.id]);
 
   return (
     <div>
@@ -47,6 +65,9 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         className="shop-hero"
         style={{ background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }}
       >
+        <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
+          {fav ? '❤️' : '🤍'}
+        </button>
         <h1>
           {shop.emoji} {shop.name}
         </h1>
@@ -116,6 +137,20 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
 
       <section className="section">
         <h2>{t('reviews')}</h2>
+        {liveReviews.map((r, i) => (
+          <div className="review-card" key={`live-${i}`}>
+            <div className="review-head">
+              <span className="who">{r.author}</span>
+              <span className="rating">
+                <span className="star">{'★'.repeat(r.rating)}</span>
+              </span>
+            </div>
+            {r.text && <p>“{r.text}”</p>}
+            <div className="svc">
+              {r.serviceNames.map((n) => n[lang]).join(', ')} · {r.date}
+            </div>
+          </div>
+        ))}
         {shop.reviews.map((r, i) => (
           <div className="review-card" key={i}>
             <div className="review-head">

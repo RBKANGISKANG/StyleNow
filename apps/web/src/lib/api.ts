@@ -12,7 +12,16 @@
  *               the local engine for slot projection and pricing.
  */
 import * as store from '@/core/store';
-import type { ApiSlot, FeedCard, FeedQuery, HoldInput, HoldResult, BookingView } from '@/core/store';
+import type {
+  ApiSlot,
+  FeedCard,
+  FeedQuery,
+  HoldInput,
+  HoldResult,
+  BookingView,
+  UserReview,
+  WaitlistView,
+} from '@/core/store';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
 import * as sb from '@/lib/supabase-backend';
 
@@ -219,4 +228,95 @@ export async function apiToggleRule(shopId: string, ruleId: string): Promise<voi
   await ready();
   if (backendMode() === 'supabase') await sb.toggleRule(shopId, ruleId);
   else store.toggleRule(shopId, ruleId);
+}
+
+// ---- reviews, tips, loyalty, waitlist -------------------------------------
+
+export async function apiShopReviews(shopId: string): Promise<UserReview[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shops/${shopId}/reviews`);
+    return res.ok ? (await res.json()).reviews : [];
+  }
+  await ready();
+  return store.userReviewsForShop(shopId);
+}
+
+export async function apiSetReview(bookingId: string, rating: number, text: string): Promise<boolean> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch(`/api/bookings/${bookingId}/review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rating, text }),
+    });
+    return res.ok;
+  }
+  await ready();
+  try {
+    if (backendMode() === 'supabase') await sb.setReview(bookingId, rating, text);
+    else store.setReview(bookingId, rating, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiSetTip(bookingId: string, tipCents: number): Promise<boolean> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch(`/api/bookings/${bookingId}/tip`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tipCents }),
+    });
+    return res.ok;
+  }
+  await ready();
+  try {
+    if (backendMode() === 'supabase') await sb.setTip(bookingId, tipCents);
+    else store.setTip(bookingId, tipCents);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiLoyaltyBalance(): Promise<number> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/me/loyalty?deviceId=${encodeURIComponent(deviceId())}`);
+    return res.ok ? (await res.json()).points : 0;
+  }
+  await ready();
+  return store.loyaltyBalance(deviceId());
+}
+
+export async function apiWaitlistJoin(shopId: string, serviceIds: string[], isoDate: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch('/api/waitlist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: deviceId(), shopId, serviceIds, isoDate }),
+    });
+    return;
+  }
+  await ready();
+  store.joinWaitlist(deviceId(), shopId, serviceIds, isoDate);
+}
+
+export async function apiWaitlistLeave(id: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/waitlist/${id}`, { method: 'DELETE' });
+    return;
+  }
+  await ready();
+  store.leaveWaitlist(id);
+}
+
+export async function apiMyWaitlist(): Promise<WaitlistView[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/waitlist?deviceId=${encodeURIComponent(deviceId())}`);
+    return res.ok ? (await res.json()).entries : [];
+  }
+  await ready();
+  return store.waitlistForDevice(deviceId());
 }

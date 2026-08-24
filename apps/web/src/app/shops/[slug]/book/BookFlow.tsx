@@ -10,7 +10,9 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum } from '@/lib/format';
-import { apiAvailability, apiHold, apiConfirm } from '@/lib/api';
+import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin } from '@/lib/api';
+import { validateVoucher } from '@/core/store';
+import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays } from '@/core/time';
 
 interface Svc {
@@ -86,6 +88,39 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [expired, setExpired] = useState(false);
   const [confirmed, setConfirmed] = useState<{ reference: string } | null>(null);
   const [remaining, setRemaining] = useState(0);
+  const [voucherInput, setVoucherInput] = useState('');
+  const [voucher, setVoucher] = useState<{ code: string; discountCents: number } | null>(null);
+  const [voucherError, setVoucherError] = useState<string | null>(null);
+  const [points, setPoints] = useState(0);
+  const [usePoints, setUsePoints] = useState(false);
+  const [waitlisted, setWaitlisted] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (step === 2) void apiLoyaltyBalance().then(setPoints);
+  }, [step]);
+
+  const applyVoucher = () => {
+    if (!slot) return;
+    const r = validateVoucher(voucherInput, slot.priceCents);
+    if (r.ok) {
+      setVoucher({ code: r.voucher.code, discountCents: r.discountCents });
+      setVoucherError(null);
+    } else {
+      setVoucher(null);
+      setVoucherError(
+        r.reason === 'min_subtotal'
+          ? t('voucher_min', { min: money(r.minSubtotalCents ?? 0, lang) })
+          : t('voucher_unknown'),
+      );
+    }
+  };
+
+  const pointsValueCents = slot
+    ? Math.min(
+        Math.floor(points / LOYALTY_POINTS_PER_EURO_REDEEMED) * 100,
+        Math.max(slot.priceCents - (voucher?.discountCents ?? 0), 0),
+      )
+    : 0;
 
   const selected = shop.services.filter((s) => serviceIds.includes(s.id));
 
@@ -131,6 +166,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       staffId: chosenStaff,
       startsAt,
       guestName: name.trim() || 'Guest',
+      voucherCode: voucher?.code,
+      pointsToSpend: usePoints ? points : undefined,
     });
     setHolding(false);
     if (!outcome.ok) {
@@ -337,7 +374,21 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <div className="spinner" />
             ) : slots.length === 0 ? (
               <div className="empty" style={{ padding: '28px 16px' }}>
-                {t('no_slots')}
+                <p>{t('no_slots')}</p>
+                {waitlisted.includes(date) ? (
+                  <p style={{ marginTop: 10, color: 'var(--teal)', fontWeight: 600 }}>✅ {t('waitlist_joined')}</p>
+                ) : (
+                  <button
+                    className="btn btn-soft"
+                    style={{ marginTop: 12 }}
+                    onClick={() => {
+                      void apiWaitlistJoin(shop.id, serviceIds, date);
+                      setWaitlisted((w) => [...w, date]);
+                    }}
+                  >
+                    {t('waitlist_join')}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="slot-grid">
@@ -452,6 +503,45 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
               />
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  placeholder={`🎟️ ${t('voucher_label')} — ${t('voucher_ph')}`}
+                  value={voucherInput}
+                  onChange={(e) => {
+                    setVoucherInput(e.target.value.toUpperCase());
+                    setVoucher(null);
+                    setVoucherError(null);
+                  }}
+                  maxLength={20}
+                />
+                <button className="btn btn-soft" onClick={applyVoucher} disabled={!voucherInput.trim()}>
+                  {t('voucher_apply')}
+                </button>
+              </div>
+              {voucher && (
+                <p style={{ marginTop: 6, fontSize: '0.82rem', color: 'var(--teal)', fontWeight: 700 }}>
+                  ✅ {voucher.code} {t('voucher_ok')} · −{money(voucher.discountCents, lang)}
+                </p>
+              )}
+              {voucherError && (
+                <p style={{ marginTop: 6, fontSize: '0.82rem', color: 'var(--danger)', fontWeight: 600 }}>
+                  {voucherError}
+                </p>
+              )}
+              {pointsValueCents > 0 && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, cursor: 'pointer' }}>
+                  <span className="switch">
+                    <input type="checkbox" checked={usePoints} onChange={(e) => setUsePoints(e.target.checked)} />
+                    <span className="knob" />
+                  </span>
+                  <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>
+                    ⭐ {t('loyalty_redeem', { points, value: money(pointsValueCents, lang) })}
+                  </span>
+                </label>
+              )}
+              <p style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--ink-soft)' }}>{t('loyalty_hint')}</p>
             </div>
           )}
 

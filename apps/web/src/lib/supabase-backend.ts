@@ -203,3 +203,17 @@ export async function toggleRule(shopId: string, ruleId: string): Promise<void> 
   const { error } = await deadline(db.from('rule_state').upsert({ rule_id: ruleId, enabled }));
   if (error) throw error;
 }
+
+export async function setReview(bookingId: string, rating: number, text: string): Promise<void> {
+  const b = store.setReview(bookingId, rating, text);
+  const db = await sb();
+  const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
+  if (error) throw error;
+}
+
+export async function setTip(bookingId: string, tipCents: number): Promise<void> {
+  const b = store.setTip(bookingId, tipCents);
+  const db = await sb();
+  const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
+  if (error) throw error;
+}
