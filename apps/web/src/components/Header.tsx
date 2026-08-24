@@ -2,11 +2,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
+import { useAuth } from '@/lib/auth';
 
 const TABS = [
   { href: '/', key: 'nav_explore', ico: '🔍' },
   { href: '/bookings', key: 'nav_bookings', ico: '📅' },
   { href: '/dashboard', key: 'nav_dashboard', ico: '💼' },
+  { href: '/account', key: 'nav_account', ico: '👤' },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
@@ -15,6 +17,7 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Header() {
   const { t, lang, setLang } = useI18n();
+  const { user } = useAuth();
   const pathname = usePathname();
   return (
     <header className="topbar">
@@ -38,6 +41,18 @@ export function Header() {
         >
           {lang === 'en' ? '🇩🇪 DE' : '🇬🇧 EN'}
         </button>
+        <Link
+          href="/account"
+          aria-label={t('nav_account')}
+          className="lang-btn"
+          style={
+            user
+              ? { background: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)', fontWeight: 800 }
+              : undefined
+          }
+        >
+          {user ? user.name[0]?.toUpperCase() ?? '👤' : '👤'}
+        </Link>
       </div>
     </header>
   );

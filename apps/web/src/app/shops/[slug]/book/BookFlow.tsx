@@ -14,6 +14,7 @@ import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoi
 import { validateVoucher } from '@/core/store';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays } from '@/core/time';
+import { useAuth } from '@/lib/auth';
 
 interface Svc {
   id: string;
@@ -71,6 +72,7 @@ export function BookFlow({ shop }: { shop: ShopInfo }) {
 
 function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const { t, lang } = useI18n();
+  const { user } = useAuth();
   const initialServiceId = useSearchParams().get('service');
   const days = useMemo(() => Array.from({ length: 12 }, (_, i) => addDays(todayIso(), i)), []);
   const [step, setStep] = useState(0);
@@ -82,6 +84,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [name, setName] = useState('');
+
+  useEffect(() => {
+    if (user && !name) setName(user.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
   const [hold, setHold] = useState<Hold | null>(null);
   const [holding, setHolding] = useState(false);
   const [alternatives, setAlternatives] = useState<Slot[] | null>(null);

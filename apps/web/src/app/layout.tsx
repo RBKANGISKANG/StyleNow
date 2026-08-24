@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { I18nProvider } from '@/lib/i18n';
+import { AuthProvider } from '@/lib/auth';
 import { Header, BottomNav } from '@/components/Header';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -37,9 +38,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <I18nProvider>
-          <Header />
-          <main className="shell">{children}</main>
-          <BottomNav />
+          <AuthProvider>
+            <Header />
+            <main className="shell">{children}</main>
+            <BottomNav />
+          </AuthProvider>
         </I18nProvider>
       </body>
     </html>

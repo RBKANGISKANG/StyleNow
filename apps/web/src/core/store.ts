@@ -96,12 +96,21 @@ export interface WaitlistEntry {
   createdAt: number;
 }
 
+export interface ShopApplication {
+  id: string;
+  deviceId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  data: Record<string, unknown>;
+  createdAt: number;
+}
+
 interface State {
   bookings: Map<string, Booking>;
   idempotency: Map<string, unknown>;
   ruleDisabled: Set<string>;
   serviceOverrides: Map<string, Partial<SeedService>>;
   waitlist: Map<string, WaitlistEntry>;
+  applications: Map<string, ShopApplication>;
   seq: number;
 }
 
@@ -115,6 +124,7 @@ const state: State =
     ruleDisabled: new Set(),
     serviceOverrides: new Map(),
     waitlist: new Map(),
+    applications: new Map(),
     seq: 1,
   });
 
@@ -142,6 +152,7 @@ function persist(): void {
         ruleDisabled: [...state.ruleDisabled],
         serviceOverrides: [...state.serviceOverrides.entries()],
         waitlist: [...state.waitlist.values()],
+        applications: [...state.applications.values()],
         seq: state.seq,
       }),
     );
@@ -159,12 +170,14 @@ if (IS_BROWSER && state.bookings.size === 0) {
         ruleDisabled: string[];
         serviceOverrides: Array<[string, Partial<SeedService>]>;
         waitlist?: WaitlistEntry[];
+        applications?: ShopApplication[];
         seq: number;
       };
       state.bookings = new Map(d.bookings.map((b) => [b.id, b]));
       state.ruleDisabled = new Set(d.ruleDisabled);
       state.serviceOverrides = new Map(d.serviceOverrides);
       state.waitlist = new Map((d.waitlist ?? []).map((w) => [w.id, w]));
+      state.applications = new Map((d.applications ?? []).map((a) => [a.id, a]));
       state.seq = d.seq ?? state.bookings.size + 1;
     }
   } catch {
@@ -1107,6 +1120,29 @@ export function leaveWaitlist(id: string): void {
 export interface WaitlistView extends WaitlistEntry {
   shop: { slug: string; name: string; emoji: string } | null;
   serviceNames: Array<{ en: string; de: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// partner (shop) registration applications
+// ---------------------------------------------------------------------------
+
+export function submitShopApplication(deviceId: string, data: Record<string, unknown>): ShopApplication {
+  const app: ShopApplication = {
+    id: `app-${state.seq++}-${Date.now().toString(36)}`,
+    deviceId,
+    status: 'pending',
+    data,
+    createdAt: Date.now(),
+  };
+  state.applications.set(app.id, app);
+  persist();
+  return app;
+}
+
+export function applicationsForDevice(deviceId: string): ShopApplication[] {
+  return [...state.applications.values()]
+    .filter((a) => a.deviceId === deviceId)
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function waitlistForDevice(deviceId: string): WaitlistView[] {

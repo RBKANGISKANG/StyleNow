@@ -168,3 +168,38 @@ create policy service_over_rw on public.service_overrides for all    using (true
 
 grant execute on function public.create_hold(jsonb, jsonb) to anon, authenticated;
 grant execute on function public.set_booking(text, jsonb, boolean) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- accounts & partner onboarding
+-- ---------------------------------------------------------------------------
+
+-- Customer profile document, one row per auth user. RLS: strictly own-row.
+create table if not exists public.profiles (
+  id         uuid primary key references auth.users (id) on delete cascade,
+  data       jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+drop policy if exists profiles_own on public.profiles;
+create policy profiles_own on public.profiles
+  for all using (auth.uid() = id) with check (auth.uid() = id);
+
+-- Shop / company registration applications. The browser may only INSERT —
+-- reading the queue is the admin's job (service-role key / dashboard),
+-- mirroring GET /admin/shops/pending in the API contract.
+create table if not exists public.shop_applications (
+  id         text primary key,
+  data       jsonb not null,
+  status     text not null default 'pending',
+  created_at timestamptz not null default now()
+);
+
+alter table public.shop_applications enable row level security;
+drop policy if exists applications_insert on public.shop_applications;
+create policy applications_insert on public.shop_applications
+  for insert with check (true);
+
+-- Social login (Google / Apple / Facebook) is configured per provider in
+-- Supabase → Authentication → Providers; the app calls signInWithOAuth and
+-- shows a hint when a provider is not enabled yet.

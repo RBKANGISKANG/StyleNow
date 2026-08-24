@@ -70,6 +70,26 @@ Three distribution channels, one codebase:
   scaffold (`apps/mobile/OFFLINE.md`); the shells are the pragmatic
   store-distribution path until it ships.
 
+## Accounts, social login & partner registration
+
+- **Customers** register at `/account` — name, email + password, phone,
+  address, birthday, preferred language, and explicit consents (terms
+  required; marketing and personalisation opt-in). Signed-in users get
+  prefilled checkout, profile editing, consent management, one-click
+  **data export (GDPR Art. 20)** and **account deletion (Art. 17)**.
+- **Social login** (Google / Apple / Facebook): in Supabase mode the buttons
+  run real OAuth via `signInWithOAuth` — enable the providers under
+  Supabase → Authentication → Providers. Without Supabase the buttons create
+  clearly-labelled demo sessions so the flow stays walkable.
+- **Companies** register at `/partner` — a four-step onboarding wizard
+  collecting legal name, category, contact, VAT ID / commercial register /
+  §19 UStG flag, address or mobile-service radius, opening hours, the
+  bookable service list, team size, languages, payout IBAN (stored masked;
+  verification happens in Stripe Connect), cancellation/no-show/deposit
+  policy, and the partner-terms + AVV consents. Applications land in
+  `shop_applications` (insert-only for browsers; review with owner
+  credentials — the `/admin/shops/pending` flow from the API contract).
+
 ## Supabase backend
 
 `apps/web` talks to Supabase when configured (already wired via

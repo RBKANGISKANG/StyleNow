@@ -217,3 +217,51 @@ export async function setTip(bookingId: string, tipCents: number): Promise<void>
   const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// auth & profiles (used by src/lib/auth.tsx in supabase mode)
+// ---------------------------------------------------------------------------
+
+import type { User } from '@supabase/supabase-js';
+import type { Profile, SessionUser } from '@/lib/auth';
+
+/** The shared client — auth flows need it directly. */
+export async function authClient(): Promise<SupabaseClient> {
+  return sb();
+}
+
+export async function loadSessionUser(u: User): Promise<SessionUser> {
+  const db = await sb();
+  const { data } = await deadline(db.from('profiles').select('data').eq('id', u.id).maybeSingle());
+  const provider = (u.app_metadata?.provider ?? 'email') as SessionUser['provider'];
+  const base: Profile = (data?.data as Profile) ?? {
+    name: (u.user_metadata?.name as string) ?? u.email?.split('@')[0] ?? '',
+    email: u.email ?? '',
+    phone: '',
+    city: '',
+    postalCode: '',
+    birthday: '',
+    preferredLanguage: 'en',
+    consents: { terms: true, marketing: false, personalisation: false },
+  };
+  return { ...base, id: u.id, provider, demo: false };
+}
+
+export async function saveProfile(id: string, profile: Profile): Promise<void> {
+  const db = await sb();
+  const { error } = await deadline(db.from('profiles').upsert({ id, data: profile }));
+  if (error) throw error;
+}
+
+export async function deleteProfile(id: string): Promise<void> {
+  const db = await sb();
+  await deadline(db.from('profiles').delete().eq('id', id));
+}
+
+/** Partner (shop) applications — insert-only for the browser; review happens
+ *  with owner credentials (the admin surface in the OpenAPI contract). */
+export async function submitApplication(id: string, data: unknown): Promise<void> {
+  const db = await sb();
+  const { error } = await deadline(db.from('shop_applications').insert({ id, data, status: 'pending' }));
+  if (error) throw error;
+}

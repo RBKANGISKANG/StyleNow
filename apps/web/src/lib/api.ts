@@ -21,6 +21,7 @@ import type {
   BookingView,
   UserReview,
   WaitlistView,
+  ShopApplication,
 } from '@/core/store';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
 import * as sb from '@/lib/supabase-backend';
@@ -319,4 +320,37 @@ export async function apiMyWaitlist(): Promise<WaitlistView[]> {
   }
   await ready();
   return store.waitlistForDevice(deviceId());
+}
+
+// ---- partner registration -------------------------------------------------
+
+export async function apiPartnerApply(data: Record<string, unknown>): Promise<ShopApplication | null> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch('/api/partner/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: deviceId(), data }),
+    });
+    return res.ok ? (await res.json()).application : null;
+  }
+  await ready();
+  const app = store.submitShopApplication(deviceId(), data);
+  if (backendMode() === 'supabase') {
+    try {
+      await sb.submitApplication(app.id, { ...data, deviceId: deviceId() });
+    } catch (e) {
+      console.warn('[stylenow] application stored locally only:', e);
+    }
+  }
+  return app;
+}
+
+export async function apiMyApplications(): Promise<ShopApplication[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/partner/apply?deviceId=${encodeURIComponent(deviceId())}`);
+    return res.ok ? (await res.json()).applications : [];
+  }
+  await ready();
+  return store.applicationsForDevice(deviceId());
 }
