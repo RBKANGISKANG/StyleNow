@@ -380,6 +380,59 @@ check('shop-side cancellation always refunds in full', () => {
   assert.equal(o.refundCents, 5000);
 });
 
+// A no-show is only ever recorded by the shop, so if the shop branch is
+// checked first the no-show fee can never be charged at all.
+check('a no-show still costs the customer even though the shop records it', () => {
+  const o = cancellationOutcome({
+    totalCents: 5000,
+    paidCents: 1000, // deposit only
+    startsAt: t(20),
+    cancelledAt: t(20, 30),
+    freeUntilHours: 24,
+    lateFeePercent: 50,
+    noShowFeePercent: 100,
+    isNoShow: true,
+    cancelledBy: 'shop',
+  });
+  assert.equal(o.feeCents, 5000);
+  assert.equal(o.refundCents, 0);
+  assert.equal(o.reason, 'no_show');
+});
+
+check('a free cancellation gives the whole deposit back', () => {
+  const o = cancellationOutcome({
+    totalCents: 5000,
+    paidCents: 1000, // deposit only
+    startsAt: t(20),
+    cancelledAt: t(9) - 48 * 60 * MIN,
+    freeUntilHours: 24,
+    lateFeePercent: 50,
+    noShowFeePercent: 100,
+    isNoShow: false,
+    cancelledBy: 'customer',
+  });
+  assert.equal(o.feeCents, 0);
+  assert.equal(o.refundCents, 1000);
+});
+
+// The fee is a share of the whole ticket, but only the deposit was ever
+// taken — a customer can never be refunded more than they handed over.
+check('a late cancellation never refunds more than was paid', () => {
+  const o = cancellationOutcome({
+    totalCents: 5000,
+    paidCents: 1000,
+    startsAt: t(20),
+    cancelledAt: t(18),
+    freeUntilHours: 24,
+    lateFeePercent: 50,
+    noShowFeePercent: 100,
+    isNoShow: false,
+    cancelledBy: 'customer',
+  });
+  assert.equal(o.feeCents, 2500);
+  assert.equal(o.refundCents, 0);
+});
+
 console.log('matching');
 
 check('shrunk rating punishes thin review counts', () => {

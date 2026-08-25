@@ -22,6 +22,7 @@ interface Bk {
   endsAt: number;
   totalCents: number;
   paidCents: number;
+  refundedCents: number;
   depositCents: number;
   cancellation: { feeCents: number; refundCents: number; reason: string } | null;
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
@@ -139,12 +140,16 @@ export default function BookingsPage() {
                 {tab === 'upcoming' && (
                   <div className="pol">🛈 {t('free_until', { h: b.policy.freeUntilHours })}</div>
                 )}
-                {b.cancellation && b.cancellation.feeCents > 0 && (
+                {b.cancellation && (
                   <div className="pol">
-                    {t('cancel_fee', {
-                      fee: money(b.cancellation.feeCents, lang),
-                      refund: money(b.cancellation.refundCents, lang),
-                    })}
+                    {b.cancellation.feeCents > 0
+                      ? t('cancel_fee', {
+                          fee: money(b.cancellation.feeCents, lang),
+                          refund: money(b.cancellation.refundCents, lang),
+                        })
+                      : b.refundedCents > 0
+                        ? t('refunded_full', { refund: money(b.refundedCents, lang) })
+                        : t('cancel_nothing_paid')}
                   </div>
                 )}
               </div>
@@ -153,7 +158,12 @@ export default function BookingsPage() {
                 <span style={{ fontWeight: 800 }}>{money(b.totalCents, lang)}</span>
                 {b.paidCents > 0 && b.paidCents < b.totalCents && (
                   <span style={{ fontSize: '0.72rem', color: 'var(--ink-soft)' }}>
-                    {money(b.paidCents, lang)} {t('deposit')} {t('paid')}
+                    {money(b.paidCents, lang)} {b.cancellation ? t('fee_kept') : `${t('deposit')} ${t('paid')}`}
+                  </span>
+                )}
+                {b.refundedCents > 0 && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--teal)', fontWeight: 700 }}>
+                    ↩ {money(b.refundedCents, lang)} {t('refunded')}
                   </span>
                 )}
                 {tab === 'upcoming' && b.status === 'confirmed' && (

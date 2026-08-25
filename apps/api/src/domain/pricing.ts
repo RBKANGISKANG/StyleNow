@@ -202,9 +202,9 @@ export function cancellationOutcome(params: {
   isNoShow: boolean;
   cancelledBy: 'customer' | 'shop';
 }): { feeCents: number; refundCents: number; reason: string } {
-  if (params.cancelledBy === 'shop') {
-    return { feeCents: 0, refundCents: params.paidCents, reason: 'shop_cancelled_full_refund' };
-  }
+  // A no-show is recorded *by* the shop but is the customer's miss, so it is
+  // checked before the shop branch — otherwise the no-show fee could never be
+  // charged, since only a shop ever marks one.
   if (params.isNoShow) {
     // Capped once and reused: no_show_fee_percent is numeric(5,2), so a shop can
     // set 150 %. Charging the cap but refunding against the uncapped figure
@@ -218,6 +218,11 @@ export function cancellationOutcome(params: {
       refundCents: Math.max(params.paidCents - fee, 0),
       reason: 'no_show',
     };
+  }
+  // The shop calling off an appointment is the shop's problem, never the
+  // customer's money.
+  if (params.cancelledBy === 'shop') {
+    return { feeCents: 0, refundCents: params.paidCents, reason: 'shop_cancelled_full_refund' };
   }
   const hoursNotice = (params.startsAt - params.cancelledAt) / 3_600_000;
   if (hoursNotice >= params.freeUntilHours) {

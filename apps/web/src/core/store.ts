@@ -78,6 +78,8 @@ export interface Booking {
     breakdown: Array<{ label: string; cents: number }>;
   };
   paidCents: number;
+  /** money actually returned to the customer after a cancellation */
+  refundedCents?: number;
   guestName: string;
   /** how the shop reaches this customer — optional, asked at checkout */
   guestPhone?: string;
@@ -1358,6 +1360,11 @@ export function cancelBooking(
         ? 'cancelled_by_customer'
         : 'cancelled_by_shop';
     b.cancellation = outcome;
+    // Settle the money, don't just calculate it. The refund leaves the shop's
+    // books; what stays behind is the fee. Without this the booking kept
+    // showing the deposit as paid and the customer never got it back.
+    b.refundedCents = (b.refundedCents ?? 0) + outcome.refundCents;
+    b.paidCents = Math.max(b.paidCents - outcome.refundCents, 0);
     persist();
   }
   return { ...outcome, booking: b };
@@ -1607,6 +1614,7 @@ export interface BookingView {
   endsAt: number;
   totalCents: number;
   paidCents: number;
+  refundedCents: number;
   depositCents: number;
   cancellation: { feeCents: number; refundCents: number; reason: string } | null;
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
@@ -1629,6 +1637,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       endsAt: b.endsAt,
       totalCents: b.quote.totalCents,
       paidCents: b.paidCents,
+      refundedCents: b.refundedCents ?? 0,
       depositCents: b.quote.depositCents,
       cancellation: b.cancellation ?? null,
       policy: b.policySnapshot,
