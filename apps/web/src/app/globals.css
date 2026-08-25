@@ -781,6 +781,28 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .dash-table td { padding: 12px 14px; font-size: 0.86rem; border-bottom: 1px solid var(--line); }
 .dash-table tr:last-child td { border-bottom: none; }
 
+/* Operator tab bar — one row of tabs above every back-office screen. */
+.op-tabs {
+  display: flex; gap: 4px; margin-bottom: 18px;
+  padding: 4px; border-radius: 999px; background: var(--surface-2, rgba(0,0,0,.04));
+  overflow-x: auto; scrollbar-width: none;
+}
+.op-tabs::-webkit-scrollbar { display: none; }
+.op-tabs a {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 16px; border-radius: 999px; white-space: nowrap;
+  font-size: 0.84rem; font-weight: 700; color: var(--ink-soft);
+  text-decoration: none; transition: background .14s ease, color .14s ease;
+}
+.op-tabs a:hover { color: var(--ink); }
+.op-tabs a.on { background: var(--surface); color: var(--primary); box-shadow: var(--shadow-sm); }
+.op-tabs .ico { font-size: 0.95rem; }
+@media (max-width: 520px) {
+  .op-tabs a { padding: 9px 12px; font-size: 0.78rem; }
+}
+
+.today-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+
 /* Confirm dialog — every destructive action goes through this. */
 .cd-backdrop {
   position: fixed; inset: 0; z-index: 90;
@@ -819,15 +841,6 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .cd-danger { background: var(--danger); color: #fff; font-weight: 800; }
 .cd-danger:disabled { opacity: .45; cursor: not-allowed; }
 @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
-
-/* Card that stands in for a section that moved to its own page. */
-.link-card { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; transition: transform .12s ease, box-shadow .12s ease; }
-.link-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,.09); }
-.link-card .lc-ico { font-size: 1.7rem; line-height: 1; }
-.link-card .lc-text { display: grid; gap: 3px; flex: 1; min-width: 0; }
-.link-card .lc-text strong { font-size: 1rem; }
-.link-card .lc-text span { font-size: 0.78rem; color: var(--ink-soft); }
-.link-card .lc-go { font-weight: 800; font-size: 0.82rem; color: var(--primary); white-space: nowrap; }
 
 .hr-how { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; background: var(--surface-2, transparent); }
 .hr-how > summary { cursor: pointer; font-weight: 700; font-size: 0.82rem; list-style: none; }
