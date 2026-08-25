@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { NextUp } from '@/components/NextUp';
 import Link from 'next/link';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
@@ -129,6 +130,8 @@ export default function Explore() {
         {locError && <p style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600 }}>⚠️ {t('loc_unknown')}</p>}
       </section>
 
+      <NextUp />
+
       <div className="search-row">
         <input
           className="search"
@@ -200,7 +203,20 @@ export default function Explore() {
       </div>
 
       {cards === null ? (
-        <div className="spinner" />
+        // Skeletons, not a spinner: the feed's shape appears immediately, so
+        // the page settles into place instead of popping.
+        <div className="feed-grid">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div className="sk-card" key={i} aria-hidden>
+              <div className="sk-media" />
+              <div className="sk-lines">
+                <span className="sk-line w70" />
+                <span className="sk-line w45" />
+                <span className="sk-line w60" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (() => {
         const visible = favsOnly ? cards.filter((c) => favs.includes(c.shopId)) : cards;
         return visible.length === 0 ? (

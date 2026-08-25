@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 const TABS = [
   { href: '/', key: 'nav_explore', ico: '🔍' },
   { href: '/bookings', key: 'nav_bookings', ico: '📅' },
+  { href: '/my-day', key: 'nav_myday', ico: '🪄' },
   { href: '/dashboard', key: 'nav_dashboard', ico: '💼' },
   { href: '/account', key: 'nav_account', ico: '👤' },
 ] as const;
