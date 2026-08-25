@@ -204,7 +204,7 @@ export async function apiSetStatus(
 export async function apiPatchService(
   shopId: string,
   serviceId: string,
-  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean },
+  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string },
 ): Promise<void> {
   const mode = backendMode();
   if (mode === 'server') {
@@ -497,7 +497,15 @@ export async function apiReleaseShop(shopId: string): Promise<void> {
 
 export async function apiAddService(
   shopId: string,
-  input: { name: string; emoji: string; basePriceCents: number; durationMin: number; processingGapMin?: number; dynamicPricing?: boolean },
+  input: {
+    name: string;
+    emoji: string;
+    basePriceCents: number;
+    durationMin: number;
+    processingGapMin?: number;
+    dynamicPricing?: boolean;
+    categoryId?: string;
+  },
 ): Promise<void> {
   if (backendMode() === 'server') {
     await fetch(`/api/shop/${shopId}/services`, {

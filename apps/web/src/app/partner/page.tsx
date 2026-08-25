@@ -12,21 +12,12 @@ import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
 import { apiPartnerApply, apiMyApplications, apiCustomCategories, apiAddCustomCategory } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
+import { BASE_CATEGORIES } from '@/core/categories';
 
 // Multi-select: a studio can offer several of these at once. "Mobile" is not
 // a category here — it's the service-mode toggle in the location step.
-const CATEGORY_OPTIONS = [
-  { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
-  { id: 'barber', emoji: '💈', en: 'Barber', de: 'Barbier' },
-  { id: 'nails', emoji: '💅', en: 'Nails', de: 'Nägel' },
-  { id: 'brows', emoji: '👁️', en: 'Brows & lashes', de: 'Brauen & Wimpern' },
-  { id: 'makeup', emoji: '💄', en: 'Make-up', de: 'Make-up' },
-  { id: 'skincare', emoji: '🧖', en: 'Facial & skincare', de: 'Gesicht & Hautpflege' },
-  { id: 'massage', emoji: '💆', en: 'Massage & spa', de: 'Massage & Spa' },
-  { id: 'waxing', emoji: '🪷', en: 'Waxing & hair removal', de: 'Waxing & Haarentfernung' },
-  { id: 'tanning', emoji: '☀️', en: 'Tanning', de: 'Bräunung' },
-  { id: 'tattoo', emoji: '🖋️', en: 'Tattoo & piercing', de: 'Tattoo & Piercing' },
-] as const;
+// The vocabulary is shared with the service manager (src/core/categories.ts).
+const CATEGORY_OPTIONS = BASE_CATEGORIES;
 const LANG_OPTIONS = ['de', 'en', 'tr', 'ar', 'pl', 'es', 'fr'];
 const DOWS = [1, 2, 3, 4, 5, 6, 7];
 

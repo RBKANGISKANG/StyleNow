@@ -321,7 +321,7 @@ export function effectiveServices(shopId: string): SeedService[] {
   if (!shop) return [];
   return [...shop.services, ...(state.customServices.get(shopId) ?? [])]
     .filter((s) => !state.archivedServices.has(s.id))
-    .map((s) => ({ ...s, ...(state.serviceOverrides.get(s.id) ?? {}) }));
+    .map((s) => ({ categoryId: shop.category, ...s, ...(state.serviceOverrides.get(s.id) ?? {}) }));
 }
 
 /** Seed rules + rules the shop authored, minus deleted. */
@@ -341,11 +341,20 @@ export function activeRules(shop: SeedShop) {
 
 export function addService(
   shopId: string,
-  input: { name: string; emoji: string; basePriceCents: number; durationMin: number; processingGapMin?: number; dynamicPricing?: boolean },
+  input: {
+    name: string;
+    emoji: string;
+    basePriceCents: number;
+    durationMin: number;
+    processingGapMin?: number;
+    dynamicPricing?: boolean;
+    categoryId?: string;
+  },
 ): SeedService {
   const svc: SeedService = {
     id: `svc-custom-${state.seq++}-${Date.now().toString(36)}`,
     emoji: input.emoji || '✨',
+    categoryId: input.categoryId ?? shopById(shopId)?.category,
     name: { en: input.name, de: input.name },
     durationMin: Math.max(5, Math.round(input.durationMin)),
     processingGapMin: Math.max(0, Math.round(input.processingGapMin ?? 0)),
@@ -1197,7 +1206,7 @@ export function setBookingStatus(
 export function patchService(
   shopId: string,
   serviceId: string,
-  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean },
+  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string },
 ): void {
   const shop = shopById(shopId);
   if (!shop || !effectiveServices(shopId).some((s) => s.id === serviceId)) throw new Error('not_found');

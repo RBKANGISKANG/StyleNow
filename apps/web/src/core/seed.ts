@@ -17,6 +17,8 @@ export interface LocalText {
 export interface SeedService {
   id: string;
   emoji: string;
+  /** Category this service belongs to (base vocabulary or a company-added one). */
+  categoryId?: string;
   name: LocalText;
   durationMin: number;
   processingGapMin: number;

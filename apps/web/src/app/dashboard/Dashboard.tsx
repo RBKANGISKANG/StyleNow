@@ -28,6 +28,7 @@ import { useAuth } from '@/lib/auth';
 import { deviceId } from '@/lib/device';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { RevenueChart } from '@/components/RevenueChart';
+import { CategoryPicker } from '@/components/CategoryPicker';
 import { todayIso, addDays, isoDateOf } from '@/core/time';
 
 const DAY_START_MIN = 8 * 60;
@@ -64,6 +65,7 @@ interface Overview {
       durationMin: number;
       basePriceCents: number;
       dynamicPricing: boolean;
+      categoryId?: string;
     }>;
     pricingRules: Array<{ id: string; name: string; enabled: boolean }>;
   };
@@ -178,7 +180,7 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
 
   const patchService = async (
     sid: string,
-    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean },
+    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string },
   ) => {
     await apiPatchService(shopId, sid, patch);
     setToast('💾 OK');
@@ -519,6 +521,7 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
                 <thead>
                   <tr>
                     <th>{t('services')}</th>
+                    <th>{t('svc_category')}</th>
                     <th>{t('price')}</th>
                     <th>{t('duration')}</th>
                     <th>{t('smart_pricing')}</th>
@@ -530,6 +533,13 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
                     <tr key={s.id}>
                       <td>
                         {s.emoji} <strong>{s.name[lang]}</strong>
+                      </td>
+                      <td>
+                        <CategoryPicker
+                          compact
+                          value={s.categoryId ?? null}
+                          onChange={(categoryId) => void patchService(s.id, { categoryId })}
+                        />
                       </td>
                       <td>
                         <div className="svc-edit">
@@ -928,6 +938,7 @@ function AddService({ shopId, onAdded }: { shopId: string; onAdded: () => void }
   const [minutes, setMinutes] = useState('45');
   const [gap, setGap] = useState('0');
   const [dyn, setDyn] = useState(false);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
 
   if (!open) {
     return (
@@ -951,6 +962,7 @@ function AddService({ shopId, onAdded }: { shopId: string; onAdded: () => void }
         <input className="input" style={{ width: 96 }} type="number" min={0} step="0.5" placeholder="€" value={price} onChange={(e) => setPrice(e.target.value)} />
         <input className="input" style={{ width: 90 }} type="number" min={5} step={5} placeholder={t('min')} value={minutes} onChange={(e) => setMinutes(e.target.value)} />
         <input className="input" style={{ width: 110 }} type="number" min={0} step={5} placeholder={`+${t('min')} gap`} value={gap} onChange={(e) => setGap(e.target.value)} />
+        <CategoryPicker value={categoryId} onChange={setCategoryId} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600 }}>
           <span className="switch">
             <input type="checkbox" checked={dyn} onChange={(e) => setDyn(e.target.checked)} />
@@ -972,6 +984,7 @@ function AddService({ shopId, onAdded }: { shopId: string; onAdded: () => void }
               durationMin: Number(minutes),
               processingGapMin: Number(gap),
               dynamicPricing: dyn,
+              categoryId: categoryId ?? undefined,
             }).then(() => {
               setName('');
               setPrice('');

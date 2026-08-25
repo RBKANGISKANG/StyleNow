@@ -5,7 +5,8 @@ export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
   const body = await req.json().catch(() => ({}));
-  const patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean } = {};
+  const patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string } = {};
+  if (typeof body.categoryId === 'string' && body.categoryId) patch.categoryId = body.categoryId;
   if (typeof body.basePriceCents === 'number' && body.basePriceCents >= 0) {
     patch.basePriceCents = Math.round(body.basePriceCents);
   }
