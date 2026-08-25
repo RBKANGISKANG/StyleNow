@@ -22,6 +22,11 @@ import type {
   UserReview,
   WaitlistView,
   ShopApplication,
+  StaffMember,
+  ShopLocation,
+  HrRow,
+  Absence,
+  AbsenceKind,
 } from '@/core/store';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
 import * as sb from '@/lib/supabase-backend';
@@ -44,6 +49,23 @@ async function ready(): Promise<void> {
   }
 }
 
+/**
+ * Reads must never sit behind a slow first sync. A cold Supabase round trip can
+ * take seconds (or its full timeout when the project is unreachable), which
+ * would leave the feed blank that whole time. So reads wait only briefly: if
+ * the sync has not landed, they answer from the local mirror and the next read
+ * picks up the synced data.
+ */
+const READ_SYNC_BUDGET_MS = 1500;
+
+async function readyForRead(): Promise<void> {
+  if (backendMode() !== 'supabase') return;
+  await Promise.race([
+    ready(),
+    new Promise<void>((resolve) => setTimeout(resolve, READ_SYNC_BUDGET_MS)),
+  ]);
+}
+
 // ---- discovery -----------------------------------------------------------
 
 export async function apiMatch(query: FeedQuery): Promise<FeedCard[]> {
@@ -55,7 +77,7 @@ export async function apiMatch(query: FeedQuery): Promise<FeedCard[]> {
     });
     return (await res.json()).shops;
   }
-  await ready();
+  await readyForRead();
   return store.feed(query);
 }
 
@@ -71,7 +93,7 @@ export async function apiAvailability(
     const res = await fetch(`/api/availability?${params}`);
     return (await res.json()).slots ?? [];
   }
-  await ready();
+  await readyForRead();
   return store.availability(shopId, serviceIds, date, deviceId(), staffId).slots;
 }
 
@@ -161,7 +183,7 @@ export async function apiMyBookings(): Promise<BookingView[]> {
     const res = await fetch(`/api/me/bookings?deviceId=${encodeURIComponent(deviceId())}`);
     return (await res.json()).bookings;
   }
-  await ready();
+  await readyForRead();
   return store.bookingsForDeviceView(deviceId());
 }
 
@@ -174,7 +196,7 @@ export async function apiOverview(shopId: string, date: string): Promise<Overvie
     const res = await fetch(`/api/shop/${shopId}/overview?date=${date}`);
     return res.ok ? await res.json() : null;
   }
-  await ready();
+  await readyForRead();
   try {
     return store.dashboardOverview(shopId, date);
   } catch {
@@ -238,7 +260,7 @@ export async function apiShopReviews(shopId: string): Promise<UserReview[]> {
     const res = await fetch(`/api/shops/${shopId}/reviews`);
     return res.ok ? (await res.json()).reviews : [];
   }
-  await ready();
+  await readyForRead();
   return store.userReviewsForShop(shopId);
 }
 
@@ -287,7 +309,7 @@ export async function apiLoyaltyBalance(): Promise<number> {
     const res = await fetch(`/api/me/loyalty?deviceId=${encodeURIComponent(deviceId())}`);
     return res.ok ? (await res.json()).points : 0;
   }
-  await ready();
+  await readyForRead();
   return store.loyaltyBalance(deviceId());
 }
 
@@ -318,7 +340,7 @@ export async function apiMyWaitlist(): Promise<WaitlistView[]> {
     const res = await fetch(`/api/waitlist?deviceId=${encodeURIComponent(deviceId())}`);
     return res.ok ? (await res.json()).entries : [];
   }
-  await ready();
+  await readyForRead();
   return store.waitlistForDevice(deviceId());
 }
 
@@ -351,7 +373,7 @@ export async function apiMyApplications(): Promise<ShopApplication[]> {
     const res = await fetch(`/api/partner/apply?deviceId=${encodeURIComponent(deviceId())}`);
     return res.ok ? (await res.json()).applications : [];
   }
-  await ready();
+  await readyForRead();
   return store.applicationsForDevice(deviceId());
 }
 
@@ -428,7 +450,7 @@ export async function apiShopLogo(shopId: string): Promise<string | null> {
     const res = await fetch(`/api/shop/${shopId}/logo`);
     return res.ok ? (await res.json()).logoUrl : null;
   }
-  await ready();
+  await readyForRead();
   return store.getShopLogo(shopId);
 }
 
@@ -454,7 +476,7 @@ export async function apiCustomCategories(): Promise<Array<{ id: string; label: 
     const res = await fetch('/api/categories');
     return res.ok ? (await res.json()).categories : [];
   }
-  await ready();
+  await readyForRead();
   return store.customCategories();
 }
 
@@ -479,7 +501,7 @@ export async function apiAddCustomCategory(label: string): Promise<{ id: string;
 // ---- shop ownership (dashboard scoping) -----------------------------------
 
 export async function apiMyShops(ownerKey: string): Promise<string[]> {
-  await ready();
+  await readyForRead();
   return store.shopsForOwner(ownerKey);
 }
 
@@ -533,7 +555,7 @@ export async function apiShopServices(shopId: string) {
     const res = await fetch(`/api/shop/${shopId}/services`);
     return res.ok ? (await res.json()).services : [];
   }
-  await ready();
+  await readyForRead();
   return store.effectiveServices(shopId);
 }
 
@@ -571,3 +593,145 @@ export async function apiDeletePricingRule(shopId: string, ruleId: string): Prom
   await ready();
   store.deletePricingRule(shopId, ruleId);
 }
+
+// ---- team (staff) & locations ---------------------------------------------
+
+export async function apiShopStaff(shopId: string): Promise<StaffMember[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/staff`);
+    return res.ok ? (await res.json()).staff : [];
+  }
+  await readyForRead();
+  return store.effectiveStaff(shopId);
+}
+
+export async function apiAddStaff(
+  shopId: string,
+  input: { name: string; role: string; tier?: 'senior' | 'stylist'; locationId?: string },
+): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/staff`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return;
+  }
+  await ready();
+  store.addStaff(shopId, input);
+}
+
+export async function apiPatchStaff(shopId: string, staffId: string, patch: Partial<StaffMember>): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/staff/${staffId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    return;
+  }
+  await ready();
+  store.patchStaff(shopId, staffId, patch);
+}
+
+export async function apiArchiveStaff(shopId: string, staffId: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/staff/${staffId}`, { method: 'DELETE' });
+    return res.ok;
+  }
+  await ready();
+  try {
+    store.archiveStaff(shopId, staffId);
+    return true;
+  } catch {
+    return false; // last team member — refuse rather than empty the calendar
+  }
+}
+
+export async function apiLocations(shopId: string): Promise<ShopLocation[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/locations`);
+    return res.ok ? (await res.json()).locations : [];
+  }
+  await readyForRead();
+  return store.shopLocations(shopId);
+}
+
+export async function apiAddLocation(shopId: string, input: Omit<ShopLocation, 'id'>): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/locations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return;
+  }
+  await ready();
+  store.addLocation(shopId, input);
+}
+
+export async function apiPatchLocation(shopId: string, locationId: string, patch: Partial<ShopLocation>): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/locations/${locationId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    return;
+  }
+  await ready();
+  store.patchLocation(shopId, locationId, patch);
+}
+
+export async function apiDeleteLocation(shopId: string, locationId: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/locations/${locationId}`, { method: 'DELETE' });
+    return res.ok;
+  }
+  await ready();
+  try {
+    store.deleteLocation(shopId, locationId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---- HR --------------------------------------------------------------------
+
+export async function apiHrOverview(shopId: string, from: string, to: string): Promise<HrRow[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/hr?from=${from}&to=${to}`);
+    return res.ok ? (await res.json()).rows : [];
+  }
+  await readyForRead();
+  return store.hrOverview(shopId, from, to);
+}
+
+export async function apiAddAbsence(
+  shopId: string,
+  staffId: string,
+  input: { from: string; to: string; kind: AbsenceKind; note?: string },
+): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/staff/${staffId}/absences`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return;
+  }
+  await ready();
+  store.addAbsence(staffId, input);
+}
+
+export async function apiDeleteAbsence(shopId: string, staffId: string, absenceId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/staff/${staffId}/absences/${absenceId}`, { method: 'DELETE' });
+    return;
+  }
+  await ready();
+  store.deleteAbsence(staffId, absenceId);
+}
+
+export type { HrRow, Absence, AbsenceKind };

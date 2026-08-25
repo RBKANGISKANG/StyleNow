@@ -97,6 +97,42 @@ export interface WaitlistEntry {
   createdAt: number;
 }
 
+export interface ShopLocation {
+  id: string;
+  label: string;
+  street: string;
+  zip: string;
+  city: string;
+  district: string;
+}
+
+/** Same shape as the seed staff, plus location and the HR record. */
+export interface StaffMember {
+  id: string;
+  name: string;
+  role: { en: string; de: string };
+  tier: 'senior' | 'stylist';
+  shifts: Partial<Record<number, Array<{ startMin: number; endMin: number }>>>;
+  locationId?: string;
+  // HR
+  email?: string;
+  phone?: string;
+  employedSince?: string; // YYYY-MM-DD
+  weeklyHours?: number;   // contracted hours per week
+  notes?: string;
+}
+
+export type AbsenceKind = 'vacation' | 'sick' | 'training' | 'other';
+
+export interface Absence {
+  id: string;
+  staffId: string;
+  from: string; // YYYY-MM-DD inclusive
+  to: string;   // YYYY-MM-DD inclusive
+  kind: AbsenceKind;
+  note?: string;
+}
+
 export interface ShopApplication {
   id: string;
   deviceId: string;
@@ -119,6 +155,11 @@ interface State {
   archivedServices: Set<string>; // services are archived, never dropped (old receipts must render)
   customRules: Map<string, PricingRule[]>; // shopId → rules the shop authored
   deletedRules: Set<string>;
+  customStaff: Map<string, StaffMember[]>; // shopId → team members the shop added
+  staffOverrides: Map<string, Partial<StaffMember>>; // edits to any team member
+  archivedStaff: Set<string>;
+  shopLocations: Map<string, ShopLocation[]>; // shopId → branches (Standorte)
+  absences: Map<string, Absence[]>; // staffId → holiday / sick / training
   seq: number;
 }
 
@@ -140,6 +181,11 @@ const state: State =
     archivedServices: new Set(),
     customRules: new Map(),
     deletedRules: new Set(),
+    customStaff: new Map(),
+    staffOverrides: new Map(),
+    archivedStaff: new Set(),
+    shopLocations: new Map(),
+    absences: new Map(),
     seq: 1,
   });
 
@@ -157,7 +203,11 @@ export function setLocalPersistence(on: boolean): void {
   persistenceEnabled = IS_BROWSER && on;
 }
 
+/** Bumped on every mutation so the derived-view caches below can invalidate. */
+let stateVersion = 0;
+
 function persist(): void {
+  stateVersion += 1;
   if (!persistenceEnabled) return;
   try {
     localStorage.setItem(
@@ -175,6 +225,11 @@ function persist(): void {
         archivedServices: [...state.archivedServices],
         customRules: [...state.customRules.entries()],
         deletedRules: [...state.deletedRules],
+        customStaff: [...state.customStaff.entries()],
+        staffOverrides: [...state.staffOverrides.entries()],
+        archivedStaff: [...state.archivedStaff],
+        shopLocations: [...state.shopLocations.entries()],
+        absences: [...state.absences.entries()],
         seq: state.seq,
       }),
     );
@@ -200,6 +255,11 @@ if (IS_BROWSER && state.bookings.size === 0) {
         archivedServices?: string[];
         customRules?: Array<[string, PricingRule[]]>;
         deletedRules?: string[];
+        customStaff?: Array<[string, StaffMember[]]>;
+        staffOverrides?: Array<[string, Partial<StaffMember>]>;
+        archivedStaff?: string[];
+        shopLocations?: Array<[string, ShopLocation[]]>;
+        absences?: Array<[string, Absence[]]>;
         seq: number;
       };
       state.bookings = new Map(d.bookings.map((b) => [b.id, b]));
@@ -214,6 +274,11 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.archivedServices = new Set(d.archivedServices ?? []);
       state.customRules = new Map(d.customRules ?? []);
       state.deletedRules = new Set(d.deletedRules ?? []);
+      state.customStaff = new Map(d.customStaff ?? []);
+      state.staffOverrides = new Map(d.staffOverrides ?? []);
+      state.archivedStaff = new Set(d.archivedStaff ?? []);
+      state.shopLocations = new Map(d.shopLocations ?? []);
+      state.absences = new Map(d.absences ?? []);
       state.seq = d.seq ?? state.bookings.size + 1;
     }
   } catch {
@@ -234,6 +299,7 @@ export function applyExternalState(snapshot: {
   state.serviceOverrides = new Map(snapshot.serviceOverrides);
   if (snapshot.shopLogos) state.shopLogos = new Map(snapshot.shopLogos);
   if (snapshot.customCategories) state.customCategories = new Map(snapshot.customCategories);
+  stateVersion += 1;
   state.seq = Math.max(state.seq, state.bookings.size + 1);
 }
 
@@ -316,22 +382,158 @@ export function serviceOf(shop: SeedShop, serviceId: string): SeedService | unde
 }
 
 /** Seed menu + services the shop added, minus archived, with edits applied. */
-export function effectiveServices(shopId: string): SeedService[] {
+export const effectiveServices = memoByShop(function effectiveServicesUncached(shopId: string): SeedService[] {
   const shop = shopById(shopId);
   if (!shop) return [];
   return [...shop.services, ...(state.customServices.get(shopId) ?? [])]
     .filter((s) => !state.archivedServices.has(s.id))
     .map((s) => ({ categoryId: shop.category, ...s, ...(state.serviceOverrides.get(s.id) ?? {}) }));
+});
+
+/**
+ * Derived views (team, menu, rules, branches) are read inside the slot
+ * projection's hot loops — once per staff member per day per shop. Rebuilding
+ * them every call made the discovery feed take seconds, so they are memoised
+ * and invalidated by `stateVersion`.
+ */
+function memoByShop<T>(fn: (shopId: string) => T): (shopId: string) => T {
+  const cache = new Map<string, { v: number; val: T }>();
+  return (shopId: string) => {
+    const hit = cache.get(shopId);
+    if (hit && hit.v === stateVersion) return hit.val;
+    const val = fn(shopId);
+    cache.set(shopId, { v: stateVersion, val });
+    return val;
+  };
+}
+
+/** Seed team + members the shop added, minus archived, with edits applied. */
+export const effectiveStaff = memoByShop(function effectiveStaffUncached(shopId: string): StaffMember[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const seed: StaffMember[] = shop.staff.map((s) => ({
+    id: s.id,
+    name: s.name,
+    role: s.role,
+    tier: s.tier,
+    shifts: s.shifts,
+  }));
+  return [...seed, ...(state.customStaff.get(shopId) ?? [])]
+    .filter((s) => !state.archivedStaff.has(s.id))
+    .map((s) => ({ ...s, ...(state.staffOverrides.get(s.id) ?? {}) }));
+});
+
+export function addStaff(
+  shopId: string,
+  input: { name: string; role: string; tier?: 'senior' | 'stylist'; locationId?: string },
+): StaffMember {
+  const member: StaffMember = {
+    id: `st-custom-${state.seq++}-${Date.now().toString(36)}`,
+    name: input.name,
+    role: { en: input.role, de: input.role },
+    tier: input.tier ?? 'stylist',
+    locationId: input.locationId,
+    // Mon–Fri 09:00–18:00 by default; editable per person.
+    shifts: Object.fromEntries([1, 2, 3, 4, 5].map((d) => [d, [{ startMin: 9 * 60, endMin: 18 * 60 }]])),
+  };
+  state.customStaff.set(shopId, [...(state.customStaff.get(shopId) ?? []), member]);
+  persist();
+  return member;
+}
+
+export function patchStaff(shopId: string, staffId: string, patch: Partial<StaffMember>): void {
+  if (!effectiveStaff(shopId).some((s) => s.id === staffId)) throw new Error('not_found');
+  state.staffOverrides.set(staffId, { ...(state.staffOverrides.get(staffId) ?? {}), ...patch });
+  persist();
+}
+
+/** Archive: their past bookings must still render with a name. */
+export function archiveStaff(shopId: string, staffId: string): void {
+  if (effectiveStaff(shopId).length <= 1) throw new Error('last_staff');
+  state.archivedStaff.add(staffId);
+  persist();
+}
+
+// --- absences: holiday / sick leave / training ------------------------------
+//
+// An absence removes the person's working windows for those days entirely, so
+// the slot projection can never offer a time while they are away — the same
+// path the customer feed, the checkout and the dashboard all read from.
+
+export function absencesFor(staffId: string): Absence[] {
+  return [...(state.absences.get(staffId) ?? [])].sort((a, b) => (a.from < b.from ? -1 : 1));
+}
+
+export function isAbsent(staffId: string, isoDate: string): boolean {
+  return (state.absences.get(staffId) ?? []).some((a) => isoDate >= a.from && isoDate <= a.to);
+}
+
+export function addAbsence(staffId: string, input: Omit<Absence, 'id' | 'staffId'>): Absence {
+  const absence: Absence = { ...input, id: `abs-${state.seq++}-${Date.now().toString(36)}`, staffId };
+  state.absences.set(staffId, [...(state.absences.get(staffId) ?? []), absence]);
+  persist();
+  return absence;
+}
+
+export function deleteAbsence(staffId: string, absenceId: string): void {
+  state.absences.set(staffId, (state.absences.get(staffId) ?? []).filter((a) => a.id !== absenceId));
+  persist();
+}
+
+// --- locations (Standorte) -------------------------------------------------
+
+export const shopLocations = memoByShop(function shopLocationsUncached(shopId: string): ShopLocation[] {
+  const stored = state.shopLocations.get(shopId);
+  if (stored && stored.length) return stored;
+  // Derive the first branch from the seed address so the list is never empty.
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const [street = shop.address, rest = ''] = shop.address.split(',').map((x) => x.trim());
+  const [zip = '', ...cityParts] = rest.split(' ');
+  return [
+    {
+      id: `loc-${shopId}-main`,
+      label: shop.name,
+      street,
+      zip,
+      city: cityParts.join(' ') || 'Berlin',
+      district: shop.district,
+    },
+  ];
+});
+
+export function addLocation(shopId: string, input: Omit<ShopLocation, 'id'>): ShopLocation {
+  const loc: ShopLocation = { ...input, id: `loc-${state.seq++}-${Date.now().toString(36)}` };
+  state.shopLocations.set(shopId, [...shopLocations(shopId), loc]);
+  persist();
+  return loc;
+}
+
+export function patchLocation(shopId: string, locationId: string, patch: Partial<ShopLocation>): void {
+  const list = shopLocations(shopId).map((l) => (l.id === locationId ? { ...l, ...patch, id: l.id } : l));
+  state.shopLocations.set(shopId, list);
+  persist();
+}
+
+export function deleteLocation(shopId: string, locationId: string): void {
+  const list = shopLocations(shopId);
+  if (list.length <= 1) throw new Error('last_location');
+  state.shopLocations.set(shopId, list.filter((l) => l.id !== locationId));
+  // Staff attached to a removed branch fall back to the first one.
+  for (const st of effectiveStaff(shopId)) {
+    if (st.locationId === locationId) patchStaff(shopId, st.id, { locationId: undefined });
+  }
+  persist();
 }
 
 /** Seed rules + rules the shop authored, minus deleted. */
-export function effectiveRules(shopId: string): PricingRule[] {
+export const effectiveRules = memoByShop(function effectiveRulesUncached(shopId: string): PricingRule[] {
   const shop = shopById(shopId);
   if (!shop) return [];
   return [...shop.pricingRules, ...(state.customRules.get(shopId) ?? [])].filter(
     (r) => !state.deletedRules.has(r.id),
   );
-}
+});
 
 export function activeRules(shop: SeedShop) {
   return effectiveRules(shop.id).filter((r) => !state.ruleDisabled.has(r.id));
@@ -436,8 +638,19 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+const seedBusyCache = new Map<string, { v: number; val: Interval[] }>();
+
 /** Pseudo walk-ins blocking parts of each staff member's day. */
 export function seedBusy(staffId: string, isoDate: string, windows: Interval[]): Interval[] {
+  const key = `${staffId}:${isoDate}:${windows.map((w) => `${w.start}-${w.end}`).join(',')}`;
+  const hit = seedBusyCache.get(key);
+  if (hit && hit.v === stateVersion) return hit.val;
+  const val = seedBusyUncached(staffId, isoDate, windows);
+  seedBusyCache.set(key, { v: stateVersion, val });
+  return val;
+}
+
+function seedBusyUncached(staffId: string, isoDate: string, windows: Interval[]): Interval[] {
   const rand = mulberry32(hash(`${staffId}:${isoDate}`));
   const busy: Interval[] = [];
   for (const w of windows) {
@@ -479,8 +692,9 @@ function liveBusy(staffId: string, day: Interval, now: number, excludeBookingId?
 }
 
 function staffWindows(shop: SeedShop, staffId: string, isoDate: string): Interval[] {
-  const staff = shop.staff.find((s) => s.id === staffId);
+  const staff = effectiveStaff(shop.id).find((s) => s.id === staffId);
   if (!staff) return [];
+  if (isAbsent(staffId, isoDate)) return []; // on holiday / sick / training
   const start = dayStart(isoDate);
   const dow = isoDow(start + 12 * 60 * MIN);
   return (staff.shifts[dow] ?? []).map((w) => ({
@@ -505,11 +719,27 @@ function staffDayOf(
   };
 }
 
-/** 0–100: how much of the shop's working time that day is already taken. */
+const occupancyCache = new Map<string, { v: number; val: number }>();
+
+/**
+ * 0–100: how much of the shop's working time that day is already taken.
+ * Cached per shop-day (and per minute, since expired holds free seats over
+ * time): the pricing engine asks for it once per slot, and computing it walks
+ * every stylist's whole day.
+ */
 function occupancyPct(shop: SeedShop, isoDate: string, now: number): number {
+  const key = `${shop.id}:${isoDate}:${Math.floor(now / 60_000)}`;
+  const hit = occupancyCache.get(key);
+  if (hit && hit.v === stateVersion) return hit.val;
+  const val = occupancyPctUncached(shop, isoDate, now);
+  occupancyCache.set(key, { v: stateVersion, val });
+  return val;
+}
+
+function occupancyPctUncached(shop: SeedShop, isoDate: string, now: number): number {
   let work = 0;
   let busy = 0;
-  for (const st of shop.staff) {
+  for (const st of effectiveStaff(shop.id)) {
     const day = staffDayOf(shop, st.id, isoDate, now);
     for (const w of day.working) work += w.end - w.start;
     for (const b of mergeIntervals(day.busy)) busy += b.end - b.start;
@@ -606,6 +836,40 @@ export interface ApiSlot {
   appliedNames: string[];
 }
 
+/**
+ * Raw slot projection — no pricing. The discovery feed only needs to know
+ * *when* the next free slot is, and pricing every slot of every shop to answer
+ * that dominated the cold feed (seconds). Pricing stays in `availability()`,
+ * which the booking UI uses.
+ */
+function projectSlots(
+  shopId: string,
+  serviceIds: string[],
+  isoDate: string,
+  staffId?: string | null,
+): { slots: Array<{ start: number; end: number; staffIds: string[]; suggestedStaffId: string }>; timing: ServiceTiming } {
+  const shop = shopById(shopId);
+  if (!shop) throw new Error('shop_not_found');
+  const services = serviceIds
+    .map((id) => serviceOf(shop, id))
+    .filter((s): s is SeedService => Boolean(s));
+  if (services.length === 0) throw new Error('service_not_found');
+
+  const now = Date.now();
+  const timing = aggregate(services);
+  const team = effectiveStaff(shopId);
+  const staffPool = staffId ? team.filter((s) => s.id === staffId) : team;
+
+  const loadByStaff: Record<string, number> = {};
+  const perStaff = staffPool.flatMap((st) => {
+    const day = staffDayOf(shop, st.id, isoDate, now);
+    loadByStaff[st.id] = day.busy.length;
+    return slotsForStaff(day, timing, shop.rules, now);
+  });
+
+  return { slots: aggregateSlots(perStaff, loadByStaff), timing };
+}
+
 export function availability(
   shopId: string,
   serviceIds: string[],
@@ -622,7 +886,8 @@ export function availability(
 
   const now = Date.now();
   const timing = aggregate(services);
-  const staffPool = staffId ? shop.staff.filter((s) => s.id === staffId) : shop.staff;
+  const team = effectiveStaff(shopId);
+  const staffPool = staffId ? team.filter((s) => s.id === staffId) : team;
 
   const loadByStaff: Record<string, number> = {};
   const perStaff = staffPool.flatMap((st) => {
@@ -632,7 +897,7 @@ export function availability(
   });
 
   const slots = aggregateSlots(perStaff, loadByStaff).map((s) => {
-    const tier = shop.staff.find((st) => st.id === s.suggestedStaffId)?.tier ?? 'stylist';
+    const tier = effectiveStaff(shopId).find((st) => st.id === s.suggestedStaffId)?.tier ?? 'stylist';
     const q = priceBasket(shop, services, s.start, now, deviceId, tier);
     return {
       ...s,
@@ -645,11 +910,23 @@ export function availability(
   return { slots, timing };
 }
 
+const firstSlotCache = new Map<string, { v: number; val: number | null }>();
+
+/** The discovery feed asks this for every shop; cache it per minute. */
 function minutesToFirstSlot(shop: SeedShop, now: number): number | null {
+  const key = `${shop.id}:${Math.floor(now / 60_000)}`;
+  const hit = firstSlotCache.get(key);
+  if (hit && hit.v === stateVersion) return hit.val;
+  const val = minutesToFirstSlotUncached(shop, now);
+  firstSlotCache.set(key, { v: stateVersion, val });
+  return val;
+}
+
+function minutesToFirstSlotUncached(shop: SeedShop, now: number): number | null {
   const svc = shop.services.find((s) => s.popular) ?? shop.services[0];
   for (let d = 0; d < 7; d++) {
     const iso = addDays(todayIso(), d);
-    const { slots } = availability(shop.id, [svc.id], iso, '__probe__');
+    const { slots } = projectSlots(shop.id, [svc.id], iso);
     const first = slots.find((s) => s.start > now);
     if (first) return Math.round((first.start - now) / MIN);
   }
@@ -875,7 +1152,7 @@ export function createHold(input: HoldInput): HoldResult {
     throw new SlotTaken(alternatives);
   }
 
-  const tier = shop.staff.find((s) => s.id === staffId)?.tier ?? 'stylist';
+  const tier = effectiveStaff(input.shopId).find((s) => s.id === staffId)?.tier ?? 'stylist';
   const q = priceBasket(shop, services, input.startsAt, now, input.deviceId, tier);
   const travelFeeCents = shop.isMobile ? 1500 : 0;
 
@@ -1101,7 +1378,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
   const dEnd = dStart + 24 * 60 * MIN;
   const dayInterval: Interval = { start: dStart, end: dEnd };
 
-  const staffRows = shop.staff.map((st) => {
+  const staffRows = effectiveStaff(shopId).map((st) => {
     const working = staffWindows(shop, st.id, isoDate);
     const blocks: CalendarBlock[] = seedBusy(st.id, isoDate, working).map((b) => ({
       kind: 'walk_in',
@@ -1124,7 +1401,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       });
     }
     blocks.sort((a, b) => a.start - b.start);
-    return { staffId: st.id, name: st.name, role: st.role, working, blocks };
+    return { staffId: st.id, name: st.name, role: st.role, tier: st.tier, locationId: st.locationId ?? null, shifts: st.shifts, working, blocks };
   });
 
   const todaysBookings = [...state.bookings.values()]
@@ -1159,6 +1436,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       pricingRules: effectiveRules(shop.id).map((r) => ({ ...r, enabled: !state.ruleDisabled.has(r.id) })),
       depositPercent: shop.depositPercent,
       policy: shop.policy,
+      locations: shopLocations(shop.id),
     },
     isoDate,
     occupancyPct: occupancyPct(shop, isoDate, now),
@@ -1172,7 +1450,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       serviceIds: b.serviceIds,
       serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
       staffId: b.staffId,
-      staffName: shop.staff.find((s) => s.id === b.staffId)?.name ?? '—',
+      staffName: effectiveStaff(shopId).find((s) => s.id === b.staffId)?.name ?? '—',
       startsAt: b.startsAt,
       endsAt: b.endsAt,
       status: b.status,
@@ -1269,7 +1547,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
         return s ? { name: s.name, emoji: s.emoji } : { name: { en: id, de: id }, emoji: '✨' };
       }),
       serviceIds: b.serviceIds,
-      staffName: shop?.staff.find((s) => s.id === b.staffId)?.name ?? null,
+      staffName: shop ? effectiveStaff(shop.id).find((s) => s.id === b.staffId)?.name ?? null : null,
       review: b.review ?? null,
       tipCents: b.tipCents ?? 0,
     };
@@ -1389,6 +1667,89 @@ export function leaveWaitlist(id: string): void {
 export interface WaitlistView extends WaitlistEntry {
   shop: { slug: string; name: string; emoji: string } | null;
   serviceNames: Array<{ en: string; de: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// HR overview — one row per employee for a date range
+// ---------------------------------------------------------------------------
+
+export interface HrRow {
+  staffId: string;
+  name: string;
+  role: { en: string; de: string };
+  tier: 'senior' | 'stylist';
+  email: string;
+  phone: string;
+  employedSince: string;
+  weeklyHours: number;
+  locationId: string | null;
+  notes: string;
+  absences: Absence[];
+  /** minutes the person is actually rostered in the range (absences removed) */
+  scheduledMin: number;
+  /** minutes taken by confirmed/completed bookings */
+  bookedMin: number;
+  bookingCount: number;
+  revenueCents: number;
+  utilisationPct: number;
+  absentDays: number;
+}
+
+export function hrOverview(shopId: string, fromIso: string, toIso: string): HrRow[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const rangeStart = dayStart(fromIso);
+  const rangeEnd = dayStart(toIso) + 24 * 60 * MIN;
+
+  // Every ISO date in the range, so rosters and absences are counted per day.
+  const dates: string[] = [];
+  for (let iso = fromIso; iso <= toIso; iso = addDays(iso, 1)) dates.push(iso);
+
+  return effectiveStaff(shopId).map((st) => {
+    let scheduledMin = 0;
+    let absentDays = 0;
+    for (const iso of dates) {
+      if (isAbsent(st.id, iso)) {
+        // Only count it as an absence day if the person would have worked.
+        const dow = isoDow(dayStart(iso) + 12 * 60 * MIN);
+        if ((st.shifts[dow] ?? []).length) absentDays += 1;
+        continue;
+      }
+      for (const w of staffWindows(shop, st.id, iso)) scheduledMin += (w.end - w.start) / MIN;
+    }
+
+    let bookedMin = 0;
+    let bookingCount = 0;
+    let revenueCents = 0;
+    for (const b of state.bookings.values()) {
+      if (b.shopId !== shopId || b.staffId !== st.id) continue;
+      if (!['confirmed', 'completed'].includes(b.status)) continue;
+      if (b.startsAt < rangeStart || b.startsAt >= rangeEnd) continue;
+      bookedMin += (b.endsAt - b.startsAt) / MIN;
+      bookingCount += 1;
+      revenueCents += b.quote.totalCents;
+    }
+
+    return {
+      staffId: st.id,
+      name: st.name,
+      role: st.role,
+      tier: st.tier,
+      email: st.email ?? '',
+      phone: st.phone ?? '',
+      employedSince: st.employedSince ?? '',
+      weeklyHours: st.weeklyHours ?? 0,
+      locationId: st.locationId ?? null,
+      notes: st.notes ?? '',
+      absences: absencesFor(st.id),
+      scheduledMin: Math.round(scheduledMin),
+      bookedMin: Math.round(bookedMin),
+      bookingCount,
+      revenueCents,
+      utilisationPct: scheduledMin > 0 ? Math.round((bookedMin / scheduledMin) * 100) : 0,
+      absentDays,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

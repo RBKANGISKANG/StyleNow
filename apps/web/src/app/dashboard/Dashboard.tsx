@@ -23,6 +23,17 @@ import {
   apiArchiveService,
   apiAddPricingRule,
   apiDeletePricingRule,
+  apiAddStaff,
+  apiPatchStaff,
+  apiArchiveStaff,
+  apiAddLocation,
+  apiPatchLocation,
+  apiDeleteLocation,
+  apiHrOverview,
+  apiAddAbsence,
+  apiDeleteAbsence,
+  type HrRow,
+  type AbsenceKind,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { deviceId } from '@/lib/device';
@@ -68,6 +79,7 @@ interface Overview {
       categoryId?: string;
     }>;
     pricingRules: Array<{ id: string; name: string; enabled: boolean }>;
+    locations: Array<{ id: string; label: string; street: string; zip: string; city: string; district: string }>;
   };
   isoDate: string;
   occupancyPct: number;
@@ -77,6 +89,9 @@ interface Overview {
     staffId: string;
     name: string;
     role: { en: string; de: string };
+    tier: 'senior' | 'stylist';
+    locationId: string | null;
+    shifts: Partial<Record<number, Array<{ startMin: number; endMin: number }>>>;
     working: Array<{ start: number; end: number }>;
     blocks: Array<{
       kind: 'booking' | 'walk_in';
@@ -470,6 +485,43 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
           <section className="section">
             <h2>{t('revenue_7d')}</h2>
             <RevenueChart data={data.week} />
+          </section>
+
+          <section className="section">
+            <h2>👥 {t('team_title')}</h2>
+            <TeamManager
+              shopId={shopId}
+              rows={data.staffRows}
+              locations={data.shop.locations}
+              onChanged={(msg) => {
+                setToast(msg);
+                void load();
+              }}
+            />
+          </section>
+
+          <section className="section">
+            <h2>🧾 {t('hr_title')}</h2>
+            <HrPanel
+              shopId={shopId}
+              locations={data.shop.locations}
+              onChanged={(msg) => {
+                setToast(msg);
+                void load();
+              }}
+            />
+          </section>
+
+          <section className="section">
+            <h2>📍 {t('loc_title')}</h2>
+            <LocationManager
+              shopId={shopId}
+              locations={data.shop.locations}
+              onChanged={(msg) => {
+                setToast(msg);
+                void load();
+              }}
+            />
           </section>
 
           <section className="section">
@@ -1102,6 +1154,576 @@ function AddRule({ shopId, onAdded }: { shopId: string; onAdded: () => void }) {
           {t('rule_save')}
         </button>
       </div>
+    </div>
+  );
+}
+
+const WEEK = [1, 2, 3, 4, 5, 6, 7];
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+const toMin = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
+
+function TeamManager({
+  shopId,
+  rows,
+  locations,
+  onChanged,
+}: {
+  shopId: string;
+  rows: Overview['staffRows'];
+  locations: Overview['shop']['locations'];
+  onChanged: (msg: string) => void;
+}) {
+  const { t, lang } = useI18n();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [tier, setTier] = useState<'senior' | 'stylist'>('stylist');
+  const [locationId, setLocationId] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <div className="panel">
+      {err && <div className="alert" style={{ marginBottom: 10 }}>{err}</div>}
+      {rows.map((r) => (
+        <div key={r.staffId} className="team-row">
+          <div className="avatar" style={{ background: 'var(--violet)', margin: 0, width: 40, height: 40, fontSize: '1rem' }}>
+            {r.name[0]?.toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <input
+              className="input"
+              style={{ fontWeight: 700, padding: '7px 12px' }}
+              defaultValue={r.name}
+              key={`n-${r.staffId}-${r.name}`}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== r.name) void apiPatchStaff(shopId, r.staffId, { name: v }).then(() => onChanged('💾 ' + t('team_saved')));
+              }}
+            />
+            <input
+              className="input"
+              style={{ marginTop: 5, padding: '6px 12px', fontSize: '0.8rem' }}
+              defaultValue={r.role[lang]}
+              key={`r-${r.staffId}-${r.role.en}`}
+              placeholder={t('team_role')}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== r.role[lang]) {
+                  void apiPatchStaff(shopId, r.staffId, { role: { en: v, de: v } }).then(() => onChanged('💾 ' + t('team_saved')));
+                }
+              }}
+            />
+          </div>
+          <label className="chip">
+            {t('team_tier')}
+            <select
+              value={r.tier}
+              onChange={(e) => void apiPatchStaff(shopId, r.staffId, { tier: e.target.value as 'senior' | 'stylist' }).then(() => onChanged('💾 ' + t('team_saved')))}
+            >
+              <option value="senior">{t('team_senior')}</option>
+              <option value="stylist">{t('team_stylist')}</option>
+            </select>
+          </label>
+          <label className="chip">
+            📍
+            <select
+              value={r.locationId ?? ''}
+              onChange={(e) => void apiPatchStaff(shopId, r.staffId, { locationId: e.target.value || undefined }).then(() => onChanged('💾 ' + t('team_saved')))}
+            >
+              <option value="">—</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>{l.label}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-soft sm" onClick={() => setEditing(editing === r.staffId ? null : r.staffId)}>
+            🕘 {t('team_hours')}
+          </button>
+          <button
+            className="btn btn-ghost sm"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => {
+              void apiArchiveStaff(shopId, r.staffId).then((ok) => {
+                if (ok) onChanged('🗑 ' + t('team_removed'));
+                else setErr(t('team_last'));
+              });
+            }}
+          >
+            {t('team_remove')}
+          </button>
+          {editing === r.staffId && (
+            <div className="team-hours">
+              {WEEK.map((d) => {
+                const shift = r.shifts[d]?.[0];
+                const dayName = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { weekday: 'short' }).format(
+                  new Date(Date.UTC(2024, 0, d)),
+                );
+                return (
+                  <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                    <span style={{ width: 40, fontWeight: 700, fontSize: '0.8rem' }}>{dayName}</span>
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(shift)}
+                        onChange={(e) => {
+                          const shifts = { ...r.shifts };
+                          if (e.target.checked) shifts[d] = [{ startMin: 9 * 60, endMin: 18 * 60 }];
+                          else delete shifts[d];
+                          void apiPatchStaff(shopId, r.staffId, { shifts }).then(() => onChanged('💾 ' + t('team_saved')));
+                        }}
+                      />
+                      <span className="knob" />
+                    </label>
+                    {shift ? (
+                      <>
+                        <input
+                          className="input"
+                          style={{ width: 108, padding: '6px 10px' }}
+                          type="time"
+                          defaultValue={hhmm(shift.startMin)}
+                          key={`s-${r.staffId}-${d}-${shift.startMin}`}
+                          onBlur={(e) => {
+                            const shifts = { ...r.shifts, [d]: [{ startMin: toMin(e.target.value), endMin: shift.endMin }] };
+                            void apiPatchStaff(shopId, r.staffId, { shifts }).then(() => onChanged('💾 ' + t('team_saved')));
+                          }}
+                        />
+                        –
+                        <input
+                          className="input"
+                          style={{ width: 108, padding: '6px 10px' }}
+                          type="time"
+                          defaultValue={hhmm(shift.endMin)}
+                          key={`e-${r.staffId}-${d}-${shift.endMin}`}
+                          onBlur={(e) => {
+                            const shifts = { ...r.shifts, [d]: [{ startMin: shift.startMin, endMin: toMin(e.target.value) }] };
+                            void apiPatchStaff(shopId, r.staffId, { shifts }).then(() => onChanged('💾 ' + t('team_saved')));
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--ink-soft)', fontSize: '0.82rem' }}>{t('p_closed')}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {adding ? (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={`${t('team_name')} *`} value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input" style={{ flex: 1, minWidth: 160 }} placeholder={t('team_role')} value={role} onChange={(e) => setRole(e.target.value)} />
+          <label className="chip">
+            {t('team_tier')}
+            <select value={tier} onChange={(e) => setTier(e.target.value as 'senior' | 'stylist')}>
+              <option value="stylist">{t('team_stylist')}</option>
+              <option value="senior">{t('team_senior')}</option>
+            </select>
+          </label>
+          <label className="chip">
+            📍
+            <select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+              <option value="">—</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>{l.label}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-ghost sm" onClick={() => setAdding(false)}>✕</button>
+          <button
+            className="btn btn-primary sm"
+            disabled={!name.trim()}
+            onClick={() => {
+              void apiAddStaff(shopId, {
+                name: name.trim(),
+                role: role.trim() || 'Stylist',
+                tier,
+                locationId: locationId || undefined,
+              }).then(() => {
+                setName('');
+                setRole('');
+                setAdding(false);
+                onChanged('✅ ' + t('team_added'));
+              });
+            }}
+          >
+            {t('team_add')}
+          </button>
+        </div>
+      ) : (
+        <button className="btn btn-soft sm" style={{ marginTop: 12 }} onClick={() => setAdding(true)}>
+          {t('team_add')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function LocationManager({
+  shopId,
+  locations,
+  onChanged,
+}: {
+  shopId: string;
+  locations: Overview['shop']['locations'];
+  onChanged: (msg: string) => void;
+}) {
+  const { t } = useI18n();
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ label: '', street: '', zip: '', city: 'Berlin', district: '' });
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <div className="panel">
+      {err && <div className="alert" style={{ marginBottom: 10 }}>{err}</div>}
+      {locations.map((l) => (
+        <div key={l.id} className="loc-row">
+          <input
+            className="input"
+            style={{ flex: 1, minWidth: 150, fontWeight: 700 }}
+            defaultValue={l.label}
+            key={`l-${l.id}-${l.label}`}
+            placeholder={t('loc_label')}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== l.label) void apiPatchLocation(shopId, l.id, { label: v }).then(() => onChanged('💾 ' + t('team_saved')));
+            }}
+          />
+          <input
+            className="input"
+            style={{ flex: 2, minWidth: 170 }}
+            defaultValue={l.street}
+            key={`s-${l.id}-${l.street}`}
+            placeholder={t('loc_street')}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== l.street) void apiPatchLocation(shopId, l.id, { street: v }).then(() => onChanged('💾 ' + t('team_saved')));
+            }}
+          />
+          <input
+            className="input"
+            style={{ width: 100 }}
+            defaultValue={l.zip}
+            key={`z-${l.id}-${l.zip}`}
+            placeholder={t('loc_zip')}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== l.zip) void apiPatchLocation(shopId, l.id, { zip: v }).then(() => onChanged('💾 ' + t('team_saved')));
+            }}
+          />
+          <input
+            className="input"
+            style={{ width: 140 }}
+            defaultValue={l.city}
+            key={`c-${l.id}-${l.city}`}
+            placeholder={t('loc_city')}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== l.city) void apiPatchLocation(shopId, l.id, { city: v }).then(() => onChanged('💾 ' + t('team_saved')));
+            }}
+          />
+          <button
+            className="btn btn-ghost sm"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => {
+              void apiDeleteLocation(shopId, l.id).then((ok) => {
+                if (ok) onChanged('🗑 ' + t('loc_removed'));
+                else setErr(t('loc_last'));
+              });
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="loc-row" style={{ marginTop: 10 }}>
+          <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={`${t('loc_label')} *`} value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+          <input className="input" style={{ flex: 2, minWidth: 160 }} placeholder={`${t('loc_street')} *`} value={draft.street} onChange={(e) => setDraft({ ...draft, street: e.target.value })} />
+          <input className="input" style={{ width: 100 }} placeholder={t('loc_zip')} value={draft.zip} onChange={(e) => setDraft({ ...draft, zip: e.target.value })} />
+          <input className="input" style={{ width: 140 }} placeholder={`${t('loc_city')} *`} value={draft.city} onChange={(e) => setDraft({ ...draft, city: e.target.value })} />
+          <button className="btn btn-ghost sm" onClick={() => setAdding(false)}>✕</button>
+          <button
+            className="btn btn-primary sm"
+            disabled={!draft.label.trim() || !draft.street.trim() || !draft.city.trim()}
+            onClick={() => {
+              void apiAddLocation(shopId, draft).then(() => {
+                setDraft({ label: '', street: '', zip: '', city: draft.city, district: '' });
+                setAdding(false);
+                onChanged('✅ ' + t('loc_added'));
+              });
+            }}
+          >
+            {t('loc_add')}
+          </button>
+        </div>
+      ) : (
+        <button className="btn btn-soft sm" style={{ marginTop: 12 }} onClick={() => setAdding(true)}>
+          {t('loc_add')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const ABSENCE_KINDS: AbsenceKind[] = ['vacation', 'sick', 'training', 'other'];
+
+function HrPanel({
+  shopId,
+  locations,
+  onChanged,
+}: {
+  shopId: string;
+  locations: Overview['shop']['locations'];
+  onChanged: (msg: string) => void;
+}) {
+  const { t, lang } = useI18n();
+  const [period, setPeriod] = useState<'week' | 'month' | 'next30'>('week');
+  const [rows, setRows] = useState<HrRow[] | null>(null);
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ from: string; to: string; kind: AbsenceKind; note: string }>({
+    from: todayIso(),
+    to: todayIso(),
+    kind: 'vacation',
+    note: '',
+  });
+
+  const range = useMemo(() => {
+    const today = todayIso();
+    if (period === 'next30') return { from: today, to: addDays(today, 29) };
+    if (period === 'month') return { from: `${today.slice(0, 8)}01`, to: addDays(`${today.slice(0, 8)}01`, 30) };
+    // this week: Monday → Sunday
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay() || 7;
+    const monday = addDays(today, 1 - dow);
+    return { from: monday, to: addDays(monday, 6) };
+  }, [period]);
+
+  const load = useCallback(() => {
+    void apiHrOverview(shopId, range.from, range.to).then(setRows);
+  }, [shopId, range.from, range.to]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const hours = (min: number) => `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} m` : ''}`;
+  const kindLabel = (k: AbsenceKind) => t(`hr_${k}` as MsgKey);
+
+  return (
+    <div className="panel">
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="seg">
+          {(['week', 'month', 'next30'] as const).map((p) => (
+            <button key={p} className={period === p ? 'on' : ''} onClick={() => setPeriod(p)}>
+              {p === 'week' ? t('hr_this_week') : p === 'month' ? t('hr_this_month') : t('hr_next_month')}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontSize: '0.76rem', color: 'var(--ink-soft)' }}>
+          {range.from} → {range.to}
+        </span>
+      </div>
+      <p style={{ fontSize: '0.76rem', color: 'var(--ink-soft)', marginBottom: 10 }}>💡 {t('hr_hint')}</p>
+
+      {rows === null ? (
+        <div className="spinner" />
+      ) : (
+        rows.map((r) => (
+          <div key={r.staffId} className="hr-card">
+            <div className="hr-head">
+              <div className="avatar" style={{ background: 'var(--teal)', margin: 0, width: 40, height: 40, fontSize: '1rem' }}>
+                {r.name[0]?.toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 150 }}>
+                <div style={{ fontWeight: 800 }}>{r.name}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--ink-soft)' }}>
+                  {r.role[lang]} · {r.tier === 'senior' ? t('team_senior') : t('team_stylist')}
+                  {r.locationId && ` · 📍 ${locations.find((l) => l.id === r.locationId)?.label ?? ''}`}
+                </div>
+              </div>
+              <div className="hr-kpis">
+                <div className="hr-kpi">
+                  <span className="k">{t('hr_scheduled')}</span>
+                  <span className="v">{hours(r.scheduledMin)}</span>
+                </div>
+                <div className="hr-kpi">
+                  <span className="k">{t('hr_booked')}</span>
+                  <span className="v">{hours(r.bookedMin)}</span>
+                </div>
+                <div className="hr-kpi">
+                  <span className="k">{t('hr_util')}</span>
+                  <span className="v">{r.utilisationPct} %</span>
+                </div>
+                <div className="hr-kpi">
+                  <span className="k">{t('hr_revenue')}</span>
+                  <span className="v">{money(r.revenueCents, lang)}</span>
+                </div>
+                <div className="hr-kpi">
+                  <span className="k">{t('hr_absent')}</span>
+                  <span className="v">{r.absentDays}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="hr-bar">
+              <div style={{ width: `${Math.min(r.utilisationPct, 100)}%` }} />
+            </div>
+
+            <div className="hr-fields">
+              <label>
+                <span>{t('hr_contact')}</span>
+                <input
+                  className="input"
+                  defaultValue={r.email}
+                  key={`e-${r.staffId}-${r.email}`}
+                  placeholder="email@salon.de"
+                  onBlur={(e) => {
+                    if (e.target.value.trim() !== r.email) {
+                      void apiPatchStaff(shopId, r.staffId, { email: e.target.value.trim() }).then(() => onChanged('💾 ' + t('team_saved')));
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                <span>&nbsp;</span>
+                <input
+                  className="input"
+                  defaultValue={r.phone}
+                  key={`p-${r.staffId}-${r.phone}`}
+                  placeholder="+49 …"
+                  onBlur={(e) => {
+                    if (e.target.value.trim() !== r.phone) {
+                      void apiPatchStaff(shopId, r.staffId, { phone: e.target.value.trim() }).then(() => onChanged('💾 ' + t('team_saved')));
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                <span>{t('hr_since')}</span>
+                <input
+                  className="input"
+                  type="date"
+                  defaultValue={r.employedSince}
+                  key={`d-${r.staffId}-${r.employedSince}`}
+                  onBlur={(e) => {
+                    if (e.target.value !== r.employedSince) {
+                      void apiPatchStaff(shopId, r.staffId, { employedSince: e.target.value }).then(() => onChanged('💾 ' + t('team_saved')));
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                <span>{t('hr_weekly')}</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={60}
+                  defaultValue={r.weeklyHours || ''}
+                  key={`w-${r.staffId}-${r.weeklyHours}`}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value);
+                    if (v !== r.weeklyHours) {
+                      void apiPatchStaff(shopId, r.staffId, { weeklyHours: v }).then(() => onChanged('💾 ' + t('team_saved')));
+                    }
+                  }}
+                />
+              </label>
+              <label style={{ flexBasis: '100%' }}>
+                <span>{t('hr_note')}</span>
+                <input
+                  className="input"
+                  defaultValue={r.notes}
+                  key={`n-${r.staffId}-${r.notes}`}
+                  onBlur={(e) => {
+                    if (e.target.value !== r.notes) {
+                      void apiPatchStaff(shopId, r.staffId, { notes: e.target.value }).then(() => onChanged('💾 ' + t('team_saved')));
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <strong style={{ fontSize: '0.82rem' }}>🌴 {t('hr_absences')}</strong>
+              {r.absences.length === 0 ? (
+                <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0' }}>{t('hr_none')}</p>
+              ) : (
+                r.absences.map((a) => (
+                  <div key={a.id} className="hr-abs">
+                    <span className={`st-badge ${a.kind === 'sick' ? 'st-no_show' : 'st-completed'}`}>{kindLabel(a.kind)}</span>
+                    <span style={{ fontSize: '0.82rem' }}>
+                      {a.from} → {a.to}
+                      {a.note ? ` · ${a.note}` : ''}
+                    </span>
+                    <button
+                      className="btn btn-ghost sm"
+                      style={{ color: 'var(--danger)', marginLeft: 'auto' }}
+                      onClick={() => {
+                        void apiDeleteAbsence(shopId, r.staffId, a.id).then(() => {
+                          load();
+                          onChanged('🗑 ' + t('hr_absence_removed'));
+                        });
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              )}
+
+              {openFor === r.staffId ? (
+                <div className="hr-abs-form">
+                  <label className="chip">
+                    {t('hr_kind')}
+                    <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as AbsenceKind })}>
+                      {ABSENCE_KINDS.map((k) => (
+                        <option key={k} value={k}>{kindLabel(k)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="chip">
+                    {t('hr_from')}
+                    <input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }} />
+                  </label>
+                  <label className="chip">
+                    {t('hr_to')}
+                    <input type="date" value={draft.to} min={draft.from} onChange={(e) => setDraft({ ...draft, to: e.target.value })} style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }} />
+                  </label>
+                  <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t('hr_note')} value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
+                  <button className="btn btn-ghost sm" onClick={() => setOpenFor(null)}>✕</button>
+                  <button
+                    className="btn btn-primary sm"
+                    onClick={() => {
+                      void apiAddAbsence(shopId, r.staffId, {
+                        from: draft.from,
+                        to: draft.to < draft.from ? draft.from : draft.to,
+                        kind: draft.kind,
+                        note: draft.note.trim() || undefined,
+                      }).then(() => {
+                        setOpenFor(null);
+                        setDraft({ from: todayIso(), to: todayIso(), kind: 'vacation', note: '' });
+                        load();
+                        onChanged('✅ ' + t('hr_absence_added'));
+                      });
+                    }}
+                  >
+                    {t('hr_save_absence')}
+                  </button>
+                </div>
+              ) : (
+                <button className="btn btn-soft sm" style={{ marginTop: 6 }} onClick={() => setOpenFor(r.staffId)}>
+                  {t('hr_add_absence')}
+                </button>
+              )}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
