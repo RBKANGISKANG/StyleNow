@@ -36,6 +36,7 @@ interface Card {
   isMobile: boolean;
   reasons: string[];
   minutesToFirstSlot: number | null;
+  logoUrl: string | null;
 }
 
 export default function Explore() {
@@ -236,7 +237,12 @@ function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () =>
         className="shop-cover"
         style={{ background: `linear-gradient(135deg, ${card.gradient[0]}, ${card.gradient[1]})` }}
       >
-        <span>{card.emoji}</span>
+        {card.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={card.logoUrl} alt="" className="shop-logo" />
+        ) : (
+          <span>{card.emoji}</span>
+        )}
         <div className="badges">
           {card.isNew && <span className="badge amber">{t('new_badge')}</span>}
           {card.isMobile && <span className="badge teal">{t('mobile_badge')}</span>}

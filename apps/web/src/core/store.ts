@@ -21,6 +21,7 @@ import {
   evaluatePrice,
   cancellationOutcome,
   type PriceContext,
+  type PricingRule,
 } from '@stylenow/api/domain/pricing';
 import { rank, type MatchCandidate, type MatchQuery } from '@stylenow/api/domain/matching';
 import {
@@ -111,6 +112,13 @@ interface State {
   serviceOverrides: Map<string, Partial<SeedService>>;
   waitlist: Map<string, WaitlistEntry>;
   applications: Map<string, ShopApplication>;
+  shopLogos: Map<string, string>;
+  customCategories: Map<string, string>; // id → label
+  shopOwners: Map<string, string>; // shopId → ownerKey (account email or device)
+  customServices: Map<string, SeedService[]>; // shopId → services the shop added
+  archivedServices: Set<string>; // services are archived, never dropped (old receipts must render)
+  customRules: Map<string, PricingRule[]>; // shopId → rules the shop authored
+  deletedRules: Set<string>;
   seq: number;
 }
 
@@ -125,6 +133,13 @@ const state: State =
     serviceOverrides: new Map(),
     waitlist: new Map(),
     applications: new Map(),
+    shopLogos: new Map(),
+    customCategories: new Map(),
+    shopOwners: new Map(),
+    customServices: new Map(),
+    archivedServices: new Set(),
+    customRules: new Map(),
+    deletedRules: new Set(),
     seq: 1,
   });
 
@@ -153,6 +168,13 @@ function persist(): void {
         serviceOverrides: [...state.serviceOverrides.entries()],
         waitlist: [...state.waitlist.values()],
         applications: [...state.applications.values()],
+        shopLogos: [...state.shopLogos.entries()],
+        customCategories: [...state.customCategories.entries()],
+        shopOwners: [...state.shopOwners.entries()],
+        customServices: [...state.customServices.entries()],
+        archivedServices: [...state.archivedServices],
+        customRules: [...state.customRules.entries()],
+        deletedRules: [...state.deletedRules],
         seq: state.seq,
       }),
     );
@@ -171,6 +193,13 @@ if (IS_BROWSER && state.bookings.size === 0) {
         serviceOverrides: Array<[string, Partial<SeedService>]>;
         waitlist?: WaitlistEntry[];
         applications?: ShopApplication[];
+        shopLogos?: Array<[string, string]>;
+        customCategories?: Array<[string, string]>;
+        shopOwners?: Array<[string, string]>;
+        customServices?: Array<[string, SeedService[]]>;
+        archivedServices?: string[];
+        customRules?: Array<[string, PricingRule[]]>;
+        deletedRules?: string[];
         seq: number;
       };
       state.bookings = new Map(d.bookings.map((b) => [b.id, b]));
@@ -178,6 +207,13 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.serviceOverrides = new Map(d.serviceOverrides);
       state.waitlist = new Map((d.waitlist ?? []).map((w) => [w.id, w]));
       state.applications = new Map((d.applications ?? []).map((a) => [a.id, a]));
+      state.shopLogos = new Map(d.shopLogos ?? []);
+      state.customCategories = new Map(d.customCategories ?? []);
+      state.shopOwners = new Map(d.shopOwners ?? []);
+      state.customServices = new Map(d.customServices ?? []);
+      state.archivedServices = new Set(d.archivedServices ?? []);
+      state.customRules = new Map(d.customRules ?? []);
+      state.deletedRules = new Set(d.deletedRules ?? []);
       state.seq = d.seq ?? state.bookings.size + 1;
     }
   } catch {
@@ -190,11 +226,56 @@ export function applyExternalState(snapshot: {
   bookings: Booking[];
   ruleDisabled: string[];
   serviceOverrides: Array<[string, Partial<SeedService>]>;
+  shopLogos?: Array<[string, string]>;
+  customCategories?: Array<[string, string]>;
 }): void {
   state.bookings = new Map(snapshot.bookings.map((b) => [b.id, b]));
   state.ruleDisabled = new Set(snapshot.ruleDisabled);
   state.serviceOverrides = new Map(snapshot.serviceOverrides);
+  if (snapshot.shopLogos) state.shopLogos = new Map(snapshot.shopLogos);
+  if (snapshot.customCategories) state.customCategories = new Map(snapshot.customCategories);
   state.seq = Math.max(state.seq, state.bookings.size + 1);
+}
+
+// --- shop ownership: a dashboard only ever shows the operator's own shops ---
+
+export function shopsForOwner(ownerKey: string): string[] {
+  return [...state.shopOwners.entries()].filter(([, o]) => o === ownerKey).map(([id]) => id);
+}
+
+export function claimShop(shopId: string, ownerKey: string): void {
+  state.shopOwners.set(shopId, ownerKey);
+  persist();
+}
+
+export function releaseShop(shopId: string): void {
+  state.shopOwners.delete(shopId);
+  persist();
+}
+
+export function customCategories(): Array<{ id: string; label: string }> {
+  return [...state.customCategories.entries()].map(([id, label]) => ({ id, label }));
+}
+
+/** A company adds a missing category; it becomes selectable for everyone. */
+export function addCustomCategory(label: string): { id: string; label: string } {
+  const clean = label.trim().slice(0, 40);
+  const id = `custom-${clean.toLowerCase().replace(/[^a-z0-9äöüß]+/gi, '-').replace(/^-+|-+$/g, '')}`;
+  if (!state.customCategories.has(id)) {
+    state.customCategories.set(id, clean);
+    persist();
+  }
+  return { id, label: state.customCategories.get(id)! };
+}
+
+export function getShopLogo(shopId: string): string | null {
+  return state.shopLogos.get(shopId) ?? null;
+}
+
+export function setShopLogo(shopId: string, dataUrl: string | null): void {
+  if (dataUrl) state.shopLogos.set(shopId, dataUrl);
+  else state.shopLogos.delete(shopId);
+  persist();
 }
 
 export function ruleDisabledIds(): string[] {
@@ -226,14 +307,96 @@ export function shopById(id: string): SeedShop | undefined {
 }
 
 export function serviceOf(shop: SeedShop, serviceId: string): SeedService | undefined {
-  const base = shop.services.find((s) => s.id === serviceId);
+  const base =
+    shop.services.find((s) => s.id === serviceId) ??
+    (state.customServices.get(shop.id) ?? []).find((s) => s.id === serviceId);
   if (!base) return undefined;
   const override = state.serviceOverrides.get(serviceId);
   return override ? { ...base, ...override } : base;
 }
 
+/** Seed menu + services the shop added, minus archived, with edits applied. */
+export function effectiveServices(shopId: string): SeedService[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  return [...shop.services, ...(state.customServices.get(shopId) ?? [])]
+    .filter((s) => !state.archivedServices.has(s.id))
+    .map((s) => ({ ...s, ...(state.serviceOverrides.get(s.id) ?? {}) }));
+}
+
+/** Seed rules + rules the shop authored, minus deleted. */
+export function effectiveRules(shopId: string): PricingRule[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  return [...shop.pricingRules, ...(state.customRules.get(shopId) ?? [])].filter(
+    (r) => !state.deletedRules.has(r.id),
+  );
+}
+
 export function activeRules(shop: SeedShop) {
-  return shop.pricingRules.filter((r) => !state.ruleDisabled.has(r.id));
+  return effectiveRules(shop.id).filter((r) => !state.ruleDisabled.has(r.id));
+}
+
+// --- service & rule management (available to the shop at any time) ---------
+
+export function addService(
+  shopId: string,
+  input: { name: string; emoji: string; basePriceCents: number; durationMin: number; processingGapMin?: number; dynamicPricing?: boolean },
+): SeedService {
+  const svc: SeedService = {
+    id: `svc-custom-${state.seq++}-${Date.now().toString(36)}`,
+    emoji: input.emoji || '✨',
+    name: { en: input.name, de: input.name },
+    durationMin: Math.max(5, Math.round(input.durationMin)),
+    processingGapMin: Math.max(0, Math.round(input.processingGapMin ?? 0)),
+    finishMin: 0,
+    basePriceCents: Math.max(0, Math.round(input.basePriceCents)),
+    vatRateBps: 1900,
+    dynamicPricing: input.dynamicPricing ?? false,
+  };
+  state.customServices.set(shopId, [...(state.customServices.get(shopId) ?? []), svc]);
+  persist();
+  return svc;
+}
+
+/** Archive, never delete: a two-year-old receipt must still render. */
+export function archiveService(shopId: string, serviceId: string): void {
+  state.archivedServices.add(serviceId);
+  persist();
+}
+
+export function addPricingRule(shopId: string, rule: Omit<PricingRule, 'id'>): PricingRule {
+  const created: PricingRule = { ...rule, id: `pr-custom-${state.seq++}-${Date.now().toString(36)}` };
+  state.customRules.set(shopId, [...(state.customRules.get(shopId) ?? []), created]);
+  persist();
+  return created;
+}
+
+export function updatePricingRule(shopId: string, ruleId: string, patch: Partial<PricingRule>): void {
+  const list = state.customRules.get(shopId) ?? [];
+  const idx = list.findIndex((r) => r.id === ruleId);
+  if (idx >= 0) {
+    list[idx] = { ...list[idx], ...patch, id: ruleId };
+    state.customRules.set(shopId, [...list]);
+    persist();
+    return;
+  }
+  // Editing a seed rule: shadow it with a custom copy and hide the original.
+  const seed = shopById(shopId)?.pricingRules.find((r) => r.id === ruleId);
+  if (!seed) throw new Error('not_found');
+  state.deletedRules.add(ruleId);
+  state.customRules.set(shopId, [...list, { ...seed, ...patch, id: `${ruleId}-edited` }]);
+  persist();
+}
+
+export function deletePricingRule(shopId: string, ruleId: string): void {
+  const list = state.customRules.get(shopId) ?? [];
+  if (list.some((r) => r.id === ruleId)) {
+    state.customRules.set(shopId, list.filter((r) => r.id !== ruleId));
+  } else {
+    state.deletedRules.add(ruleId);
+  }
+  persist();
 }
 
 export function isRuleEnabled(ruleId: string): boolean {
@@ -532,6 +695,7 @@ export interface FeedCard {
   reasons: string[];
   minutesToFirstSlot: number | null;
   languages: string[];
+  logoUrl: string | null;
 }
 
 export function feed(q: FeedQuery): FeedCard[] {
@@ -567,7 +731,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       ratingAvg: s.ratingAvg,
       ratingCount: s.ratingCount,
-      priceFromCents: Math.min(...s.services.map((sv) => sv.basePriceCents)),
+      priceFromCents: Math.min(...effectiveServices(s.id).map((sv) => sv.basePriceCents)),
       semanticSimilarity: s.semanticSimilarity,
       tagOverlap: q.category && s.category === q.category ? 1 : 0.3,
       minutesToFirstSlot: mins,
@@ -601,7 +765,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       tagline: s.tagline,
       ratingAvg: s.ratingAvg,
       ratingCount: s.ratingCount,
-      priceFromCents: Math.min(...s.services.map((sv) => sv.basePriceCents)),
+      priceFromCents: Math.min(...effectiveServices(s.id).map((sv) => sv.basePriceCents)),
       distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       isNew: s.isNew,
       isMobile: s.isMobile,
@@ -609,6 +773,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       reasons: m.reasons,
       minutesToFirstSlot: firstSlot.get(s.id) ?? null,
       languages: s.languagesSpoken,
+      logoUrl: getShopLogo(s.id),
     };
   });
 
@@ -825,6 +990,48 @@ export function cancelBooking(
 }
 
 /**
+ * Reschedule (move) a booking to a new time and/or stylist. The seat contract
+ * is unchanged: the new window must be free (the booking's own current seat
+ * doesn't count against it), otherwise SlotTaken with alternatives.
+ */
+export function rescheduleBooking(
+  shopId: string,
+  bookingId: string,
+  newStartsAt: number,
+  newStaffId?: string | null,
+): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.shopId !== shopId) throw new Error('not_found');
+  if (!['confirmed', 'pending_payment'].includes(b.status)) throw new Error('not_movable');
+  const shop = shopById(shopId);
+  if (!shop) throw new Error('shop_not_found');
+  const services = b.serviceIds
+    .map((id) => serviceOf(shop, id))
+    .filter((x): x is SeedService => Boolean(x));
+  const timing = aggregate(services);
+  const staffId = newStaffId ?? b.staffId;
+  const now = Date.now();
+  const isoDate = isoDateOf(newStartsAt);
+
+  const day = staffDayOf(shop, staffId, isoDate, now, b.id);
+  const held = occupancyForBasket(newStartsAt, services, shop.rules);
+  const inWindow = day.working.some(
+    (w) => newStartsAt >= w.start && newStartsAt + timing.durationMin * MIN <= w.end,
+  );
+  if (!inWindow || held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
+    const { slots } = availability(shopId, b.serviceIds, isoDate, b.deviceId, newStaffId ?? null);
+    throw new SlotTaken(slots.slice(0, 6));
+  }
+
+  b.staffId = staffId;
+  b.startsAt = newStartsAt;
+  b.endsAt = newStartsAt + (timing.durationMin + timing.processingGapMin + timing.finishMin) * MIN;
+  b.staffRanges = held;
+  persist();
+  return b;
+}
+
+/**
  * A booking created by the shop for a customer (walk-in or phone). Same seat
  * semantics as online checkout — the EXCLUDE contract still applies — but no
  * payment step: it confirms immediately and is settled at the shop.
@@ -938,8 +1145,9 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       id: shop.id,
       name: shop.name,
       emoji: shop.emoji,
-      services: shop.services.map((s) => ({ ...s, ...(state.serviceOverrides.get(s.id) ?? {}) })),
-      pricingRules: shop.pricingRules.map((r) => ({ ...r, enabled: !state.ruleDisabled.has(r.id) })),
+      logoUrl: getShopLogo(shop.id),
+      services: effectiveServices(shop.id),
+      pricingRules: effectiveRules(shop.id).map((r) => ({ ...r, enabled: !state.ruleDisabled.has(r.id) })),
       depositPercent: shop.depositPercent,
       policy: shop.policy,
     },
@@ -952,7 +1160,9 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       id: b.id,
       reference: b.reference,
       guestName: b.guestName,
+      serviceIds: b.serviceIds,
       serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
+      staffId: b.staffId,
       staffName: shop.staff.find((s) => s.id === b.staffId)?.name ?? '—',
       startsAt: b.startsAt,
       endsAt: b.endsAt,
@@ -990,7 +1200,7 @@ export function patchService(
   patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean },
 ): void {
   const shop = shopById(shopId);
-  if (!shop || !shop.services.some((s) => s.id === serviceId)) throw new Error('not_found');
+  if (!shop || !effectiveServices(shopId).some((s) => s.id === serviceId)) throw new Error('not_found');
   const current = state.serviceOverrides.get(serviceId) ?? {};
   state.serviceOverrides.set(serviceId, { ...current, ...patch });
   persist();
@@ -998,7 +1208,7 @@ export function patchService(
 
 export function toggleRule(shopId: string, ruleId: string): boolean {
   const shop = shopById(shopId);
-  if (!shop || !shop.pricingRules.some((r) => r.id === ruleId)) throw new Error('not_found');
+  if (!shop || !effectiveRules(shopId).some((r) => r.id === ruleId)) throw new Error('not_found');
   if (state.ruleDisabled.has(ruleId)) state.ruleDisabled.delete(ruleId);
   else state.ruleDisabled.add(ruleId);
   persist();

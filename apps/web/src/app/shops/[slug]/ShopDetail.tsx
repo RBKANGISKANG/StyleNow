@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiShopReviews } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopServices } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { useFavourites } from '@/lib/favs';
 
@@ -54,10 +54,17 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   const { t, lang } = useI18n();
   const [favs, toggleFav] = useFavourites();
   const [liveReviews, setLiveReviews] = useState<LiveReview[]>([]);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  // The shop can add or archive services at any time — always show the live menu.
+  const [services, setServices] = useState(shop.services);
   const fav = favs.includes(shop.id);
 
   useEffect(() => {
     void apiShopReviews(shop.id).then(setLiveReviews);
+    void apiShopLogo(shop.id).then(setLogoUrl);
+    void apiShopServices(shop.id).then((live) => {
+      if (Array.isArray(live) && live.length) setServices(live as ShopData['services']);
+    });
   }, [shop.id]);
 
   return (
@@ -69,8 +76,14 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
           <Heart on={fav} size={20} />
         </button>
-        <h1>
-          {shop.emoji} {shop.name}
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className="shop-logo-hero" />
+          ) : (
+            <span>{shop.emoji}</span>
+          )}
+          {shop.name}
         </h1>
         <p className="sub">{shop.tagline[lang]}</p>
         <div className="meta-row">
@@ -85,7 +98,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
       <section className="section">
         <h2>{t('services')}</h2>
         <div className="svc-list">
-          {shop.services.map((s) => {
+          {services.map((s) => {
             const totalMin = s.durationMin + s.processingGapMin + s.finishMin;
             return (
               <div className="svc-row" key={s.id}>

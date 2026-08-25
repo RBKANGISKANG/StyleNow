@@ -392,3 +392,174 @@ export async function apiShopCreateBooking(
     return { ok: false, code: 'error' };
   }
 }
+
+export async function apiRescheduleBooking(
+  shopId: string,
+  bookingId: string,
+  startsAt: number,
+  staffId: string | null,
+): Promise<ShopBookingOutcome> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/bookings/${bookingId}/reschedule`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ startsAt, staffId }),
+    });
+    if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
+    if (!res.ok) return { ok: false, code: 'error' };
+    return { ok: true, reference: bookingId };
+  }
+  await ready();
+  try {
+    if (backendMode() === 'supabase') await sb.rescheduleBooking(shopId, bookingId, startsAt, staffId);
+    else store.rescheduleBooking(shopId, bookingId, startsAt, staffId);
+    return { ok: true, reference: bookingId };
+  } catch (e) {
+    if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    return { ok: false, code: 'error' };
+  }
+}
+
+// ---- shop logo ------------------------------------------------------------
+
+export async function apiShopLogo(shopId: string): Promise<string | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/logo`);
+    return res.ok ? (await res.json()).logoUrl : null;
+  }
+  await ready();
+  return store.getShopLogo(shopId);
+}
+
+export async function apiSetShopLogo(shopId: string, dataUrl: string | null): Promise<void> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    await fetch(`/api/shop/${shopId}/logo`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dataUrl }),
+    });
+    return;
+  }
+  await ready();
+  if (backendMode() === 'supabase') await sb.setShopLogo(shopId, dataUrl);
+  else store.setShopLogo(shopId, dataUrl);
+}
+
+// ---- custom categories ----------------------------------------------------
+
+export async function apiCustomCategories(): Promise<Array<{ id: string; label: string }>> {
+  if (backendMode() === 'server') {
+    const res = await fetch('/api/categories');
+    return res.ok ? (await res.json()).categories : [];
+  }
+  await ready();
+  return store.customCategories();
+}
+
+export async function apiAddCustomCategory(label: string): Promise<{ id: string; label: string } | null> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch('/api/categories', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label }),
+    });
+    return res.ok ? (await res.json()).category : null;
+  }
+  await ready();
+  try {
+    return backendMode() === 'supabase' ? await sb.addCustomCategory(label) : store.addCustomCategory(label);
+  } catch {
+    return store.addCustomCategory(label);
+  }
+}
+
+// ---- shop ownership (dashboard scoping) -----------------------------------
+
+export async function apiMyShops(ownerKey: string): Promise<string[]> {
+  await ready();
+  return store.shopsForOwner(ownerKey);
+}
+
+export async function apiClaimShop(shopId: string, ownerKey: string): Promise<void> {
+  await ready();
+  store.claimShop(shopId, ownerKey);
+}
+
+export async function apiReleaseShop(shopId: string): Promise<void> {
+  await ready();
+  store.releaseShop(shopId);
+}
+
+// ---- service & pricing-rule management ------------------------------------
+
+export async function apiAddService(
+  shopId: string,
+  input: { name: string; emoji: string; basePriceCents: number; durationMin: number; processingGapMin?: number; dynamicPricing?: boolean },
+): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/services`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return;
+  }
+  await ready();
+  store.addService(shopId, input);
+}
+
+export async function apiArchiveService(shopId: string, serviceId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/services/${serviceId}`, { method: 'DELETE' });
+    return;
+  }
+  await ready();
+  store.archiveService(shopId, serviceId);
+}
+
+export async function apiShopServices(shopId: string) {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/services`);
+    return res.ok ? (await res.json()).services : [];
+  }
+  await ready();
+  return store.effectiveServices(shopId);
+}
+
+export async function apiAddPricingRule(shopId: string, rule: Record<string, unknown>): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/pricing-rules`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(rule),
+    });
+    return;
+  }
+  await ready();
+  store.addPricingRule(shopId, rule as Parameters<typeof store.addPricingRule>[1]);
+}
+
+export async function apiUpdatePricingRule(shopId: string, ruleId: string, patch: Record<string, unknown>): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/pricing-rules/${ruleId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    return;
+  }
+  await ready();
+  store.updatePricingRule(shopId, ruleId, patch);
+}
+
+export async function apiDeletePricingRule(shopId: string, ruleId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/pricing-rules/${ruleId}`, { method: 'DELETE' });
+    return;
+  }
+  await ready();
+  store.deletePricingRule(shopId, ruleId);
+}

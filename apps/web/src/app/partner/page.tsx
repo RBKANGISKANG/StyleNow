@@ -10,7 +10,8 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
-import { apiPartnerApply, apiMyApplications } from '@/lib/api';
+import { apiPartnerApply, apiMyApplications, apiCustomCategories, apiAddCustomCategory } from '@/lib/api';
+import { fileToLogoDataUrl } from '@/lib/image';
 
 // Multi-select: a studio can offer several of these at once. "Mobile" is not
 // a category here — it's the service-mode toggle in the location step.
@@ -56,6 +57,9 @@ export default function PartnerPage() {
   const [legalName, setLegalName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
+  const [customCats, setCustomCats] = useState<Array<{ id: string; label: string }>>([]);
+  const [newCat, setNewCat] = useState('');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [contactName, setContactName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [phone, setPhone] = useState('');
@@ -64,13 +68,13 @@ export default function PartnerPage() {
   const [vatId, setVatId] = useState('');
   const [registerNo, setRegisterNo] = useState('');
   const [smallBusiness, setSmallBusiness] = useState(false);
-  // location
+  // location — a company can operate several branches (a chain)
   const [isMobile, setIsMobile] = useState(false);
-  const [street, setStreet] = useState('');
-  const [zip, setZip] = useState('');
-  const [city, setCity] = useState('Berlin');
-  const [district, setDistrict] = useState('');
   const [radiusKm, setRadiusKm] = useState('10');
+  const [locations, setLocations] = useState([{ street: '', zip: '', city: 'Berlin', district: '' }]);
+  const setLoc = (i: number, patch: Partial<(typeof locations)[number]>) =>
+    setLocations(locations.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const city = locations[0]?.city ?? 'Berlin';
   // offer
   const [hours, setHours] = useState<Record<number, Hours>>(DEFAULT_HOURS);
   const [services, setServices] = useState<ServiceRow[]>([{ name: '', priceEur: '', minutes: '45' }]);
@@ -91,7 +95,19 @@ export default function PartnerPage() {
     void apiMyApplications().then((apps) =>
       setPendingRefs(apps.filter((a) => a.status === 'pending').map((a) => a.id)),
     );
+    void apiCustomCategories().then(setCustomCats);
   }, [doneRef]);
+
+  const addOwnCategory = async () => {
+    const label = newCat.trim();
+    if (!label) return;
+    const cat = await apiAddCustomCategory(label);
+    if (cat) {
+      setCustomCats((cs) => (cs.some((c) => c.id === cat.id) ? cs : [...cs, cat]));
+      setCategories((cur) => (cur.includes(cat.id) ? cur : [...cur, cat.id]));
+      setNewCat('');
+    }
+  };
 
   const stepValid = [
     () =>
@@ -101,7 +117,10 @@ export default function PartnerPage() {
       contactName.trim() &&
       /.+@.+\..+/.test(email) &&
       phone.trim(),
-    () => (isMobile ? Number(radiusKm) > 0 : street.trim() && zip.trim() && city.trim()),
+    () =>
+      isMobile
+        ? Number(radiusKm) > 0
+        : locations.every((l) => l.street.trim() && l.zip.trim() && l.city.trim()),
     () => services.some((s) => s.name.trim() && Number(s.priceEur) > 0 && Number(s.minutes) > 0),
     () => owner.trim() && iban.replace(/\s/g, '').length >= 15 && acceptTerms && acceptTruth,
   ];
@@ -122,8 +141,11 @@ export default function PartnerPage() {
     }
     setBusy(true);
     const app = await apiPartnerApply({
-      business: { legalName, displayName, categories, contactName, email, phone, website, instagram, vatId, registerNo, smallBusiness },
-      location: isMobile ? { mobile: true, radiusKm: Number(radiusKm), city } : { mobile: false, street, zip, city, district },
+      business: { legalName, displayName, categories, logoUrl, contactName, email, phone, website, instagram, vatId, registerNo, smallBusiness },
+      locations: isMobile
+        ? [{ mobile: true, radiusKm: Number(radiusKm), city }]
+        : locations.map((l) => ({ mobile: false, ...l })),
+      isChain: !isMobile && locations.length > 1,
       offer: {
         openingHours: hours,
         services: services
@@ -212,7 +234,59 @@ export default function PartnerPage() {
                   {c.emoji} {lang === 'de' ? c.de : c.en}
                 </button>
               ))}
+              {customCats.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`chip ${categories.includes(c.id) ? 'on-primary' : ''}`}
+                  onClick={() =>
+                    setCategories(
+                      categories.includes(c.id) ? categories.filter((x) => x !== c.id) : [...categories, c.id],
+                    )
+                  }
+                >
+                  🏷️ {c.label}
+                </button>
+              ))}
             </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <input
+                className="input"
+                style={{ flex: 1 }}
+                placeholder={t('p_cat_own')}
+                value={newCat}
+                onChange={(e) => setNewCat(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void addOwnCategory())}
+                maxLength={40}
+              />
+              <button type="button" className="btn btn-soft" disabled={!newCat.trim()} onClick={() => void addOwnCategory()}>
+                {t('p_cat_add')}
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" className="logo-preview" />
+            ) : (
+              <div className="logo-preview" style={{ display: 'grid', placeItems: 'center', fontSize: '1.4rem' }}>🏪</div>
+            )}
+            <label className="btn btn-soft sm" style={{ cursor: 'pointer' }}>
+              🖼 {t('p_logo')}
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void fileToLogoDataUrl(f).then(setLogoUrl).catch(() => {});
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {logoUrl && (
+              <button type="button" className="btn btn-ghost sm" onClick={() => setLogoUrl(null)}>✕</button>
+            )}
           </div>
           <input className="input" placeholder={`${t('p_contact_name')} *`} value={contactName} onChange={(e) => setContactName(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -246,16 +320,56 @@ export default function PartnerPage() {
           {isMobile ? (
             <div style={{ display: 'flex', gap: 8 }}>
               <input className="input" style={{ flex: 1 }} type="number" min={1} max={50} placeholder={t('p_radius')} value={radiusKm} onChange={(e) => setRadiusKm(e.target.value)} />
-              <input className="input" style={{ flex: 2 }} placeholder={`${t('p_city')} *`} value={city} onChange={(e) => setCity(e.target.value)} />
+              <input
+                className="input"
+                style={{ flex: 2 }}
+                placeholder={`${t('p_city')} *`}
+                value={locations[0].city}
+                onChange={(e) => setLoc(0, { city: e.target.value })}
+              />
             </div>
           ) : (
             <>
-              <input className="input" placeholder={`${t('p_street')} *`} value={street} onChange={(e) => setStreet(e.target.value)} />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input" style={{ flex: 1 }} placeholder={`${t('p_zip')} *`} value={zip} onChange={(e) => setZip(e.target.value)} maxLength={10} />
-                <input className="input" style={{ flex: 2 }} placeholder={`${t('p_city')} *`} value={city} onChange={(e) => setCity(e.target.value)} />
-              </div>
-              <input className="input" placeholder={t('p_district')} value={district} onChange={(e) => setDistrict(e.target.value)} />
+              <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)' }}>{t('p_chain_hint')}</p>
+              {locations.map((l, i) => (
+                <div
+                  key={i}
+                  style={{
+                    border: '1.5px solid var(--line)',
+                    borderRadius: 'var(--r-md)',
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ fontSize: '0.8rem' }}>📍 {t('p_location_n', { n: i + 1 })}</strong>
+                    {locations.length > 1 && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost sm"
+                        onClick={() => setLocations(locations.filter((_, j) => j !== i))}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <input className="input" placeholder={`${t('p_street')} *`} value={l.street} onChange={(e) => setLoc(i, { street: e.target.value })} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="input" style={{ flex: 1 }} placeholder={`${t('p_zip')} *`} value={l.zip} onChange={(e) => setLoc(i, { zip: e.target.value })} maxLength={10} />
+                    <input className="input" style={{ flex: 2 }} placeholder={`${t('p_city')} *`} value={l.city} onChange={(e) => setLoc(i, { city: e.target.value })} />
+                  </div>
+                  <input className="input" placeholder={t('p_district')} value={l.district} onChange={(e) => setLoc(i, { district: e.target.value })} />
+                </div>
+              ))}
+              <button
+                type="button"
+                className="btn btn-soft sm"
+                onClick={() => setLocations([...locations, { street: '', zip: '', city: locations[0].city, district: '' }])}
+              >
+                {t('p_add_location')}
+              </button>
             </>
           )}
         </div>

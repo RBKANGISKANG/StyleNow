@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin } from '@/lib/api';
+import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices } from '@/lib/api';
 import { validateVoucher } from '@/core/store';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays } from '@/core/time';
@@ -77,6 +77,20 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // Two months of bookable days (matches the shops' 62-day booking horizon).
   const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
   const [step, setStep] = useState(0);
+  // Live menu: the shop may have added or archived services since build time.
+  const [menu, setMenu] = useState<Svc[]>(shop.services);
+  useEffect(() => {
+    void apiShopServices(shop.id).then((live) => {
+      if (!Array.isArray(live) || live.length === 0) return;
+      setMenu(live as Svc[]);
+      // A service added after build time is only known once the live menu
+      // arrives — honour ?service= for those too.
+      if (initialServiceId && (live as Svc[]).some((s) => s.id === initialServiceId)) {
+        setServiceIds((cur) => (cur.length === 0 ? [initialServiceId] : cur));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop.id]);
   const [serviceIds, setServiceIds] = useState<string[]>(
     initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
   );
@@ -130,7 +144,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       )
     : 0;
 
-  const selected = shop.services.filter((s) => serviceIds.includes(s.id));
+  const selected = menu.filter((s) => serviceIds.includes(s.id));
 
   // ---- slots -------------------------------------------------------------
   const loadSlots = useCallback(async () => {
@@ -284,7 +298,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       {step === 0 && (
         <div className="panel">
           <h3>{t('choose_service')}</h3>
-          {shop.services.map((s) => {
+          {menu.map((s) => {
             const sel = serviceIds.includes(s.id);
             const totalMin = s.durationMin + s.processingGapMin + s.finishMin;
             return (

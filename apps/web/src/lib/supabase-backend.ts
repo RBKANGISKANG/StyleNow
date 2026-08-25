@@ -77,10 +77,12 @@ let syncPromise: Promise<void> | null = null;
 async function syncNow(): Promise<void> {
   const db = await sb();
   const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
-  const [bookings, rules, overrides] = await Promise.all([
+  const [bookings, rules, overrides, logos, cats] = await Promise.all([
     db.from('bookings').select('id,data').gte('starts_at', since),
     db.from('rule_state').select('rule_id,enabled'),
     db.from('service_overrides').select('service_id,patch'),
+    db.from('shop_logos').select('shop_id,data_url'),
+    db.from('custom_categories').select('id,label'),
   ]);
   if (bookings.error) throw bookings.error;
   store.setLocalPersistence(false); // Supabase owns the data; keep localStorage out of it
@@ -88,6 +90,8 @@ async function syncNow(): Promise<void> {
     bookings: ((bookings.data ?? []) as BookingRow[]).map((r) => r.data),
     ruleDisabled: (rules.data ?? []).filter((r) => !r.enabled).map((r) => r.rule_id as string),
     serviceOverrides: (overrides.data ?? []).map((r) => [r.service_id as string, r.patch]),
+    shopLogos: (logos.data ?? []).map((r) => [r.shop_id as string, r.data_url as string]),
+    customCategories: (cats.data ?? []).map((r) => [r.id as string, r.label as string]),
   });
   synced = true;
 }
@@ -196,6 +200,33 @@ export async function createShopBooking(
   return b;
 }
 
+export async function rescheduleBooking(
+  shopId: string,
+  bookingId: string,
+  newStartsAt: number,
+  newStaffId?: string | null,
+): Promise<Booking> {
+  await ensureSynced();
+  const b = store.rescheduleBooking(shopId, bookingId, newStartsAt, newStaffId);
+  const db = await sb();
+  const { data, error } = await deadline(db.rpc('reschedule_booking', {
+    p_id: b.id,
+    p_data: b,
+    p_ranges: b.staffRanges.map((r) => ({
+      start: new Date(r.start).toISOString(),
+      end: new Date(r.end).toISOString(),
+    })),
+  }));
+  if (error) throw error;
+  if (data?.conflict) {
+    // Lost a race against another device — refresh the mirror and re-offer.
+    await syncNow();
+    const { slots } = store.availability(shopId, b.serviceIds, new Date(newStartsAt).toISOString().slice(0, 10), b.deviceId);
+    throw new store.SlotTaken(slots.slice(0, 6));
+  }
+  return b;
+}
+
 export async function setBookingStatus(
   shopId: string,
   bookingId: string,
@@ -288,4 +319,23 @@ export async function submitApplication(id: string, data: unknown): Promise<void
   const db = await sb();
   const { error } = await deadline(db.from('shop_applications').insert({ id, data, status: 'pending' }));
   if (error) throw error;
+}
+
+export async function setShopLogo(shopId: string, dataUrl: string | null): Promise<void> {
+  store.setShopLogo(shopId, dataUrl);
+  const db = await sb();
+  if (dataUrl) {
+    const { error } = await deadline(db.from('shop_logos').upsert({ shop_id: shopId, data_url: dataUrl }));
+    if (error) throw error;
+  } else {
+    await deadline(db.from('shop_logos').delete().eq('shop_id', shopId));
+  }
+}
+
+export async function addCustomCategory(label: string): Promise<{ id: string; label: string }> {
+  const cat = store.addCustomCategory(label);
+  const db = await sb();
+  const { error } = await deadline(db.from('custom_categories').upsert({ id: cat.id, label: cat.label }));
+  if (error) throw error;
+  return cat;
 }

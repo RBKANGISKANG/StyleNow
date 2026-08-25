@@ -65,6 +65,19 @@ create table if not exists public.service_overrides (
   patch      jsonb not null
 );
 
+-- Shop logos, stored as compact data URLs (client-side resized to ≤256 px).
+create table if not exists public.shop_logos (
+  shop_id  text primary key,
+  data_url text not null
+);
+
+-- Company-suggested categories: once one partner adds a missing category it
+-- becomes selectable for every later registration.
+create table if not exists public.custom_categories (
+  id    text primary key,
+  label text not null
+);
+
 -- ---------------------------------------------------------------------------
 -- create_hold: seat + booking in one transaction.
 --   * first releases seats of expired holds (they no longer block);
@@ -147,6 +160,45 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- reschedule_booking: move a booking's seat atomically. The delete + inserts
+-- run in one exception block (a subtransaction): a conflicting target window
+-- rolls the whole block back, so the original seat is never lost.
+-- ---------------------------------------------------------------------------
+create or replace function public.reschedule_booking(p_id text, p_data jsonb, p_ranges jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r jsonb;
+begin
+  begin
+    delete from staff_occupancy where booking_id = p_id;
+    for r in select * from jsonb_array_elements(p_ranges) loop
+      insert into staff_occupancy (booking_id, staff_id, during)
+      values (
+        p_id,
+        p_data->>'staffId',
+        tstzrange((r->>'start')::timestamptz, (r->>'end')::timestamptz, '[)')
+      );
+    end loop;
+  exception
+    when exclusion_violation then
+      return jsonb_build_object('conflict', true);
+  end;
+
+  update bookings
+  set staff_id  = p_data->>'staffId',
+      starts_at = to_timestamp((p_data->>'startsAt')::bigint / 1000.0),
+      data      = p_data
+  where id = p_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Row-level security. Demo posture: the anon key may read bookings and config
 -- and write config; all booking writes go through the definer RPCs above.
 -- Production tightens this to per-tenant policies (see db/migrations/0005).
@@ -155,6 +207,8 @@ alter table public.bookings          enable row level security;
 alter table public.staff_occupancy   enable row level security;
 alter table public.rule_state        enable row level security;
 alter table public.service_overrides enable row level security;
+alter table public.shop_logos        enable row level security;
+alter table public.custom_categories enable row level security;
 
 drop policy if exists bookings_read      on public.bookings;
 drop policy if exists occupancy_read     on public.staff_occupancy;
@@ -165,9 +219,14 @@ create policy bookings_read   on public.bookings          for select using (true
 create policy occupancy_read  on public.staff_occupancy   for select using (true);
 create policy rule_state_rw   on public.rule_state        for all    using (true) with check (true);
 create policy service_over_rw on public.service_overrides for all    using (true) with check (true);
+drop policy if exists shop_logos_rw on public.shop_logos;
+create policy shop_logos_rw  on public.shop_logos         for all    using (true) with check (true);
+drop policy if exists custom_cats_rw on public.custom_categories;
+create policy custom_cats_rw on public.custom_categories   for all    using (true) with check (true);
 
 grant execute on function public.create_hold(jsonb, jsonb) to anon, authenticated;
 grant execute on function public.set_booking(text, jsonb, boolean) to anon, authenticated;
+grant execute on function public.reschedule_booking(text, jsonb, jsonb) to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- accounts & partner onboarding
