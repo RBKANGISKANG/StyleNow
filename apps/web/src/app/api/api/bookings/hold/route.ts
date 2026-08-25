@@ -20,6 +20,8 @@ export async function POST(req: NextRequest) {
       startsAt: body.startsAt,
       deviceId: body.deviceId,
       guestName: body.guestName ?? 'Guest',
+      voucherCode: body.voucherCode || undefined,
+      pointsToSpend: typeof body.pointsToSpend === 'number' ? body.pointsToSpend : undefined,
       idempotencyKey,
     });
     return NextResponse.json(result, { status: 201 });

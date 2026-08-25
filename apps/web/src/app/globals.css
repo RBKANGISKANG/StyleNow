@@ -781,6 +781,13 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .dash-table td { padding: 12px 14px; font-size: 0.86rem; border-bottom: 1px solid var(--line); }
 .dash-table tr:last-child td { border-bottom: none; }
 
+.hr-how { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; background: var(--surface-2, transparent); }
+.hr-how > summary { cursor: pointer; font-weight: 700; font-size: 0.82rem; list-style: none; }
+.hr-how > summary::-webkit-details-marker { display: none; }
+.hr-how > summary::before { content: '▸ '; color: var(--ink-soft); }
+.hr-how[open] > summary::before { content: '▾ '; }
+.hr-how ol { margin: 10px 0 2px 18px; padding: 0; display: grid; gap: 6px; }
+.hr-how li { font-size: 0.78rem; color: var(--ink-soft); line-height: 1.45; }
 .hr-card { border-top: 1px solid var(--line); padding: 14px 0; }
 .hr-card:first-of-type { border-top: none; }
 .hr-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

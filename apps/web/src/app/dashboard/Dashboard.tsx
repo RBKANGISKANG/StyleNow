@@ -1529,6 +1529,15 @@ function HrPanel({
       </div>
       <p style={{ fontSize: '0.76rem', color: 'var(--ink-soft)', marginBottom: 10 }}>💡 {t('hr_hint')}</p>
 
+      <details className="hr-how">
+        <summary>{t('hr_how_title')}</summary>
+        <ol>
+          {(['hr_how_1', 'hr_how_2', 'hr_how_3', 'hr_how_4', 'hr_how_5', 'hr_how_6'] as const).map((k) => (
+            <li key={k}>{t(k)}</li>
+          ))}
+        </ol>
+      </details>
+
       {rows === null ? (
         <div className="spinner" />
       ) : (
