@@ -26,6 +26,8 @@ import type {
   ShopLocation,
   HrRow,
   RevenueReport,
+  CustomerRow,
+  ShopClosure,
   Absence,
   AbsenceKind,
 } from '@/core/store';
@@ -391,13 +393,14 @@ export async function apiShopCreateBooking(
   staffId: string | null,
   startsAt: number,
   guestName: string,
+  contact?: { phone?: string; note?: string },
 ): Promise<ShopBookingOutcome> {
   const mode = backendMode();
   if (mode === 'server') {
     const res = await fetch(`/api/shop/${shopId}/bookings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ serviceIds, staffId, startsAt, guestName }),
+      body: JSON.stringify({ serviceIds, staffId, startsAt, guestName, ...contact }),
     });
     if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
     if (!res.ok) return { ok: false, code: 'error' };
@@ -408,7 +411,7 @@ export async function apiShopCreateBooking(
     const b =
       backendMode() === 'supabase'
         ? await sb.createShopBooking(shopId, serviceIds, staffId, startsAt, guestName)
-        : store.createShopBooking(shopId, serviceIds, staffId, startsAt, guestName);
+        : store.createShopBooking(shopId, serviceIds, staffId, startsAt, guestName, contact);
     return { ok: true, reference: b.reference };
   } catch (e) {
     if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
@@ -723,6 +726,66 @@ export async function apiHrOverview(shopId: string, from: string, to: string): P
   return store.hrOverview(shopId, from, to);
 }
 
+// ---- customers ------------------------------------------------------------
+
+export async function apiShopCustomers(shopId: string): Promise<CustomerRow[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/customers`);
+    return res.ok ? (await res.json()).customers : [];
+  }
+  await readyForRead();
+  return store.customersForShop(shopId);
+}
+
+export async function apiSetCustomerNote(shopId: string, key: string, note: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/customers`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key, note }),
+    });
+    return;
+  }
+  await ready();
+  store.setCustomerNote(shopId, key, note);
+}
+
+// ---- shop closures --------------------------------------------------------
+
+export async function apiClosures(shopId: string): Promise<ShopClosure[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/closures`);
+    return res.ok ? (await res.json()).closures : [];
+  }
+  await readyForRead();
+  return store.shopClosures(shopId);
+}
+
+export async function apiAddClosure(
+  shopId: string,
+  input: { from: string; to: string; reason: string },
+): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/closures`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return;
+  }
+  await ready();
+  store.addClosure(shopId, input);
+}
+
+export async function apiDeleteClosure(shopId: string, closureId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/closures/${closureId}`, { method: 'DELETE' });
+    return;
+  }
+  await ready();
+  store.deleteClosure(shopId, closureId);
+}
+
 export async function apiRevenueReport(shopId: string, from: string, to: string): Promise<RevenueReport | null> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/revenue?from=${from}&to=${to}`);
@@ -758,4 +821,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   store.deleteAbsence(staffId, absenceId);
 }
 
-export type { HrRow, RevenueReport, Absence, AbsenceKind };
+export type { HrRow, RevenueReport, CustomerRow, ShopClosure, Absence, AbsenceKind };

@@ -252,7 +252,15 @@ function TodayTab({ shopId }: { shopId: string }) {
                     <tr key={b.id}>
                       <td style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{b.reference}</td>
                       <td>{timeOf(b.startsAt, lang)}</td>
-                      <td>{b.guestName}</td>
+                      <td>
+                        {b.guestName}
+                        {b.guestPhone && (
+                          <a className="bk-phone" href={`tel:${b.guestPhone.replace(/\s/g, '')}`}>
+                            📞 {b.guestPhone}
+                          </a>
+                        )}
+                        {b.guestNote && <span className="bk-note" title={b.guestNote}>💬 {b.guestNote}</span>}
+                      </td>
                       <td>
                         {b.serviceNames.join(', ')}
                         <div style={{ fontSize: '0.72rem', color: 'var(--ink-soft)' }}>{b.staffName}</div>
@@ -340,6 +348,8 @@ function NewBooking({
   const [slots, setSlots] = useState<Array<{ start: number; priceCents: number }> | null>(null);
   const [startsAt, setStartsAt] = useState<number | null>(null);
   const [customer, setCustomer] = useState('');
+  const [phone, setPhone] = useState('');
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
 
@@ -373,7 +383,10 @@ function NewBooking({
     if (!startsAt || !customer.trim()) return;
     setBusy(true);
     setConflict(false);
-    const r = await apiShopCreateBooking(shopId, [serviceId], staffId, startsAt, customer.trim());
+    const r = await apiShopCreateBooking(shopId, [serviceId], staffId, startsAt, customer.trim(), {
+      phone: phone.trim() || undefined,
+      note: note.trim() || undefined,
+    });
     setBusy(false);
     if (!r.ok) {
       setConflict(true);
@@ -384,6 +397,8 @@ function NewBooking({
       return;
     }
     setCustomer('');
+    setPhone('');
+    setNote('');
     setStartsAt(null);
     setOpen(false);
     onCreated();
@@ -431,6 +446,23 @@ function NewBooking({
           value={customer}
           onChange={(e) => setCustomer(e.target.value)}
           maxLength={60}
+        />
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 150 }}
+          type="tel"
+          placeholder={t('your_phone')}
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          maxLength={24}
+        />
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 180 }}
+          placeholder={t('your_note')}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={280}
         />
       </div>
       {slots === null ? (

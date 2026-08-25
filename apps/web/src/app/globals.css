@@ -803,6 +803,30 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 
 .today-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 
+/* Customer cards */
+.cus-card { border-top: 1px solid var(--line); padding: 14px 0; }
+.cus-card:first-of-type { border-top: none; }
+.cus-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.cus-tag {
+  display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 800; vertical-align: middle;
+}
+.cus-tag.regular { background: var(--amber-soft); color: #8a5a12; }
+.cus-tag.risk { background: var(--primary-soft); color: var(--primary-deep); }
+.cus-notes { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); }
+.cus-notes strong { font-size: 0.76rem; }
+.cus-notes p { font-size: 0.82rem; color: var(--ink-soft); margin-top: 4px; font-style: italic; }
+.cus-note-edit { display: grid; gap: 5px; margin-top: 10px; }
+.cus-note-edit span { font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); }
+
+/* Contact + note on a booking row */
+.bk-phone { display: block; font-size: 0.74rem; font-weight: 600; color: var(--teal); }
+.bk-note {
+  display: block; max-width: 240px; margin-top: 2px;
+  font-size: 0.74rem; color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* Ranked breakdown — a comparison between categories, so bars are right here
    (unlike the trend, which is a line). Length carries the value; the number is
    always spelled out beside it. */

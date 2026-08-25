@@ -99,6 +99,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [name, setName] = useState('');
+  // Optional, but the shop needs a way to reach you if something changes —
+  // and a note is where "I'm allergic to bleach" belongs, not a phone call.
+  const [phone, setPhone] = useState('');
+  const [note, setNote] = useState('');
 
   useEffect(() => {
     if (user && !name) setName(user.name);
@@ -188,6 +192,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       staffId: chosenStaff,
       startsAt,
       guestName: name.trim() || 'Guest',
+      guestPhone: phone.trim() || undefined,
+      guestNote: note.trim() || undefined,
       voucherCode: voucher?.code,
       pointsToSpend: usePoints ? points : undefined,
     });
@@ -529,6 +535,24 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
+              />
+              <input
+                className="input"
+                style={{ marginTop: 8 }}
+                type="tel"
+                placeholder={t('your_phone')}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                maxLength={24}
+              />
+              <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 4 }}>{t('your_phone_hint')}</p>
+              <textarea
+                className="input"
+                style={{ marginTop: 8, minHeight: 62, resize: 'vertical' }}
+                placeholder={t('your_note')}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={280}
               />
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <input

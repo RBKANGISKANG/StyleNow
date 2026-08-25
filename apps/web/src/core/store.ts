@@ -79,6 +79,10 @@ export interface Booking {
   };
   paidCents: number;
   guestName: string;
+  /** how the shop reaches this customer — optional, asked at checkout */
+  guestPhone?: string;
+  /** what the customer wants the shop to know (allergies, parking, …) */
+  guestNote?: string;
   policySnapshot: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
   cancellation?: { feeCents: number; refundCents: number; reason: string };
   review?: { rating: number; text: string; date: string };
@@ -133,6 +137,15 @@ export interface Absence {
   note?: string;
 }
 
+/** A day the whole shop is shut — public holiday, renovation, team offsite. */
+export interface ShopClosure {
+  id: string;
+  shopId: string;
+  from: string; // YYYY-MM-DD inclusive
+  to: string;   // YYYY-MM-DD inclusive
+  reason: string;
+}
+
 export interface ShopApplication {
   id: string;
   deviceId: string;
@@ -160,6 +173,8 @@ interface State {
   archivedStaff: Set<string>;
   shopLocations: Map<string, ShopLocation[]>; // shopId → branches (Standorte)
   absences: Map<string, Absence[]>; // staffId → holiday / sick / training
+  closures: Map<string, ShopClosure[]>; // shopId → days the whole shop is shut
+  customerNotes: Map<string, string>; // `${shopId}:${customerKey}` → private note
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
 }
@@ -197,6 +212,8 @@ const state: State =
     archivedStaff: new Set(),
     shopLocations: new Map(),
     absences: new Map(),
+    closures: new Map(),
+    customerNotes: new Map(),
     exitFeedback: [],
     seq: 1,
   });
@@ -242,6 +259,8 @@ function persist(): void {
         archivedStaff: [...state.archivedStaff],
         shopLocations: [...state.shopLocations.entries()],
         absences: [...state.absences.entries()],
+        closures: [...state.closures.entries()],
+        customerNotes: [...state.customerNotes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
       }),
@@ -273,6 +292,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
         archivedStaff?: string[];
         shopLocations?: Array<[string, ShopLocation[]]>;
         absences?: Array<[string, Absence[]]>;
+        closures?: Array<[string, ShopClosure[]]>;
+        customerNotes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
       };
@@ -293,6 +314,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.archivedStaff = new Set(d.archivedStaff ?? []);
       state.shopLocations = new Map(d.shopLocations ?? []);
       state.absences = new Map(d.absences ?? []);
+      state.closures = new Map(d.closures ?? []);
+      state.customerNotes = new Map(d.customerNotes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
     }
@@ -488,6 +511,27 @@ export function addAbsence(staffId: string, input: Omit<Absence, 'id' | 'staffId
   state.absences.set(staffId, [...(state.absences.get(staffId) ?? []), absence]);
   persist();
   return absence;
+}
+
+/** Shop-wide closures: one entry shuts every stylist for those dates. */
+export function shopClosures(shopId: string): ShopClosure[] {
+  return [...(state.closures.get(shopId) ?? [])].sort((a, b) => a.from.localeCompare(b.from));
+}
+
+export function isShopClosed(shopId: string, isoDate: string): boolean {
+  return (state.closures.get(shopId) ?? []).some((c) => isoDate >= c.from && isoDate <= c.to);
+}
+
+export function addClosure(shopId: string, input: Omit<ShopClosure, 'id' | 'shopId'>): ShopClosure {
+  const closure: ShopClosure = { ...input, id: `cls-${state.seq++}-${Date.now().toString(36)}`, shopId };
+  state.closures.set(shopId, [...(state.closures.get(shopId) ?? []), closure]);
+  persist();
+  return closure;
+}
+
+export function deleteClosure(shopId: string, closureId: string): void {
+  state.closures.set(shopId, (state.closures.get(shopId) ?? []).filter((c) => c.id !== closureId));
+  persist();
 }
 
 export function deleteAbsence(staffId: string, absenceId: string): void {
@@ -733,6 +777,7 @@ function liveBusy(staffId: string, day: Interval, now: number, excludeBookingId?
 function staffWindows(shop: SeedShop, staffId: string, isoDate: string): Interval[] {
   const staff = effectiveStaff(shop.id).find((s) => s.id === staffId);
   if (!staff) return [];
+  if (isShopClosed(shop.id, isoDate)) return []; // whole shop shut that day
   if (isAbsent(staffId, isoDate)) return []; // on holiday / sick / training
   const start = dayStart(isoDate);
   const dow = isoDow(start + 12 * 60 * MIN);
@@ -1136,6 +1181,8 @@ export interface HoldInput {
   startsAt: number;
   deviceId: string;
   guestName: string;
+  guestPhone?: string;
+  guestNote?: string;
   voucherCode?: string;
   pointsToSpend?: number;
   idempotencyKey: string;
@@ -1253,6 +1300,8 @@ export function createHold(input: HoldInput): HoldResult {
     quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown },
     paidCents: 0,
     guestName: input.guestName,
+    guestPhone: input.guestPhone?.trim() || undefined,
+    guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
     voucherCode: input.voucherCode || undefined,
     policySnapshot: { ...shop.policy },
@@ -1367,6 +1416,7 @@ export function createShopBooking(
   staffId: string | null,
   startsAt: number,
   guestName: string,
+  contact?: { phone?: string; note?: string },
 ): Booking {
   const hold = createHold({
     shopId,
@@ -1375,6 +1425,8 @@ export function createShopBooking(
     startsAt,
     deviceId: `shop:${shopId}`,
     guestName,
+    guestPhone: contact?.phone,
+    guestNote: contact?.note,
     idempotencyKey: `shopbk-${shopId}-${startsAt}-${state.seq}`,
   });
   const b = confirmBooking(hold.bookingId);
@@ -1486,6 +1538,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       id: b.id,
       reference: b.reference,
       guestName: b.guestName,
+      guestPhone: b.guestPhone ?? '',
+      guestNote: b.guestNote ?? '',
       serviceIds: b.serviceIds,
       serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
       staffId: b.staffId,
@@ -1732,6 +1786,102 @@ export interface HrRow {
   revenueCents: number;
   utilisationPct: number;
   absentDays: number;
+}
+
+// --- customers -------------------------------------------------------------
+
+export interface CustomerRow {
+  /** stable id for this person *at this shop* */
+  key: string;
+  name: string;
+  phone: string;
+  visits: number;
+  /** completed + confirmed spend, excluding cancelled bookings */
+  spentCents: number;
+  firstVisit: number | null;
+  lastVisit: number | null;
+  nextVisit: number | null;
+  noShows: number;
+  cancellations: number;
+  /** what they book most often */
+  favouriteService: { id: string; name: { en: string; de: string }; emoji: string } | null;
+  /** notes the customer left on their bookings, newest first */
+  customerNotes: string[];
+  /** private note the shop keeps about them */
+  shopNote: string;
+  averageRating: number | null;
+}
+
+/**
+ * A phone number identifies a person better than a device does — the same
+ * customer books from a laptop and then a phone, and a salon books them from
+ * the front desk. So the phone wins when we have one; otherwise fall back to
+ * the device, and lastly to the name typed at the counter.
+ */
+function customerKeyOf(b: Booking): string {
+  const phone = (b.guestPhone ?? '').replace(/[^\d+]/g, '');
+  if (phone.length >= 6) return `p:${phone}`;
+  if (!b.deviceId.startsWith('shop:')) return `d:${b.deviceId}`;
+  return `n:${b.guestName.trim().toLowerCase()}`;
+}
+
+/** Everyone who has ever booked at this shop, most recently seen first. */
+export function customersForShop(shopId: string): CustomerRow[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const now = Date.now();
+  const groups = new Map<string, Booking[]>();
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId) continue;
+    if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) < now) continue; // dead hold
+    const key = customerKeyOf(b);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(b);
+    else groups.set(key, [b]);
+  }
+
+  const rows: CustomerRow[] = [];
+  for (const [key, bookings] of groups) {
+    bookings.sort((a, b) => a.startsAt - b.startsAt);
+    const kept = bookings.filter((b) => ['confirmed', 'completed'].includes(b.status));
+    const past = kept.filter((b) => b.startsAt <= now);
+    const future = kept.filter((b) => b.startsAt > now);
+
+    const serviceCount = new Map<string, number>();
+    for (const b of kept) for (const id of b.serviceIds) serviceCount.set(id, (serviceCount.get(id) ?? 0) + 1);
+    const topId = [...serviceCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const topService = topId ? serviceOf(shop, topId) : undefined;
+
+    const ratings = bookings.map((b) => b.review?.rating).filter((r): r is number => typeof r === 'number');
+    // The latest name and phone win — people correct their details over time.
+    const latest = [...bookings].reverse();
+
+    rows.push({
+      key,
+      name: latest.find((b) => b.guestName.trim())?.guestName ?? '—',
+      phone: latest.find((b) => b.guestPhone)?.guestPhone ?? '',
+      visits: past.length,
+      spentCents: kept.reduce((sum, b) => sum + b.quote.totalCents + (b.tipCents ?? 0), 0),
+      firstVisit: past[0]?.startsAt ?? null,
+      lastVisit: past[past.length - 1]?.startsAt ?? null,
+      nextVisit: future[0]?.startsAt ?? null,
+      noShows: bookings.filter((b) => b.status === 'no_show').length,
+      cancellations: bookings.filter((b) => b.status.startsWith('cancelled')).length,
+      favouriteService: topService ? { id: topService.id, name: topService.name, emoji: topService.emoji } : null,
+      customerNotes: latest.map((b) => b.guestNote).filter((n): n is string => !!n),
+      shopNote: state.customerNotes.get(`${shopId}:${key}`) ?? '',
+      averageRating: ratings.length ? Math.round((ratings.reduce((a, r) => a + r, 0) / ratings.length) * 10) / 10 : null,
+    });
+  }
+
+  return rows.sort((a, b) => (b.lastVisit ?? b.nextVisit ?? 0) - (a.lastVisit ?? a.nextVisit ?? 0));
+}
+
+export function setCustomerNote(shopId: string, key: string, note: string): void {
+  const id = `${shopId}:${key}`;
+  if (note.trim()) state.customerNotes.set(id, note.trim());
+  else state.customerNotes.delete(id);
+  persist();
 }
 
 // --- revenue report --------------------------------------------------------

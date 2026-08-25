@@ -9,7 +9,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'missing_params' }, { status: 400 });
   }
   try {
-    const b = createShopBooking(params.id, body.serviceIds, body.staffId ?? null, body.startsAt, body.guestName);
+    const b = createShopBooking(params.id, body.serviceIds, body.staffId ?? null, body.startsAt, body.guestName, {
+      phone: body.phone,
+      note: body.note,
+    });
     return NextResponse.json({ id: b.id, reference: b.reference, status: b.status }, { status: 201 });
   } catch (e) {
     if (e instanceof SlotTaken) {

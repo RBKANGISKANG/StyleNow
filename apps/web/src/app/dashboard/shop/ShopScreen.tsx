@@ -4,7 +4,7 @@
  * Nothing here is part of running today, which is why it is not on the Today
  * tab getting in the way.
  */
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import {
   apiSetShopLogo,
@@ -13,12 +13,17 @@ import {
   apiDeleteLocation,
   apiReleaseShop,
   apiRecordExitFeedback,
+  apiClosures,
+  apiAddClosure,
+  apiDeleteClosure,
+  type ShopClosure,
 } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
 import type { ShopRef } from '@/lib/owned-shops';
+import { todayIso } from '@/core/time';
 
 export function ShopScreen({ shops }: { shops: ShopRef[] }) {
   return (
@@ -120,6 +125,11 @@ function ShopTab({
     <>
       {logoSection}
       {locationsSection}
+
+      <section className="section">
+        <h2>🚫 {t('cls_title')}</h2>
+        <ClosureManager shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
 
       <section className="section">
         <h2>{t('own_disconnect')}</h2>
@@ -292,6 +302,117 @@ function LocationManager({
           {t('loc_add')}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Shop-wide closures. An absence takes one person out; this takes the whole
+ * shop out — public holidays, renovation, the summer break — and it feeds the
+ * same availability path, so the days vanish from every booking surface at
+ * once rather than having to be entered per stylist.
+ */
+function ClosureManager({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [rows, setRows] = useState<ShopClosure[] | null>(null);
+  const [draft, setDraft] = useState({ from: todayIso(), to: todayIso(), reason: '' });
+  const { ask, dialog } = useConfirm();
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiClosures(shopId).then(setRows);
+  }, [shopId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="panel">
+      {dialog}
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('cls_hint')}</p>
+
+      {rows === null ? (
+        <div className="spinner" />
+      ) : rows.length === 0 ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('cls_none')}</p>
+      ) : (
+        rows.map((c) => (
+          <div key={c.id} className="hr-abs">
+            <span className="st-badge st-cancelled_by_shop">{t('cls_closed')}</span>
+            <span style={{ fontSize: '0.85rem' }}>
+              {c.from}
+              {c.to !== c.from && ` → ${c.to}`}
+              {c.reason ? ` · ${c.reason}` : ''}
+            </span>
+            <button
+              className="btn btn-ghost sm"
+              style={{ color: 'var(--danger)', marginLeft: 'auto' }}
+              onClick={() =>
+                ask({
+                  title: t('cls_del_title'),
+                  body: t('cls_del_body'),
+                  consequences: [`${c.from}${c.to !== c.from ? ` → ${c.to}` : ''}${c.reason ? ` · ${c.reason}` : ''}`],
+                  confirmLabel: t('cls_del_confirm'),
+                  run: () =>
+                    apiDeleteClosure(shopId, c.id).then(() => {
+                      load();
+                      onChanged('🗑 ' + t('cls_removed'));
+                    }),
+                })
+              }
+            >
+              ✕
+            </button>
+          </div>
+        ))
+      )}
+
+      <div className="hr-abs-form">
+        <label className="chip">
+          {t('hr_from')}
+          <input
+            type="date"
+            value={draft.from}
+            onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }}
+          />
+        </label>
+        <label className="chip">
+          {t('hr_to')}
+          <input
+            type="date"
+            value={draft.to}
+            min={draft.from}
+            onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }}
+          />
+        </label>
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 160 }}
+          placeholder={t('cls_reason_ph')}
+          value={draft.reason}
+          onChange={(e) => setDraft({ ...draft, reason: e.target.value })}
+          maxLength={80}
+        />
+        <button
+          className="btn btn-primary sm"
+          onClick={() => {
+            void apiAddClosure(shopId, {
+              from: draft.from,
+              to: draft.to < draft.from ? draft.from : draft.to,
+              reason: draft.reason.trim(),
+            }).then(() => {
+              setDraft({ from: todayIso(), to: todayIso(), reason: '' });
+              load();
+              onChanged('✅ ' + t('cls_added'));
+            });
+          }}
+        >
+          {t('cls_add')}
+        </button>
+      </div>
     </div>
   );
 }
