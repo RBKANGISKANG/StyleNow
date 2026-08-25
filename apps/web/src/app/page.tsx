@@ -40,6 +40,8 @@ interface Card {
   logoUrl: string | null;
 }
 
+const VIEW_KEY = 'stylenow.feed.view';
+
 export default function Explore() {
   const { t, lang } = useI18n();
   const [cards, setCards] = useState<Card[] | null>(null);
@@ -56,7 +58,67 @@ export default function Explore() {
   const [radius, setRadius] = useState<number | null>(null);
   const [topRated, setTopRated] = useState(false);
   const [sortBy, setSortBy] = useState<'match' | 'distance' | 'price' | 'rating'>('match');
+  // Grid or list is a taste thing, so it is remembered rather than guessed.
+  const [view, setView] = useState<'grid' | 'list'>('grid');
+  // On a phone the filters live in a sheet instead of eating the first screen.
+  const [sheetOpen, setSheetOpen] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(VIEW_KEY);
+      if (saved === 'grid' || saved === 'list') setView(saved);
+    } catch {
+      // private mode — grid it is
+    }
+  }, []);
+
+  const chooseView = (next: 'grid' | 'list') => {
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Rotating to landscape crosses the breakpoint and the sheet stops being a
+  // sheet — close it, or the scroll lock below outlives it.
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const mq = window.matchMedia('(min-width: 681px)');
+    const onChange = () => mq.matches && setSheetOpen(false);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [sheetOpen]);
+
+  // The sheet is modal on mobile; don't let the page scroll behind it.
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSheetOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [sheetOpen]);
+
+  const activeFilters =
+    (wantsSoon ? 1 : 0) + (personalise ? 1 : 0) + (favsOnly ? 1 : 0) + (topRated ? 1 : 0) +
+    (budget !== null ? 1 : 0) + (radius !== null ? 1 : 0) + (category !== null ? 1 : 0);
+
+  const resetFilters = () => {
+    setWantsSoon(false);
+    setPersonalise(false);
+    setFavsOnly(false);
+    setTopRated(false);
+    setBudget(null);
+    setRadius(null);
+    setCategory(null);
+  };
 
   const applyLocation = (value: string) => {
     setLocError(false);
@@ -154,7 +216,13 @@ export default function Explore() {
         ))}
       </div>
 
-      <div className="filter-row">
+      {sheetOpen && <div className="sheet-backdrop" onClick={() => setSheetOpen(false)} />}
+
+      <div className={`filter-row ${sheetOpen ? 'open' : ''}`} role={sheetOpen ? 'dialog' : undefined} aria-modal={sheetOpen || undefined}>
+        <div className="sheet-head">
+          <strong>{t('f_filters')}</strong>
+          <button className="btn btn-ghost sm" onClick={() => setSheetOpen(false)} aria-label={t('f_close')}>✕</button>
+        </div>
         <button className={`chip ${wantsSoon ? 'on' : ''}`} onClick={() => setWantsSoon(!wantsSoon)}>
           ⚡ {t('f_soon')}
         </button>
@@ -200,12 +268,43 @@ export default function Explore() {
             <option value="rating">{t('sort_rating')}</option>
           </select>
         </label>
+
+        <div className="sheet-foot">
+          <button className="btn btn-soft" onClick={resetFilters} disabled={activeFilters === 0}>
+            {t('f_reset')}
+          </button>
+          <button className="btn btn-primary" onClick={() => setSheetOpen(false)}>
+            {t('f_show', { n: String(cards === null ? 0 : (favsOnly ? cards.filter((c) => favs.includes(c.shopId)) : cards).length) })}
+          </button>
+        </div>
+      </div>
+
+      <div className="results-bar">
+        <button className="btn-filters" onClick={() => setSheetOpen(true)}>
+          ⚙ {t('f_filters')}
+          {activeFilters > 0 && <em>{activeFilters}</em>}
+        </button>
+        <span className="results-count">
+          {cards === null
+            ? '…'
+            : t('f_results', {
+                n: String((favsOnly ? cards.filter((c) => favs.includes(c.shopId)) : cards).length),
+              })}
+        </span>
+        <div className="seg view-seg">
+          <button className={view === 'grid' ? 'on' : ''} onClick={() => chooseView('grid')} aria-label={t('view_grid')} title={t('view_grid')}>
+            <GridIcon />
+          </button>
+          <button className={view === 'list' ? 'on' : ''} onClick={() => chooseView('list')} aria-label={t('view_list_feed')} title={t('view_list_feed')}>
+            <ListIcon />
+          </button>
+        </div>
       </div>
 
       {cards === null ? (
         // Skeletons, not a spinner: the feed's shape appears immediately, so
         // the page settles into place instead of popping.
-        <div className="feed-grid">
+        <div className={view === 'list' ? 'feed-list' : 'feed-grid'}>
           {Array.from({ length: 6 }, (_, i) => (
             <div className="sk-card" key={i} aria-hidden>
               <div className="sk-media" />
@@ -225,7 +324,7 @@ export default function Explore() {
             {t('no_results')}
           </div>
         ) : (
-          <div className="feed-grid">
+          <div className={view === 'list' ? 'feed-list' : 'feed-grid'}>
             {visible.map((c) => (
               <ShopCard key={c.shopId} card={c} fav={favs.includes(c.shopId)} onFav={() => toggleFav(c.shopId)} />
             ))}
@@ -237,6 +336,29 @@ export default function Explore() {
 
       <p className="demo-note">{t('demo_note')}</p>
     </div>
+  );
+}
+
+/* Emoji glyphs for these read as noise at 16px; two rects and three lines
+   say "tiles" and "rows" unmistakably. */
+function GridIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden>
+      <rect x="0" y="0" width="7" height="7" rx="1.6" />
+      <rect x="9" y="0" width="7" height="7" rx="1.6" />
+      <rect x="0" y="9" width="7" height="7" rx="1.6" />
+      <rect x="9" y="9" width="7" height="7" rx="1.6" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden>
+      <rect x="0" y="1" width="16" height="3" rx="1.5" />
+      <rect x="0" y="6.5" width="16" height="3" rx="1.5" />
+      <rect x="0" y="12" width="16" height="3" rx="1.5" />
+    </svg>
   );
 }
 
