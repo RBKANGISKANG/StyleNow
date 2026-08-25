@@ -85,7 +85,7 @@ const STANDARD_RULES: ShopBookingRules = {
   bufferBeforeMin: 0,
   bufferAfterMin: 10,
   bookingLeadMin: 60,
-  bookingHorizonDays: 30,
+  bookingHorizonDays: 62,
 };
 
 const h = (n: number, m = 0) => n * 60 + m;

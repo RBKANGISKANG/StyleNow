@@ -172,6 +172,30 @@ export async function cancelBooking(
   return { feeCents: r.feeCents, refundCents: r.refundCents, reason: r.reason };
 }
 
+export async function createShopBooking(
+  shopId: string,
+  serviceIds: string[],
+  staffId: string | null,
+  startsAt: number,
+  guestName: string,
+): Promise<Booking> {
+  const hold = await createHold({
+    shopId,
+    serviceIds,
+    staffId,
+    startsAt,
+    deviceId: `shop:${shopId}`,
+    guestName,
+    idempotencyKey: `shopbk-${shopId}-${startsAt}`,
+  });
+  const b = store.confirmBooking(hold.bookingId);
+  b.paidCents = 0; // settled at the shop
+  const db = await sb();
+  const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
+  if (error) throw error;
+  return b;
+}
+
 export async function setBookingStatus(
   shopId: string,
   bookingId: string,

@@ -51,3 +51,10 @@ export function distance(m: number, lang: 'en' | 'de'): string {
   if (m < 1000) return `${m} m`;
   return `${(m / 1000).toFixed(1).replace('.', lang === 'de' ? ',' : '.')} km`;
 }
+
+export function monthShort(isoDate: string, lang: 'en' | 'de'): string {
+  return new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', {
+    timeZone: TZ,
+    month: 'short',
+  }).format(new Date(`${isoDate}T12:00:00Z`));
+}

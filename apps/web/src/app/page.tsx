@@ -5,7 +5,9 @@ import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
 import { apiMatch } from '@/lib/api';
 import { GetApp } from '@/components/GetApp';
+import { Heart } from '@/components/Heart';
 import { useFavourites } from '@/lib/favs';
+import { resolveLocation } from '@/core/geo';
 
 const CATEGORIES = [
   { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
@@ -46,7 +48,36 @@ export default function Explore() {
   const [budget, setBudget] = useState<number | null>(null);
   const [favsOnly, setFavsOnly] = useState(false);
   const [favs, toggleFav] = useFavourites();
+  const [locInput, setLocInput] = useState('');
+  const [loc, setLoc] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [locError, setLocError] = useState(false);
+  const [radius, setRadius] = useState<number | null>(null);
+  const [topRated, setTopRated] = useState(false);
+  const [sortBy, setSortBy] = useState<'match' | 'distance' | 'price' | 'rating'>('match');
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyLocation = (value: string) => {
+    setLocError(false);
+    if (!value.trim()) {
+      setLoc(null);
+      return;
+    }
+    const hit = resolveLocation(value);
+    if (hit) setLoc(hit);
+    else setLocError(true);
+  };
+
+  const useMyLocation = () => {
+    setLocError(false);
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => {
+        setLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: t('loc_mine') });
+        setLocInput('');
+      },
+      () => setLocError(true),
+      { timeout: 8000 },
+    );
+  };
 
   const query = useMemo(
     () => ({
@@ -56,8 +87,13 @@ export default function Explore() {
       personalisationConsent: personalise,
       budgetCents: budget ?? undefined,
       locale: lang,
+      lat: loc?.lat,
+      lng: loc?.lng,
+      maxTravelM: radius ?? undefined,
+      minRating: topRated ? 4.5 : undefined,
+      sortBy,
     }),
-    [search, category, wantsSoon, personalise, budget, lang],
+    [search, category, wantsSoon, personalise, budget, lang, loc, radius, topRated, sortBy],
   );
 
   useEffect(() => {
@@ -73,9 +109,23 @@ export default function Explore() {
   return (
     <div>
       <section className="hero">
-        <div className="loc">📍 {t('all_districts')}</div>
+        <div className="loc">📍 {loc ? loc.label : t('all_districts')}</div>
         <h1>{t('hero_title')}</h1>
         <p>{t('hero_sub')}</p>
+        <div className="loc-row">
+          <input
+            className="loc-input"
+            placeholder={t('loc_ph')}
+            value={locInput}
+            onChange={(e) => setLocInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && applyLocation(locInput)}
+            onBlur={() => applyLocation(locInput)}
+          />
+          <button className="btn btn-hero-ghost" onClick={useMyLocation} title={t('loc_mine')}>
+            📍 {t('loc_mine')}
+          </button>
+        </div>
+        {locError && <p style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600 }}>⚠️ {t('loc_unknown')}</p>}
       </section>
 
       <div className="search-row">
@@ -114,6 +164,9 @@ export default function Explore() {
         <button className={`chip ${favsOnly ? 'on-primary' : ''}`} onClick={() => setFavsOnly(!favsOnly)}>
           ❤️ {t('fav_only')}{favs.length ? ` (${favs.length})` : ''}
         </button>
+        <button className={`chip ${topRated ? 'on' : ''}`} onClick={() => setTopRated(!topRated)}>
+          ⭐ {t('top_rated')}
+        </button>
         <label className="chip">
           💶 {t('budget')}
           <select value={budget ?? ''} onChange={(e) => setBudget(e.target.value ? Number(e.target.value) : null)}>
@@ -123,6 +176,24 @@ export default function Explore() {
                 ≤ {money(b, lang)}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="chip">
+          🧭 {t('radius_label')}
+          <select value={radius ?? ''} onChange={(e) => setRadius(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">{t('radius_any')}</option>
+            <option value={1000}>≤ 1 km</option>
+            <option value={2000}>≤ 2 km</option>
+            <option value={5000}>≤ 5 km</option>
+          </select>
+        </label>
+        <label className="chip">
+          ↕️ {t('sort_label')}
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+            <option value="match">{t('sort_match')}</option>
+            <option value="distance">{t('sort_distance')}</option>
+            <option value="price">{t('sort_price')}</option>
+            <option value="rating">{t('sort_rating')}</option>
           </select>
         </label>
       </div>
@@ -179,7 +250,7 @@ function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () =>
             onFav();
           }}
         >
-          {fav ? '❤️' : '🤍'}
+          <Heart on={fav} />
         </button>
       </div>
       <div className="shop-body">

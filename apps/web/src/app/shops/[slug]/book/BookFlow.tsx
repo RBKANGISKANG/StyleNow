@@ -9,7 +9,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
-import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum } from '@/lib/format';
+import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin } from '@/lib/api';
 import { validateVoucher } from '@/core/store';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
@@ -74,7 +74,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const { t, lang } = useI18n();
   const { user } = useAuth();
   const initialServiceId = useSearchParams().get('service');
-  const days = useMemo(() => Array.from({ length: 12 }, (_, i) => addDays(todayIso(), i)), []);
+  // Two months of bookable days (matches the shops' 62-day booking horizon).
+  const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
   const [step, setStep] = useState(0);
   const [serviceIds, setServiceIds] = useState<string[]>(
     initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
@@ -370,11 +371,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           <div className="panel">
             <h3>{t('pick_time')}</h3>
             <div className="date-strip">
-              {days.map((d) => (
-                <button key={d} className={`date-pill ${d === date ? 'sel' : ''}`} onClick={() => setDate(d)}>
-                  <div className="dow">{weekdayShort(d, lang)}</div>
-                  <div className="num">{dayNum(d)}</div>
-                </button>
+              {days.map((d, i) => (
+                <span key={d} style={{ display: 'contents' }}>
+                  {(i === 0 || d.slice(5, 7) !== days[i - 1].slice(5, 7)) && (
+                    <span className="month-label">{monthShort(d, lang)}</span>
+                  )}
+                  <button className={`date-pill ${d === date ? 'sel' : ''}`} onClick={() => setDate(d)}>
+                    <div className="dow">{weekdayShort(d, lang)}</div>
+                    <div className="num">{dayNum(d)}</div>
+                  </button>
+                </span>
               ))}
             </div>
             {slots === null ? (

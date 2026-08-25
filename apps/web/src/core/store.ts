@@ -506,6 +506,11 @@ export interface FeedQuery {
   wantsSoon?: boolean;
   personalisationConsent?: boolean;
   locale?: string;
+  /** search origin — a resolved address/postal code or browser GPS; defaults to the demo location */
+  lat?: number;
+  lng?: number;
+  minRating?: number;
+  sortBy?: 'match' | 'distance' | 'price' | 'rating';
 }
 
 export interface FeedCard {
@@ -531,14 +536,17 @@ export interface FeedCard {
 
 export function feed(q: FeedQuery): FeedCard[] {
   const now = Date.now();
+  const origin = q.lat !== undefined && q.lng !== undefined ? { lat: q.lat, lng: q.lng } : USER_LOCATION;
   let shops = allShops();
   if (q.category) shops = shops.filter((s) => s.category === q.category);
+  if (q.minRating) shops = shops.filter((s) => s.ratingAvg >= q.minRating!);
   if (q.search) {
     const needle = q.search.toLowerCase();
     shops = shops.filter((s) => {
       const hay = [
         s.name,
         s.district,
+        s.address,
         s.tagline.en,
         s.tagline.de,
         ...s.tags,
@@ -556,7 +564,7 @@ export function feed(q: FeedQuery): FeedCard[] {
     firstSlot.set(s.id, mins);
     return {
       shopId: s.id,
-      distanceM: haversineM(USER_LOCATION, { lat: s.lat, lng: s.lng }),
+      distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       ratingAvg: s.ratingAvg,
       ratingCount: s.ratingCount,
       priceFromCents: Math.min(...s.services.map((sv) => sv.basePriceCents)),
@@ -580,7 +588,7 @@ export function feed(q: FeedQuery): FeedCard[] {
     personalisationConsent: q.personalisationConsent ?? false,
   };
 
-  return rank(candidates, query, 50).map((m) => {
+  const cards = rank(candidates, query, 50).map((m) => {
     const s = shopById(m.shopId)!;
     return {
       shopId: s.id,
@@ -594,7 +602,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       ratingAvg: s.ratingAvg,
       ratingCount: s.ratingCount,
       priceFromCents: Math.min(...s.services.map((sv) => sv.basePriceCents)),
-      distanceM: haversineM(USER_LOCATION, { lat: s.lat, lng: s.lng }),
+      distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       isNew: s.isNew,
       isMobile: s.isMobile,
       score: m.score,
@@ -603,6 +611,21 @@ export function feed(q: FeedQuery): FeedCard[] {
       languages: s.languagesSpoken,
     };
   });
+
+  switch (q.sortBy) {
+    case 'distance':
+      cards.sort((a, b) => a.distanceM - b.distanceM);
+      break;
+    case 'price':
+      cards.sort((a, b) => a.priceFromCents - b.priceFromCents);
+      break;
+    case 'rating':
+      cards.sort((a, b) => b.ratingAvg - a.ratingAvg || b.ratingCount - a.ratingCount);
+      break;
+    default:
+      break; // 'match' — the ranking engine's order
+  }
+  return cards;
 }
 
 // ---------------------------------------------------------------------------
@@ -799,6 +822,33 @@ export function cancelBooking(
     persist();
   }
   return { ...outcome, booking: b };
+}
+
+/**
+ * A booking created by the shop for a customer (walk-in or phone). Same seat
+ * semantics as online checkout — the EXCLUDE contract still applies — but no
+ * payment step: it confirms immediately and is settled at the shop.
+ */
+export function createShopBooking(
+  shopId: string,
+  serviceIds: string[],
+  staffId: string | null,
+  startsAt: number,
+  guestName: string,
+): Booking {
+  const hold = createHold({
+    shopId,
+    serviceIds,
+    staffId,
+    startsAt,
+    deviceId: `shop:${shopId}`,
+    guestName,
+    idempotencyKey: `shopbk-${shopId}-${startsAt}-${state.seq}`,
+  });
+  const b = confirmBooking(hold.bookingId);
+  b.paidCents = 0; // settled at the shop
+  persist();
+  return b;
 }
 
 export function getBooking(id: string): Booking | undefined {

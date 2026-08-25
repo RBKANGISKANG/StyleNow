@@ -354,3 +354,41 @@ export async function apiMyApplications(): Promise<ShopApplication[]> {
   await ready();
   return store.applicationsForDevice(deviceId());
 }
+
+// ---- shop-side booking creation (walk-in / phone customers) ---------------
+
+export type ShopBookingOutcome =
+  | { ok: true; reference: string }
+  | { ok: false; code: 'slot_taken'; alternatives: ApiSlot[] }
+  | { ok: false; code: 'error' };
+
+export async function apiShopCreateBooking(
+  shopId: string,
+  serviceIds: string[],
+  staffId: string | null,
+  startsAt: number,
+  guestName: string,
+): Promise<ShopBookingOutcome> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/bookings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serviceIds, staffId, startsAt, guestName }),
+    });
+    if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
+    if (!res.ok) return { ok: false, code: 'error' };
+    return { ok: true, reference: (await res.json()).reference };
+  }
+  await ready();
+  try {
+    const b =
+      backendMode() === 'supabase'
+        ? await sb.createShopBooking(shopId, serviceIds, staffId, startsAt, guestName)
+        : store.createShopBooking(shopId, serviceIds, staffId, startsAt, guestName);
+    return { ok: true, reference: b.reference };
+  } catch (e) {
+    if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    return { ok: false, code: 'error' };
+  }
+}

@@ -188,6 +188,25 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   font-size: 0.8rem;
   font-weight: 600;
 }
+.hero .loc-row { display: flex; gap: 8px; margin-top: 16px; max-width: 480px; }
+.loc-input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  font-size: 0.88rem;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--ink);
+}
+.btn-hero-ghost {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+.btn-hero-ghost:hover { background: rgba(255, 255, 255, 0.28); }
+
 @media (max-width: 640px) { .hero { padding: 28px 22px; } }
 
 /* ---------------- search + filters ---------------- */
@@ -526,6 +545,19 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .date-pill.sel { border-color: var(--primary); background: var(--primary-soft); }
 .date-pill.sel .dow { color: var(--primary); }
 
+.month-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--primary);
+  align-self: center;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
 .slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .slot-chip {
   padding: 10px 6px;
@@ -734,7 +766,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 }
 .svc-edit input:focus { border-color: var(--primary); }
 
-.switch { position: relative; width: 44px; height: 25px; flex-shrink: 0; }
+.switch { position: relative; display: inline-block; width: 44px; height: 25px; flex-shrink: 0; vertical-align: middle; }
 .switch input { display: none; }
 .switch .knob {
   position: absolute; inset: 0;

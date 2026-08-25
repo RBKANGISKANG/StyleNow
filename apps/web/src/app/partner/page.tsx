@@ -12,7 +12,20 @@ import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
 import { apiPartnerApply, apiMyApplications } from '@/lib/api';
 
-const CATEGORIES = ['hair', 'barber', 'nails', 'brows', 'mobile'] as const;
+// Multi-select: a studio can offer several of these at once. "Mobile" is not
+// a category here — it's the service-mode toggle in the location step.
+const CATEGORY_OPTIONS = [
+  { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
+  { id: 'barber', emoji: '💈', en: 'Barber', de: 'Barbier' },
+  { id: 'nails', emoji: '💅', en: 'Nails', de: 'Nägel' },
+  { id: 'brows', emoji: '👁️', en: 'Brows & lashes', de: 'Brauen & Wimpern' },
+  { id: 'makeup', emoji: '💄', en: 'Make-up', de: 'Make-up' },
+  { id: 'skincare', emoji: '🧖', en: 'Facial & skincare', de: 'Gesicht & Hautpflege' },
+  { id: 'massage', emoji: '💆', en: 'Massage & spa', de: 'Massage & Spa' },
+  { id: 'waxing', emoji: '🪷', en: 'Waxing & hair removal', de: 'Waxing & Haarentfernung' },
+  { id: 'tanning', emoji: '☀️', en: 'Tanning', de: 'Bräunung' },
+  { id: 'tattoo', emoji: '🖋️', en: 'Tattoo & piercing', de: 'Tattoo & Piercing' },
+] as const;
 const LANG_OPTIONS = ['de', 'en', 'tr', 'ar', 'pl', 'es', 'fr'];
 const DOWS = [1, 2, 3, 4, 5, 6, 7];
 
@@ -42,7 +55,7 @@ export default function PartnerPage() {
   // business
   const [legalName, setLegalName] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [category, setCategory] = useState<string>('hair');
+  const [categories, setCategories] = useState<string[]>([]);
   const [contactName, setContactName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [phone, setPhone] = useState('');
@@ -81,7 +94,13 @@ export default function PartnerPage() {
   }, [doneRef]);
 
   const stepValid = [
-    () => legalName.trim() && displayName.trim() && contactName.trim() && /.+@.+\..+/.test(email) && phone.trim(),
+    () =>
+      legalName.trim() &&
+      displayName.trim() &&
+      categories.length > 0 &&
+      contactName.trim() &&
+      /.+@.+\..+/.test(email) &&
+      phone.trim(),
     () => (isMobile ? Number(radiusKm) > 0 : street.trim() && zip.trim() && city.trim()),
     () => services.some((s) => s.name.trim() && Number(s.priceEur) > 0 && Number(s.minutes) > 0),
     () => owner.trim() && iban.replace(/\s/g, '').length >= 15 && acceptTerms && acceptTruth,
@@ -103,7 +122,7 @@ export default function PartnerPage() {
     }
     setBusy(true);
     const app = await apiPartnerApply({
-      business: { legalName, displayName, category, contactName, email, phone, website, instagram, vatId, registerNo, smallBusiness },
+      business: { legalName, displayName, categories, contactName, email, phone, website, instagram, vatId, registerNo, smallBusiness },
       location: isMobile ? { mobile: true, radiusKm: Number(radiusKm), city } : { mobile: false, street, zip, city, district },
       offer: {
         openingHours: hours,
@@ -174,14 +193,27 @@ export default function PartnerPage() {
         <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <input className="input" placeholder={`${t('p_legal_name')} *`} value={legalName} onChange={(e) => setLegalName(e.target.value)} />
           <input className="input" placeholder={`${t('p_display_name')} *`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-          <label className="chip" style={{ justifyContent: 'space-between' }}>
-            {t('p_category')}
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
+          <div>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: categories.length === 0 && error ? 'var(--danger)' : 'var(--ink-soft)' }}>
+              {t('p_category')} *
+            </span>
+            <div className="filter-row" style={{ marginTop: 8, marginBottom: 0 }}>
+              {CATEGORY_OPTIONS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`chip ${categories.includes(c.id) ? 'on-primary' : ''}`}
+                  onClick={() =>
+                    setCategories(
+                      categories.includes(c.id) ? categories.filter((x) => x !== c.id) : [...categories, c.id],
+                    )
+                  }
+                >
+                  {c.emoji} {lang === 'de' ? c.de : c.en}
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
           <input className="input" placeholder={`${t('p_contact_name')} *`} value={contactName} onChange={(e) => setContactName(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input className="input" style={{ flex: 2, minWidth: 180 }} type="email" placeholder={`${t('p_email')} *`} value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -6,8 +6,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
-import { money, timeOf, weekdayShort, dayNum } from '@/lib/format';
-import { apiOverview, apiSetStatus, apiPatchService, apiToggleRule } from '@/lib/api';
+import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
+import { apiOverview, apiSetStatus, apiPatchService, apiToggleRule, apiAvailability, apiShopCreateBooking } from '@/lib/api';
 import { todayIso, addDays } from '@/core/time';
 
 const DAY_START_MIN = 8 * 60;
@@ -80,7 +80,8 @@ interface Overview {
 
 export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; emoji: string }> }) {
   const { t, lang } = useI18n();
-  const days = useMemo(() => Array.from({ length: 8 }, (_, i) => addDays(todayIso(), i)), []);
+  // Same two-month horizon the customer side books against.
+  const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
   const [shopId, setShopId] = useState(shops[0]?.id ?? '');
   const [date, setDate] = useState(days[0]);
   const [data, setData] = useState<Overview | null>(null);
@@ -141,11 +142,16 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
       </div>
 
       <div className="date-strip">
-        {days.map((d) => (
-          <button key={d} className={`date-pill ${d === date ? 'sel' : ''}`} onClick={() => setDate(d)}>
-            <div className="dow">{weekdayShort(d, lang)}</div>
-            <div className="num">{dayNum(d)}</div>
-          </button>
+        {days.map((d, i) => (
+          <span key={d} style={{ display: 'contents' }}>
+            {(i === 0 || d.slice(5, 7) !== days[i - 1].slice(5, 7)) && (
+              <span className="month-label">{monthShort(d, lang)}</span>
+            )}
+            <button className={`date-pill ${d === date ? 'sel' : ''}`} onClick={() => setDate(d)}>
+              <div className="dow">{weekdayShort(d, lang)}</div>
+              <div className="num">{dayNum(d)}</div>
+            </button>
+          </span>
         ))}
       </div>
 
@@ -220,6 +226,19 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="section">
+            <NewBooking
+              shopId={shopId}
+              date={date}
+              services={data.shop.services}
+              staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))}
+              onCreated={() => {
+                setToast('✅ ' + t('dash_created'));
+                void load();
+              }}
+            />
           </section>
 
           <section className="section">
@@ -395,6 +414,137 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
         </>
       )}
       {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+function NewBooking({
+  shopId,
+  date,
+  services,
+  staff,
+  onCreated,
+}: {
+  shopId: string;
+  date: string;
+  services: Overview['shop']['services'];
+  staff: Array<{ id: string; name: string }>;
+  onCreated: () => void;
+}) {
+  const { t, lang } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [serviceId, setServiceId] = useState(services[0]?.id ?? '');
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [slots, setSlots] = useState<Array<{ start: number; priceCents: number }> | null>(null);
+  const [startsAt, setStartsAt] = useState<number | null>(null);
+  const [customer, setCustomer] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [conflict, setConflict] = useState(false);
+
+  useEffect(() => {
+    setServiceId((cur) => (services.some((s) => s.id === cur) ? cur : services[0]?.id ?? ''));
+  }, [services]);
+
+  useEffect(() => {
+    if (!open || !serviceId) return;
+    setSlots(null);
+    setStartsAt(null);
+    void apiAvailability(shopId, [serviceId], date, staffId).then((s) =>
+      setSlots(s.map((x) => ({ start: x.start, priceCents: x.priceCents }))),
+    );
+  }, [open, shopId, serviceId, staffId, date]);
+
+  const create = async () => {
+    if (!startsAt || !customer.trim()) return;
+    setBusy(true);
+    setConflict(false);
+    const r = await apiShopCreateBooking(shopId, [serviceId], staffId, startsAt, customer.trim());
+    setBusy(false);
+    if (!r.ok) {
+      setConflict(true);
+      setStartsAt(null);
+      void apiAvailability(shopId, [serviceId], date, staffId).then((s) =>
+        setSlots(s.map((x) => ({ start: x.start, priceCents: x.priceCents }))),
+      );
+      return;
+    }
+    setCustomer('');
+    setStartsAt(null);
+    setOpen(false);
+    onCreated();
+  };
+
+  if (!open) {
+    return (
+      <button className="btn btn-primary" onClick={() => setOpen(true)}>
+        {t('dash_new')}
+      </button>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <h3 style={{ marginBottom: 0 }}>{t('dash_new_title')}</h3>
+        <button className="btn btn-ghost sm" onClick={() => setOpen(false)}>✕</button>
+      </div>
+      {conflict && <div className="alert" style={{ marginTop: 10 }}>{t('slot_taken_body')}</div>}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
+        <label className="chip">
+          ✂️
+          <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            {services.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.emoji} {s.name[lang]} · {money(s.basePriceCents, lang)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="chip">
+          👤
+          <select value={staffId ?? ''} onChange={(e) => setStaffId(e.target.value || null)}>
+            <option value="">{t('any_staff')}</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </label>
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 180 }}
+          placeholder={`${t('dash_cust_name')} *`}
+          value={customer}
+          onChange={(e) => setCustomer(e.target.value)}
+          maxLength={60}
+        />
+      </div>
+      {slots === null ? (
+        <div className="spinner" />
+      ) : slots.length === 0 ? (
+        <div className="empty" style={{ padding: '20px 14px' }}>{t('no_slots')}</div>
+      ) : (
+        <div className="slot-grid">
+          {slots.map((s) => (
+            <button
+              key={s.start}
+              className={`slot-chip ${startsAt === s.start ? 'sel' : ''}`}
+              onClick={() => setStartsAt(s.start)}
+            >
+              <div className="t">{timeOf(s.start, lang)}</div>
+              <div className="p">{money(s.priceCents, lang)}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', marginTop: 10 }}>{t('dash_pay_note')}</p>
+      <button
+        className="btn btn-primary"
+        style={{ marginTop: 10 }}
+        disabled={busy || !startsAt || !customer.trim()}
+        onClick={() => void create()}
+      >
+        {busy ? '…' : t('dash_create')}
+      </button>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
 import { apiShopReviews } from '@/lib/api';
+import { Heart } from '@/components/Heart';
 import { useFavourites } from '@/lib/favs';
 
 interface LiveReview {
@@ -66,7 +67,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         style={{ background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }}
       >
         <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
-          {fav ? '❤️' : '🤍'}
+          <Heart on={fav} size={20} />
         </button>
         <h1>
           {shop.emoji} {shop.name}
