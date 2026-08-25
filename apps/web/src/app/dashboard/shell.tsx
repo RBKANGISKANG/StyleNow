@@ -73,6 +73,7 @@ export interface Overview {
 
 export const OPERATOR_TABS = [
   { href: '/dashboard', key: 'tab_today', ico: '📅' },
+  { href: '/dashboard/revenue', key: 'tab_revenue', ico: '📈' },
   { href: '/dashboard/services', key: 'tab_services', ico: '✂️' },
   { href: '/dashboard/team', key: 'tab_team', ico: '👥' },
   { href: '/dashboard/hr', key: 'tab_hr', ico: '🧾' },

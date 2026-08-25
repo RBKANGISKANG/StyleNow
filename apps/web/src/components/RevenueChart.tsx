@@ -11,7 +11,7 @@
  */
 import { useId, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
-import { money, weekdayShort } from '@/lib/format';
+import { money, weekdayShort, dayNum, monthShort } from '@/lib/format';
 
 export interface RevenuePoint {
   iso: string;
@@ -22,7 +22,7 @@ const W = 640;
 const H = 180;
 const PAD = { top: 18, right: 16, bottom: 26, left: 12 };
 
-export function RevenueChart({ data }: { data: RevenuePoint[] }) {
+export function RevenueChart({ data, label }: { data: RevenuePoint[]; label?: string }) {
   const { t, lang } = useI18n();
   const [hover, setHover] = useState<number | null>(null);
   const gradId = useId().replace(/:/g, '');
@@ -50,6 +50,16 @@ export function RevenueChart({ data }: { data: RevenuePoint[] }) {
   const linePath = values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(v)}`).join(' ');
   const areaPath = `${linePath} L ${x(lastIdx)} ${PAD.top + plotH} L ${x(0)} ${PAD.top + plotH} Z`;
 
+  // Past a fortnight a dot and a label per day turn into mush, so both thin
+  // out: roughly eight ticks whatever the range, and dots only where they
+  // carry meaning (best, latest, hovered).
+  const dense = data.length > 14;
+  const tickStep = Math.max(1, Math.ceil(data.length / 8));
+  const isTick = (i: number) => !dense || i % tickStep === 0 || i === lastIdx;
+  const showDot = (i: number) => !dense || i === bestIdx || i === lastIdx || i === hover;
+  const stamp = (iso: string) =>
+    dense ? `${dayNum(iso)}.${monthShort(iso, lang).slice(0, 3)}` : weekdayShort(iso, lang);
+
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - rect.left) / rect.width) * W;
@@ -74,7 +84,7 @@ export function RevenueChart({ data }: { data: RevenuePoint[] }) {
         <div className="rv-best">
           <span className="lbl">{t('rv_best')}</span>
           <span className="val">
-            {weekdayShort(data[bestIdx].iso, lang)} · {money(values[bestIdx], lang)}
+            {stamp(data[bestIdx].iso)} · {money(values[bestIdx], lang)}
           </span>
         </div>
       </div>
@@ -83,7 +93,7 @@ export function RevenueChart({ data }: { data: RevenuePoint[] }) {
         viewBox={`0 0 ${W} ${H}`}
         className="rv-svg"
         role="img"
-        aria-label={`${t('revenue_7d')}: ${money(total, lang)}`}
+        aria-label={`${label ?? t('revenue_7d')}: ${money(total, lang)}`}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
       >
@@ -111,10 +121,12 @@ export function RevenueChart({ data }: { data: RevenuePoint[] }) {
 
         {values.map((v, i) => (
           <g key={data[i].iso}>
-            <circle cx={x(i)} cy={y(v)} r={hover === i ? 6 : 4.5} className="rv-dot" />
-            <text x={x(i)} y={H - 8} className="rv-xlabel">
-              {weekdayShort(data[i].iso, lang)}
-            </text>
+            {showDot(i) && <circle cx={x(i)} cy={y(v)} r={hover === i ? 6 : 4.5} className="rv-dot" />}
+            {isTick(i) && (
+              <text x={x(i)} y={H - 8} className="rv-xlabel">
+                {stamp(data[i].iso)}
+              </text>
+            )}
           </g>
         ))}
 
@@ -133,7 +145,7 @@ export function RevenueChart({ data }: { data: RevenuePoint[] }) {
             <g transform={`translate(${Math.min(Math.max(x(hover), 60), W - 60)}, ${PAD.top - 4})`}>
               <rect x={-56} y={-16} width={112} height={22} rx={7} className="rv-tip-bg" />
               <text x={0} y={0} className="rv-tip-text">
-                {weekdayShort(data[hover].iso, lang)} · {money(values[hover], lang)}
+                {stamp(data[hover].iso)} · {money(values[hover], lang)}
               </text>
             </g>
           </>

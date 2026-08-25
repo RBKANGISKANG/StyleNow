@@ -25,6 +25,7 @@ import type {
   StaffMember,
   ShopLocation,
   HrRow,
+  RevenueReport,
   Absence,
   AbsenceKind,
 } from '@/core/store';
@@ -722,6 +723,15 @@ export async function apiHrOverview(shopId: string, from: string, to: string): P
   return store.hrOverview(shopId, from, to);
 }
 
+export async function apiRevenueReport(shopId: string, from: string, to: string): Promise<RevenueReport | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/revenue?from=${from}&to=${to}`);
+    return res.ok ? await res.json() : null;
+  }
+  await readyForRead();
+  return store.revenueReport(shopId, from, to);
+}
+
 export async function apiAddAbsence(
   shopId: string,
   staffId: string,
@@ -748,4 +758,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   store.deleteAbsence(staffId, absenceId);
 }
 
-export type { HrRow, Absence, AbsenceKind };
+export type { HrRow, RevenueReport, Absence, AbsenceKind };

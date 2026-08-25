@@ -803,6 +803,28 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 
 .today-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 
+/* Ranked breakdown — a comparison between categories, so bars are right here
+   (unlike the trend, which is a line). Length carries the value; the number is
+   always spelled out beside it. */
+.rank-list { display: grid; gap: 2px; }
+.rank-row {
+  display: grid; align-items: center; gap: 10px;
+  grid-template-columns: minmax(120px, 1.4fr) minmax(60px, 2fr) auto auto;
+  padding: 9px 0; border-top: 1px solid var(--line);
+}
+.rank-row:first-child { border-top: none; }
+.rank-label { font-weight: 600; font-size: 0.88rem; }
+.rank-track { height: 9px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.rank-bar { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+.rank-count { font-size: 0.76rem; color: var(--ink-soft); white-space: nowrap; }
+.rank-value { font-weight: 800; font-size: 0.9rem; white-space: nowrap; text-align: right; }
+@media (max-width: 560px) {
+  .rank-row { grid-template-columns: 1fr auto; row-gap: 5px; }
+  .rank-track { grid-column: 1 / -1; }
+  .rank-count { grid-column: 1; }
+  .rank-value { grid-column: 2; }
+}
+
 /* Confirm dialog — every destructive action goes through this. */
 .cd-backdrop {
   position: fixed; inset: 0; z-index: 90;

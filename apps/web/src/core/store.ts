@@ -1734,6 +1734,119 @@ export interface HrRow {
   absentDays: number;
 }
 
+// --- revenue report --------------------------------------------------------
+
+export interface RevenueReport {
+  from: string;
+  to: string;
+  days: Array<{ iso: string; revenueCents: number; bookingCount: number }>;
+  totalCents: number;
+  bookingCount: number;
+  avgTicketCents: number;
+  bestDay: { iso: string; revenueCents: number } | null;
+  /** revenue not tied to an online booking — walk-ins and counter sales */
+  walkInCents: number;
+  byService: Array<{ id: string; name: { en: string; de: string }; emoji: string; count: number; revenueCents: number }>;
+  byStaff: Array<{ id: string; name: string; count: number; revenueCents: number }>;
+}
+
+/**
+ * Money over an arbitrary range, plus where it came from.
+ *
+ * The per-day figure keeps the same walk-in baseline the Today chart has always
+ * shown, so the two screens never contradict each other; that part is reported
+ * separately as `walkInCents` so the breakdowns still add up to the total.
+ * A booking counts on the day it starts, in shop time.
+ */
+export function revenueReport(shopId: string, fromIso: string, toIso: string): RevenueReport {
+  const shop = shopById(shopId);
+  const empty: RevenueReport = {
+    from: fromIso,
+    to: toIso,
+    days: [],
+    totalCents: 0,
+    bookingCount: 0,
+    avgTicketCents: 0,
+    bestDay: null,
+    walkInCents: 0,
+    byService: [],
+    byStaff: [],
+  };
+  if (!shop) return empty;
+
+  const dates: string[] = [];
+  for (let iso = fromIso; iso <= toIso && dates.length < 400; iso = addDays(iso, 1)) dates.push(iso);
+  if (dates.length === 0) return empty;
+
+  const today = todayIso();
+  const staffNames = new Map(effectiveStaff(shopId).map((s) => [s.id, s.name]));
+  const byService = new Map<string, { count: number; revenueCents: number }>();
+  const byStaff = new Map<string, { count: number; revenueCents: number }>();
+
+  let walkInCents = 0;
+  let bookedCents = 0;
+  let bookingCount = 0;
+
+  const days = dates.map((iso) => {
+    const start = dayStart(iso);
+    const end = start + 24 * 60 * MIN;
+    let dayCents = 0;
+    let dayCount = 0;
+    for (const b of state.bookings.values()) {
+      if (b.shopId !== shopId) continue;
+      if (!['confirmed', 'completed'].includes(b.status)) continue;
+      if (b.startsAt < start || b.startsAt >= end) continue;
+      dayCents += b.quote.totalCents;
+      dayCount += 1;
+      const staff = byStaff.get(b.staffId) ?? { count: 0, revenueCents: 0 };
+      byStaff.set(b.staffId, { count: staff.count + 1, revenueCents: staff.revenueCents + b.quote.totalCents });
+      // A basket's total is split across its services by list price, so a
+      // two-service booking doesn't credit both with the whole ticket.
+      const prices = b.serviceIds.map((id) => serviceOf(shop, id)?.basePriceCents ?? 0);
+      const sum = prices.reduce((a, p) => a + p, 0);
+      b.serviceIds.forEach((id, i) => {
+        const share = sum > 0 ? Math.round((prices[i] / sum) * b.quote.totalCents) : Math.round(b.quote.totalCents / b.serviceIds.length);
+        const cur = byService.get(id) ?? { count: 0, revenueCents: 0 };
+        byService.set(id, { count: cur.count + 1, revenueCents: cur.revenueCents + share });
+      });
+    }
+    // Same deterministic walk-in baseline the Today chart uses — but only for
+    // days that have actually happened. A range reaching into the future is an
+    // order book, and nobody has walked in yet.
+    const noise = iso <= today ? (hash(`${shopId}:${iso}:rev`) % 40_000) + 25_000 : 0;
+    walkInCents += noise;
+    bookedCents += dayCents;
+    bookingCount += dayCount;
+    return { iso, revenueCents: dayCents + noise, bookingCount: dayCount };
+  });
+
+  const totalCents = bookedCents + walkInCents;
+  const bestDay = days.reduce<{ iso: string; revenueCents: number } | null>(
+    (best, d) => (best === null || d.revenueCents > best.revenueCents ? { iso: d.iso, revenueCents: d.revenueCents } : best),
+    null,
+  );
+
+  return {
+    from: fromIso,
+    to: toIso,
+    days,
+    totalCents,
+    bookingCount,
+    avgTicketCents: bookingCount > 0 ? Math.round(bookedCents / bookingCount) : 0,
+    bestDay,
+    walkInCents,
+    byService: [...byService.entries()]
+      .map(([id, v]) => {
+        const svc = serviceOf(shop, id);
+        return { id, name: svc?.name ?? { en: id, de: id }, emoji: svc?.emoji ?? '✨', ...v };
+      })
+      .sort((a, b) => b.revenueCents - a.revenueCents),
+    byStaff: [...byStaff.entries()]
+      .map(([id, v]) => ({ id, name: staffNames.get(id) ?? '—', ...v }))
+      .sort((a, b) => b.revenueCents - a.revenueCents),
+  };
+}
+
 export function hrOverview(shopId: string, fromIso: string, toIso: string): HrRow[] {
   const shop = shopById(shopId);
   if (!shop) return [];

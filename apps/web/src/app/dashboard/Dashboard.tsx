@@ -17,7 +17,6 @@ import {
   apiRescheduleBooking,
 } from '@/lib/api';
 import { deviceId } from '@/lib/device';
-import { RevenueChart } from '@/components/RevenueChart';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from './toast';
 import { OperatorShell, useOverview, type Overview } from './shell';
@@ -305,11 +304,6 @@ function TodayTab({ shopId }: { shopId: string }) {
               </table>
             </div>
           )}
-        </section>
-
-        <section className="section">
-          <h2>{t('revenue_7d')}</h2>
-          <RevenueChart data={data.week} />
         </section>
 
     </>
