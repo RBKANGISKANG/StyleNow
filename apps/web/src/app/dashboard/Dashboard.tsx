@@ -19,6 +19,7 @@ import {
   apiSetShopLogo,
   apiClaimShop,
   apiReleaseShop,
+  apiRecordExitFeedback,
   apiAddService,
   apiArchiveService,
   apiAddPricingRule,
@@ -34,6 +35,7 @@ import { useOwnedShops } from '@/lib/owned-shops';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { RevenueChart } from '@/components/RevenueChart';
 import { CategoryPicker } from '@/components/CategoryPicker';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { todayIso, addDays, isoDateOf } from '@/core/time';
 
 const DAY_START_MIN = 8 * 60;
@@ -128,6 +130,7 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
   const [nbOpen, setNbOpen] = useState(false);
   const [nbPrefill, setNbPrefill] = useState<{ staffId: string | null; minute?: number } | null>(null);
   const [moveFor, setMoveFor] = useState<Overview['bookings'][number] | null>(null);
+  const { ask, dialog } = useConfirm();
 
   useEffect(() => {
     if (!shopId) setData(null);
@@ -249,8 +252,43 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
         <button
           className="btn btn-ghost sm"
           onClick={() => {
-            if (!ownerKey) return;
-            void apiReleaseShop(shopId).then(refresh);
+            if (!ownerKey || !data) return;
+            const shopName = data.shop.name;
+            const upcoming = data.bookings.filter(
+              (b) => b.startsAt > Date.now() && ['confirmed', 'pending_payment'].includes(b.status),
+            ).length;
+            ask({
+              title: t('co_del_title', { name: shopName }),
+              body: t('co_del_body'),
+              consequences: [
+                ...(upcoming > 0 ? [t('co_del_open', { n: String(upcoming) })] : []),
+                t('co_del_c1'),
+                t('co_del_c2'),
+                t('co_del_c3'),
+              ],
+              questions: [
+                {
+                  id: 'reason',
+                  label: t('co_del_q_reason'),
+                  required: true,
+                  options: [
+                    t('co_del_r_closed'),
+                    t('co_del_r_moved'),
+                    t('co_del_r_duplicate'),
+                    t('co_del_r_temp'),
+                    t('cd_reason_other'),
+                  ],
+                },
+                { id: 'handover', label: t('co_del_q_handover'), placeholder: t('co_del_handover_ph') },
+              ],
+              typeToConfirm: shopName,
+              confirmLabel: t('co_del_confirm'),
+              run: async (answers) => {
+                await apiRecordExitFeedback('shop', shopId, answers);
+                await apiReleaseShop(shopId);
+                refresh();
+              },
+            });
           }}
         >
           {t('own_disconnect')}
@@ -446,7 +484,18 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
                               <button
                                 className="btn btn-ghost sm"
                                 style={{ color: 'var(--danger)' }}
-                                onClick={() => void cancelBooking(b.id)}
+                                onClick={() =>
+                                  ask({
+                                    title: t('del_booking_title', { name: b.guestName }),
+                                    body: t('del_booking_body'),
+                                    consequences: [
+                                      `${b.serviceNames.join(', ')} · ${timeOf(b.startsAt, lang)} · ${money(b.totalCents, lang)}`,
+                                      t('del_booking_c1'),
+                                    ],
+                                    confirmLabel: t('del_booking_confirm'),
+                                    run: () => cancelBooking(b.id),
+                                  })
+                                }
                               >
                                 ✕ {t('dash_cancel_bk')}
                               </button>
@@ -621,12 +670,19 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
                         <button
                           className="btn btn-ghost sm"
                           style={{ color: 'var(--danger)' }}
-                          onClick={() => {
-                            void apiArchiveService(shopId, s.id).then(() => {
-                              setToast('🗄 ' + t('svc_archived'));
-                              void load();
-                            });
-                          }}
+                          onClick={() =>
+                            ask({
+                              title: t('del_service_title', { name: s.name[lang] }),
+                              body: t('del_service_body'),
+                              consequences: [t('del_service_c1'), t('del_service_c2')],
+                              confirmLabel: t('del_service_confirm'),
+                              run: () =>
+                                apiArchiveService(shopId, s.id).then(() => {
+                                  setToast('🗄 ' + t('svc_archived'));
+                                  void load();
+                                }),
+                            })
+                          }
                         >
                           {t('svc_archive')}
                         </button>
@@ -676,12 +732,18 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
                     <button
                       className="btn btn-ghost sm"
                       style={{ color: 'var(--danger)' }}
-                      onClick={() => {
-                        void apiDeletePricingRule(shopId, r.id).then(() => {
-                          setToast('🗑 ' + t('rule_deleted'));
-                          void load();
-                        });
-                      }}
+                      onClick={() =>
+                        ask({
+                          title: t('del_rule_title', { name: r.name }),
+                          body: t('del_rule_body'),
+                          confirmLabel: t('del_rule_confirm'),
+                          run: () =>
+                            apiDeletePricingRule(shopId, r.id).then(() => {
+                              setToast('🗑 ' + t('rule_deleted'));
+                              void load();
+                            }),
+                        })
+                      }
                     >
                       {t('rule_delete')}
                     </button>
@@ -700,6 +762,7 @@ export function Dashboard({ shops }: { shops: Array<{ id: string; name: string; 
         </>
       )}
       {toast && <div className="toast">{toast}</div>}
+      {dialog}
     </div>
   );
 }
@@ -1161,9 +1224,11 @@ function TeamManager({
   const [locationId, setLocationId] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
 
   return (
     <div className="panel">
+      {dialog}
       {err && <div className="alert" style={{ marginBottom: 10 }}>{err}</div>}
       {rows.map((r) => (
         <div key={r.staffId} className="team-row">
@@ -1223,12 +1288,20 @@ function TeamManager({
           <button
             className="btn btn-ghost sm"
             style={{ color: 'var(--danger)' }}
-            onClick={() => {
-              void apiArchiveStaff(shopId, r.staffId).then((ok) => {
-                if (ok) onChanged('🗑 ' + t('team_removed'));
-                else setErr(t('team_last'));
-              });
-            }}
+            onClick={() =>
+              ask({
+                title: t('del_staff_title', { name: r.name }),
+                body: t('del_staff_body'),
+                consequences: [t('del_staff_c1'), t('del_staff_c2')],
+                typeToConfirm: r.name,
+                confirmLabel: t('del_staff_confirm'),
+                run: () =>
+                  apiArchiveStaff(shopId, r.staffId).then((ok) => {
+                    if (ok) onChanged('🗑 ' + t('team_removed'));
+                    else setErr(t('team_last'));
+                  }),
+              })
+            }
           >
             {t('team_remove')}
           </button>
@@ -1355,9 +1428,11 @@ function LocationManager({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ label: '', street: '', zip: '', city: 'Berlin', district: '' });
   const [err, setErr] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
 
   return (
     <div className="panel">
+      {dialog}
       {err && <div className="alert" style={{ marginBottom: 10 }}>{err}</div>}
       {locations.map((l) => (
         <div key={l.id} className="loc-row">
@@ -1408,12 +1483,19 @@ function LocationManager({
           <button
             className="btn btn-ghost sm"
             style={{ color: 'var(--danger)' }}
-            onClick={() => {
-              void apiDeleteLocation(shopId, l.id).then((ok) => {
-                if (ok) onChanged('🗑 ' + t('loc_removed'));
-                else setErr(t('loc_last'));
-              });
-            }}
+            onClick={() =>
+              ask({
+                title: t('del_loc_title', { name: l.label }),
+                body: t('del_loc_body'),
+                typeToConfirm: l.label,
+                confirmLabel: t('del_loc_confirm'),
+                run: () =>
+                  apiDeleteLocation(shopId, l.id).then((ok) => {
+                    if (ok) onChanged('🗑 ' + t('loc_removed'));
+                    else setErr(t('loc_last'));
+                  }),
+              })
+            }
           >
             ✕
           </button>

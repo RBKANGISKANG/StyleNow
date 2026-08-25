@@ -1,8 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { useAuth, emptyProfile, type Profile } from '@/lib/auth';
+import { apiMyBookings, apiRecordExitFeedback } from '@/lib/api';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 const SOCIALS = [
   { id: 'google' as const, label: 'Google', icon: 'G', bg: '#fff', fg: '#1a1a1a', border: true },
@@ -206,9 +208,62 @@ function ProfileView() {
   const { user, updateProfile, exportData, deleteAccount, logout } = useAuth();
   const [draft, setDraft] = useState<Profile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [upcoming, setUpcoming] = useState(0);
+  const { ask, dialog } = useConfirm();
+
+  // Shown inside the deletion dialog: leaving does not cancel appointments,
+  // and the person deserves to know before, not after.
+  useEffect(() => {
+    void apiMyBookings().then((bs) =>
+      setUpcoming(
+        bs.filter((b) => b.startsAt > Date.now() && ['confirmed', 'pending_payment'].includes(b.status)).length,
+      ),
+    );
+  }, []);
+
   if (!user) return null;
   const p = draft ?? user;
+
+  const askDelete = () =>
+    ask({
+      title: t('acc_del_title'),
+      body: t('acc_del_body'),
+      consequences: [
+        ...(upcoming > 0 ? [t('acc_del_upcoming', { n: String(upcoming) })] : []),
+        t('acc_del_c1'),
+        t('acc_del_c2'),
+        t('acc_del_c3'),
+        t('acc_del_c4'),
+      ],
+      questions: [
+        {
+          id: 'reason',
+          label: t('acc_del_q_reason'),
+          required: true,
+          options: [
+            t('acc_del_r_unused'),
+            t('acc_del_r_shops'),
+            t('acc_del_r_price'),
+            t('acc_del_r_privacy'),
+            t('acc_del_r_bad'),
+            t('cd_reason_other'),
+          ],
+        },
+        { id: 'note', label: t('acc_del_q_note'), placeholder: t('acc_del_note_ph') },
+      ],
+      typeToConfirm: user.email,
+      confirmLabel: t('acc_delete'),
+      extra: (
+        <a className="btn btn-soft sm" href={exportData()} download="stylenow-my-data.json">
+          📦 {t('acc_export')}
+        </a>
+      ),
+      run: async (answers) => {
+        // Ask first, delete second — afterwards there is nobody left to ask.
+        await apiRecordExitFeedback('account', user.email, answers);
+        await deleteAccount();
+      },
+    });
 
   const save = async () => {
     if (draft) await updateProfile(draft);
@@ -259,23 +314,12 @@ function ProfileView() {
           📦 {t('acc_export')}
         </a>
         <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('acc_export_hint')}</p>
-        {!confirmDelete ? (
-          <button className="btn btn-ghost sm" style={{ color: 'var(--danger)', marginTop: 10 }} onClick={() => setConfirmDelete(true)}>
-            🗑 {t('acc_delete')}
-          </button>
-        ) : (
-          <div className="alert" style={{ marginTop: 10 }}>
-            {t('acc_delete_confirm')}
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="btn btn-soft sm" onClick={() => setConfirmDelete(false)}>{t('keep_booking')}</button>
-              <button className="btn sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => void deleteAccount()}>
-                {t('acc_delete')}
-              </button>
-            </div>
-          </div>
-        )}
+        <button className="btn btn-ghost sm" style={{ color: 'var(--danger)', marginTop: 10 }} onClick={askDelete}>
+          🗑 {t('acc_delete')}
+        </button>
       </div>
       {toast && <div className="toast">✅ {toast}</div>}
+      {dialog}
     </>
   );
 }

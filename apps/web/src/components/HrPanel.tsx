@@ -20,6 +20,7 @@ import {
   type HrRow,
   type AbsenceKind,
 } from '@/lib/api';
+import { useConfirm } from './ConfirmDialog';
 
 const ABSENCE_KINDS: AbsenceKind[] = ['vacation', 'sick', 'training', 'other'];
 
@@ -38,6 +39,7 @@ export function HrPanel({
   const [period, setPeriod] = useState<HrPeriod>('week');
   const [rows, setRows] = useState<HrRow[] | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
   const [draft, setDraft] = useState<{ from: string; to: string; kind: AbsenceKind; note: string }>({
     from: todayIso(),
     to: todayIso(),
@@ -70,6 +72,7 @@ export function HrPanel({
 
   return (
     <div className="panel">
+      {dialog}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         <div className="seg">
           {(['week', 'month', 'next30'] as const).map((p) => (
@@ -227,12 +230,19 @@ export function HrPanel({
                     <button
                       className="btn btn-ghost sm"
                       style={{ color: 'var(--danger)', marginLeft: 'auto' }}
-                      onClick={() => {
-                        void apiDeleteAbsence(shopId, r.staffId, a.id).then(() => {
-                          load();
-                          onChanged('🗑 ' + t('hr_absence_removed'));
-                        });
-                      }}
+                      onClick={() =>
+                        ask({
+                          title: t('del_abs_title'),
+                          body: t('del_abs_body'),
+                          consequences: [`${r.name} · ${kindLabel(a.kind)} · ${a.from} → ${a.to}`],
+                          confirmLabel: t('del_abs_confirm'),
+                          run: () =>
+                            apiDeleteAbsence(shopId, r.staffId, a.id).then(() => {
+                              load();
+                              onChanged('🗑 ' + t('hr_absence_removed'));
+                            }),
+                        })
+                      }
                     >
                       ✕
                     </button>

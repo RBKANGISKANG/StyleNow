@@ -781,6 +781,45 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .dash-table td { padding: 12px 14px; font-size: 0.86rem; border-bottom: 1px solid var(--line); }
 .dash-table tr:last-child td { border-bottom: none; }
 
+/* Confirm dialog — every destructive action goes through this. */
+.cd-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(20, 14, 18, .45);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px; animation: fade .18s ease;
+}
+.cd-card {
+  background: var(--surface); border-radius: var(--r-lg);
+  box-shadow: 0 24px 60px rgba(0,0,0,.28);
+  padding: 22px; width: min(480px, 100%);
+  max-height: min(88vh, 720px); overflow-y: auto;
+  animation: rise .22s ease;
+}
+.cd-title { font-size: 1.06rem; font-weight: 800; margin-bottom: 8px; }
+.cd-body { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; }
+.cd-list { margin: 12px 0 0 18px; display: grid; gap: 5px; }
+.cd-list li { font-size: 0.82rem; line-height: 1.45; }
+.cd-q { margin-top: 14px; display: grid; gap: 6px; }
+.cd-q-label { font-size: 0.8rem; font-weight: 700; }
+.cd-q-label em { color: var(--danger); font-style: normal; }
+.cd-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.cd-opts button {
+  border: 1.5px solid var(--line); background: transparent; color: inherit;
+  border-radius: 999px; padding: 6px 12px; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; transition: all .12s ease;
+}
+.cd-opts button:hover { border-color: var(--primary); }
+.cd-opts button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.cd-type { display: grid; gap: 6px; margin-top: 16px; }
+.cd-type span { font-size: 0.8rem; font-weight: 700; }
+.cd-type strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cd-extra { margin-top: 14px; }
+.cd-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+.cd-danger { background: var(--danger); color: #fff; font-weight: 800; }
+.cd-danger:disabled { opacity: .45; cursor: not-allowed; }
+@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+
 /* Card that stands in for a section that moved to its own page. */
 .link-card { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; transition: transform .12s ease, box-shadow .12s ease; }
 .link-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,.09); }

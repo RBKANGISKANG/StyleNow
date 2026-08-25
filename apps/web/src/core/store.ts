@@ -160,7 +160,18 @@ interface State {
   archivedStaff: Set<string>;
   shopLocations: Map<string, ShopLocation[]>; // shopId → branches (Standorte)
   absences: Map<string, Absence[]>; // staffId → holiday / sick / training
+  exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
+}
+
+/** Answers collected before a deletion — the only chance to ask. */
+export interface ExitFeedback {
+  id: string;
+  kind: 'account' | 'shop';
+  /** email for an account, shop id for a shop — kept so support can follow up */
+  subject: string;
+  answers: Record<string, string>;
+  at: number;
 }
 
 // Survives Next.js dev-server HMR; resets on process restart (demo only).
@@ -186,6 +197,7 @@ const state: State =
     archivedStaff: new Set(),
     shopLocations: new Map(),
     absences: new Map(),
+    exitFeedback: [],
     seq: 1,
   });
 
@@ -230,6 +242,7 @@ function persist(): void {
         archivedStaff: [...state.archivedStaff],
         shopLocations: [...state.shopLocations.entries()],
         absences: [...state.absences.entries()],
+        exitFeedback: state.exitFeedback,
         seq: state.seq,
       }),
     );
@@ -260,6 +273,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         archivedStaff?: string[];
         shopLocations?: Array<[string, ShopLocation[]]>;
         absences?: Array<[string, Absence[]]>;
+        exitFeedback?: ExitFeedback[];
         seq: number;
       };
       state.bookings = new Map(d.bookings.map((b) => [b.id, b]));
@@ -279,6 +293,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.archivedStaff = new Set(d.archivedStaff ?? []);
       state.shopLocations = new Map(d.shopLocations ?? []);
       state.absences = new Map(d.absences ?? []);
+      state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
     }
   } catch {
@@ -478,6 +493,30 @@ export function addAbsence(staffId: string, input: Omit<Absence, 'id' | 'staffId
 export function deleteAbsence(staffId: string, absenceId: string): void {
   state.absences.set(staffId, (state.absences.get(staffId) ?? []).filter((a) => a.id !== absenceId));
   persist();
+}
+
+// --- exit feedback ---------------------------------------------------------
+
+/**
+ * Kept deliberately separate from the deleted record: the account row goes
+ * away, the reason it went away does not. Nothing here identifies the person
+ * beyond the address they typed to confirm, which support needs to answer a
+ * "why was I deleted" question later.
+ */
+export function recordExitFeedback(
+  kind: ExitFeedback['kind'],
+  subject: string,
+  answers: Record<string, string>,
+): void {
+  state.exitFeedback = [
+    ...state.exitFeedback,
+    { id: `exit-${state.seq++}-${Date.now().toString(36)}`, kind, subject, answers, at: Date.now() },
+  ];
+  persist();
+}
+
+export function exitFeedback(): ExitFeedback[] {
+  return [...state.exitFeedback];
 }
 
 // --- locations (Standorte) -------------------------------------------------

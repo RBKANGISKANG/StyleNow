@@ -515,6 +515,20 @@ export async function apiReleaseShop(shopId: string): Promise<void> {
   store.releaseShop(shopId);
 }
 
+/** Store the answers given before a deletion; never blocks the deletion itself. */
+export async function apiRecordExitFeedback(
+  kind: 'account' | 'shop',
+  subject: string,
+  answers: Record<string, string>,
+): Promise<void> {
+  try {
+    await ready();
+    store.recordExitFeedback(kind, subject, answers);
+  } catch {
+    // feedback is a nice-to-have — losing it must never strand the deletion
+  }
+}
+
 // ---- service & pricing-rule management ------------------------------------
 
 export async function apiAddService(
