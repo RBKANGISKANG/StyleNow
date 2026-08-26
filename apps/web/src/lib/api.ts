@@ -25,6 +25,7 @@ import type {
   StaffMember,
   ShopLocation,
   HrRow,
+  RosterCalendar,
   RevenueReport,
   CustomerRow,
   ShopClosure,
@@ -795,6 +796,15 @@ export async function apiRevenueReport(shopId: string, from: string, to: string)
   return store.revenueReport(shopId, from, to);
 }
 
+export async function apiRoster(shopId: string, from: string, to: string): Promise<RosterCalendar | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/roster?from=${from}&to=${to}`);
+    return res.ok ? await res.json() : null;
+  }
+  await readyForRead();
+  return store.rosterCalendar(shopId, from, to);
+}
+
 export async function apiAddAbsence(
   shopId: string,
   staffId: string,
@@ -821,4 +831,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   store.deleteAbsence(staffId, absenceId);
 }
 
-export type { HrRow, RevenueReport, CustomerRow, ShopClosure, Absence, AbsenceKind };
+export type { HrRow, RosterCalendar, RevenueReport, CustomerRow, ShopClosure, Absence, AbsenceKind };

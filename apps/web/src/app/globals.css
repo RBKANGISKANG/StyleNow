@@ -977,6 +977,75 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   .md-side { grid-column: 1 / -1; justify-items: start; text-align: left; }
 }
 
+/* Roster calendar — people down, days across.
+   Colour is never the only signal: every state carries a letter and a title
+   too, so the grid still reads in mono or with colour blindness. */
+.rc-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px 4px; }
+.rc-grid { display: grid; gap: 3px; min-width: 520px; }
+.rc-corner {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--surface); font-size: 0.72rem; font-weight: 800;
+  color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em;
+  display: flex; align-items: flex-end; padding-bottom: 6px;
+}
+.rc-head {
+  display: grid; place-items: center; gap: 1px; padding: 3px 0 6px;
+  border-radius: 8px 8px 0 0;
+}
+.rc-head .dow { font-size: 0.62rem; color: var(--ink-soft); font-weight: 700; }
+.rc-head .num { font-size: 0.78rem; font-weight: 800; }
+.rc-head.weekend { background: var(--surface-2); }
+.rc-head.today { background: var(--primary); color: #fff; }
+.rc-head.today .dow { color: rgba(255,255,255,.85); }
+
+.rc-name {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--surface); display: grid; gap: 1px;
+  padding: 6px 10px 6px 0; border-top: 1px solid var(--line);
+}
+.rc-name strong { font-size: 0.85rem; }
+.rc-name span { font-size: 0.68rem; color: var(--ink-soft); }
+
+.rc-cell {
+  min-height: 40px; border-radius: 7px; border: 1px solid transparent;
+  display: grid; place-items: center; align-content: end;
+  padding: 0; cursor: pointer; transition: filter .12s ease, outline-color .12s ease;
+  outline: 2px solid transparent; outline-offset: -2px;
+}
+.rc-cell:hover:not(:disabled) { filter: brightness(.94); outline-color: var(--ink); }
+.rc-cell:disabled { cursor: not-allowed; }
+.rc-cell.today { box-shadow: inset 0 -3px 0 var(--primary); }
+.rc-cell .mark { font-size: 0.72rem; font-weight: 800; align-self: center; }
+.rc-cell .load { width: 100%; border-radius: 0 0 6px 6px; background: var(--teal); opacity: .55; }
+
+.rc-cell.working { background: var(--teal-soft); border-color: rgba(18,165,148,.28); }
+/* Not rostered is hatched, not merely paler: at a glance a flat tint reads the
+   same as a rostered day, and the whole point of the grid is that glance. */
+.rc-cell.off {
+  background: repeating-linear-gradient(45deg, #f2eef2, #f2eef2 3px, #e4dee6 3px, #e4dee6 6px);
+  border-color: var(--line);
+}
+.rc-cell.closed { background: rgba(43,34,51,.12); color: var(--ink-soft); }
+.rc-cell.absent { color: #fff; background: var(--violet); }
+.rc-cell.k-vacation { background: var(--amber); }
+.rc-cell.k-sick { background: var(--danger); }
+.rc-cell.k-training { background: var(--violet); }
+.rc-cell.k-other { background: #7c8598; }
+
+.rc-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; font-size: 0.72rem; color: var(--ink-soft); }
+.rc-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rc-legend .sw { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+.rc-legend .sw.working { background: var(--teal-soft); }
+.rc-legend .sw.booked { background: var(--teal); opacity: .55; }
+.rc-legend .sw.vacation { background: var(--amber); }
+.rc-legend .sw.sick { background: var(--danger); }
+.rc-legend .sw.training { background: var(--violet); }
+.rc-legend .sw.other { background: #7c8598; }
+.rc-legend .sw.off { background: repeating-linear-gradient(45deg, #f2eef2, #f2eef2 3px, #e4dee6 3px, #e4dee6 6px); border: 1px solid var(--line); }
+.rc-legend .sw.closed { background: rgba(43,34,51,.12); }
+
+.rc-draft { margin-top: 14px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-2); }
+
 /* Customer cards */
 .cus-card { border-top: 1px solid var(--line); padding: 14px 0; }
 .cus-card:first-of-type { border-top: none; }

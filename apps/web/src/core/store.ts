@@ -2006,6 +2006,123 @@ export function revenueReport(shopId: string, fromIso: string, toIso: string): R
   };
 }
 
+// --- roster calendar -------------------------------------------------------
+
+/**
+ * What one person's one day looks like, in the order the shop cares about:
+ * a shop closure beats an absence beats the roster.
+ */
+export type RosterState = 'closed' | 'absent' | 'working' | 'off';
+
+export interface RosterDay {
+  iso: string;
+  state: RosterState;
+  /** the absence covering this day, so a click can remove exactly that one */
+  absenceId?: string;
+  kind?: AbsenceKind;
+  note?: string;
+  /** rostered minutes for the weekday, kept even when absent — that is the
+   *  cover the shop has to find */
+  scheduledMin: number;
+  bookedMin: number;
+  bookingCount: number;
+}
+
+export interface RosterRow {
+  staffId: string;
+  name: string;
+  role: { en: string; de: string };
+  tier: 'senior' | 'stylist';
+  locationId: string | null;
+  days: RosterDay[];
+  /** working days in the range, and how many of them are lost to absence */
+  workingDays: number;
+  absentDays: number;
+}
+
+export interface RosterCalendar {
+  dates: string[];
+  rows: RosterRow[];
+  closures: ShopClosure[];
+}
+
+/**
+ * The team's plan as a grid: one row per person, one column per day.
+ *
+ * A list of absences answers "when is Lena away"; this answers the question a
+ * shop actually asks — "who is covering Thursday" — which you cannot see by
+ * reading per-person cards one after another.
+ */
+export function rosterCalendar(shopId: string, fromIso: string, toIso: string): RosterCalendar {
+  const shop = shopById(shopId);
+  if (!shop) return { dates: [], rows: [], closures: [] };
+
+  const dates: string[] = [];
+  for (let iso = fromIso; iso <= toIso && dates.length < 120; iso = addDays(iso, 1)) dates.push(iso);
+
+  const rows = effectiveStaff(shopId).map((st) => {
+    let workingDays = 0;
+    let absentDays = 0;
+
+    const days = dates.map<RosterDay>((iso) => {
+      const start = dayStart(iso);
+      const end = start + 24 * 60 * MIN;
+      const dow = isoDow(start + 12 * 60 * MIN);
+      const shifts = st.shifts[dow] ?? [];
+      const scheduledMin = shifts.reduce((sum, w) => sum + (w.endMin - w.startMin), 0);
+
+      let bookedMin = 0;
+      let bookingCount = 0;
+      for (const b of state.bookings.values()) {
+        if (b.shopId !== shopId || b.staffId !== st.id) continue;
+        if (!['confirmed', 'completed'].includes(b.status)) continue;
+        if (b.startsAt < start || b.startsAt >= end) continue;
+        bookedMin += (b.endsAt - b.startsAt) / MIN;
+        bookingCount += 1;
+      }
+
+      const absence = (state.absences.get(st.id) ?? []).find((a) => iso >= a.from && iso <= a.to);
+      let stateOfDay: RosterState;
+      if (isShopClosed(shopId, iso)) stateOfDay = 'closed';
+      else if (absence) stateOfDay = 'absent';
+      else if (scheduledMin > 0) stateOfDay = 'working';
+      else stateOfDay = 'off';
+
+      if (stateOfDay === 'working') workingDays += 1;
+      // Only count an absence against a day the person would have worked.
+      if (stateOfDay === 'absent' && scheduledMin > 0) absentDays += 1;
+
+      return {
+        iso,
+        state: stateOfDay,
+        absenceId: absence?.id,
+        kind: absence?.kind,
+        note: absence?.note,
+        scheduledMin,
+        bookedMin: Math.round(bookedMin),
+        bookingCount,
+      };
+    });
+
+    return {
+      staffId: st.id,
+      name: st.name,
+      role: st.role,
+      tier: st.tier,
+      locationId: st.locationId ?? null,
+      days,
+      workingDays,
+      absentDays,
+    };
+  });
+
+  return {
+    dates,
+    rows,
+    closures: shopClosures(shopId).filter((c) => c.to >= fromIso && c.from <= toIso),
+  };
+}
+
 export function hrOverview(shopId: string, fromIso: string, toIso: string): HrRow[] {
   const shop = shopById(shopId);
   if (!shop) return [];
