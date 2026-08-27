@@ -62,6 +62,7 @@ export interface Overview {
     guestName: string;
     guestPhone: string;
     guestNote: string;
+    customerKey: string;
     serviceIds: string[];
     serviceNames: string[];
     staffId: string;

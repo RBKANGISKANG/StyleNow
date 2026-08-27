@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiOverview, apiHrOverview, type HrRow } from '@/lib/api';
+import { apiOverview, apiHrOverview, apiSetStatus, apiSetCustomerNote, type HrRow } from '@/lib/api';
 import { todayIso, addDays } from '@/core/time';
 import type { Overview } from '../dashboard/shell';
 
@@ -29,6 +29,7 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
   const [data, setData] = useState<Overview | null>(null);
   const [hr, setHr] = useState<HrRow | null>(null);
   const [restored, setRestored] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
 
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayIso(), i)), []);
 
@@ -213,7 +214,49 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
                                 📞 {b.guestPhone}
                               </a>
                             )}
+                            {b.status === 'confirmed' && (
+                              <div className="md-acts">
+                                <button
+                                  className="btn btn-soft sm"
+                                  onClick={() => {
+                                    void apiSetStatus(shopId, b.id, 'completed').then(load);
+                                  }}
+                                >
+                                  ✓ {t('mark_completed')}
+                                </button>
+                                <button
+                                  className="btn btn-ghost sm"
+                                  onClick={() => {
+                                    void apiSetStatus(shopId, b.id, 'no_show').then(load);
+                                  }}
+                                >
+                                  {t('mark_no_show')}
+                                </button>
+                              </div>
+                            )}
                           </div>
+
+                          {/* What you learn at the chair is worth more than what
+                              the booking form captured — and it belongs in the
+                              customer's record, not in your head. */}
+                          <label className="md-jot">
+                            <span>🔒 {t('cus_private_note')}</span>
+                            <input
+                              className="input"
+                              placeholder={t('md_jot_ph')}
+                              defaultValue=""
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (!v) return;
+                                void apiSetCustomerNote(shopId, b.customerKey, v).then(() => {
+                                  e.target.value = '';
+                                  setSaved(b.id);
+                                  setTimeout(() => setSaved(null), 2200);
+                                });
+                              }}
+                            />
+                            {saved === b.id && <em>{t('md_jot_saved')}</em>}
+                          </label>
                         </div>
                       );
                     })}

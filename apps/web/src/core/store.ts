@@ -88,6 +88,8 @@ export interface Booking {
   policySnapshot: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
   cancellation?: { feeCents: number; refundCents: number; reason: string };
   review?: { rating: number; text: string; date: string };
+  /** the shop's public answer to that review */
+  reviewReply?: { text: string; at: string };
   tipCents?: number;
   pointsSpent?: number;
   voucherCode?: string;
@@ -1547,6 +1549,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       guestName: b.guestName,
       guestPhone: b.guestPhone ?? '',
       guestNote: b.guestNote ?? '',
+      // so a stylist can write into the customer record straight from their day
+      customerKey: customerKeyOf(b),
       serviceIds: b.serviceIds,
       serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
       staffId: b.staffId,
@@ -1721,6 +1725,13 @@ export interface UserReview {
   text: string;
   date: string;
   serviceNames: Array<{ en: string; de: string }>;
+  reply: { text: string; at: string } | null;
+}
+
+/** Same reviews, plus what the shop needs to answer them. */
+export interface ShopReview extends UserReview {
+  bookingId: string;
+  staffName: string | null;
 }
 
 export function userReviewsForShop(shopId: string): UserReview[] {
@@ -1734,9 +1745,43 @@ export function userReviewsForShop(shopId: string): UserReview[] {
       text: b.review.text,
       date: b.review.date,
       serviceNames: b.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
+      reply: b.reviewReply ?? null,
     });
   }
   return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+/** Reviews for the operator: newest first, unanswered ones first of all. */
+export function shopReviews(shopId: string): ShopReview[] {
+  const shop = shopById(shopId);
+  const out: ShopReview[] = [];
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !b.review) continue;
+    out.push({
+      bookingId: b.id,
+      author: b.guestName,
+      rating: b.review.rating,
+      text: b.review.text,
+      date: b.review.date,
+      serviceNames: b.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
+      reply: b.reviewReply ?? null,
+      staffName: effectiveStaff(shopId).find((s) => s.id === b.staffId)?.name ?? null,
+    });
+  }
+  return out.sort((a, b) => {
+    // An unanswered review is work; answered ones are archive.
+    if (!a.reply !== !b.reply) return a.reply ? 1 : -1;
+    return a.date < b.date ? 1 : -1;
+  });
+}
+
+export function setReviewReply(shopId: string, bookingId: string, text: string): void {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.shopId !== shopId || !b.review) throw new Error('not_found');
+  const trimmed = text.trim();
+  if (trimmed) b.reviewReply = { text: trimmed, at: new Date().toISOString().slice(0, 10) };
+  else delete b.reviewReply;
+  persist();
 }
 
 // ---------------------------------------------------------------------------
@@ -2201,6 +2246,49 @@ export function applicationsForDevice(deviceId: string): ShopApplication[] {
   return [...state.applications.values()]
     .filter((a) => a.deviceId === deviceId)
     .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export interface ShopWaitlistRow {
+  id: string;
+  isoDate: string;
+  serviceIds: string[];
+  serviceNames: Array<{ en: string; de: string }>;
+  createdAt: number;
+  /** free starts that day for what they asked for — the reason to call them */
+  freeSlots: number;
+  nextFreeAt: number | null;
+}
+
+/**
+ * Who is waiting, and whether anything has opened up for them.
+ *
+ * The waitlist existed but only the customer could see it, so a cancellation
+ * freed a seat and nobody was told. This is the other half: the front desk
+ * sees who wanted that day and whether it is now bookable.
+ */
+export function waitlistForShop(shopId: string, fromIso: string): ShopWaitlistRow[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  return [...state.waitlist.values()]
+    .filter((w) => w.shopId === shopId && w.isoDate >= fromIso)
+    .sort((a, b) => (a.isoDate === b.isoDate ? a.createdAt - b.createdAt : a.isoDate < b.isoDate ? -1 : 1))
+    .map((w) => {
+      let slots: ApiSlot[] = [];
+      try {
+        slots = availability(shopId, w.serviceIds, w.isoDate, `shop:${shopId}`, null).slots;
+      } catch {
+        slots = []; // service archived since they joined — nothing to offer
+      }
+      return {
+        id: w.id,
+        isoDate: w.isoDate,
+        serviceIds: w.serviceIds,
+        serviceNames: w.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+        createdAt: w.createdAt,
+        freeSlots: slots.length,
+        nextFreeAt: slots[0]?.start ?? null,
+      };
+    });
 }
 
 export function waitlistForDevice(deviceId: string): WaitlistView[] {

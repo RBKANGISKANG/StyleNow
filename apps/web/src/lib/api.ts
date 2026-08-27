@@ -20,6 +20,8 @@ import type {
   HoldResult,
   BookingView,
   UserReview,
+  ShopReview,
+  ShopWaitlistRow,
   WaitlistView,
   ShopApplication,
   StaffMember,
@@ -68,6 +70,38 @@ async function readyForRead(): Promise<void> {
     ready(),
     new Promise<void>((resolve) => setTimeout(resolve, READ_SYNC_BUDGET_MS)),
   ]);
+}
+
+/**
+ * Writes that touch a structure the sync *does* replace (anything living on
+ * `state.bookings`) still wait for it — but not forever. An unreachable project
+ * used to freeze the first click of a session for the whole connection timeout
+ * with no feedback at all, which reads as a dead button.
+ *
+ * Booking writes are deliberately NOT on this path: when Supabase is configured
+ * the seat contract lives there, so they must actually reach it.
+ */
+const WRITE_SYNC_BUDGET_MS = 4000;
+
+async function readyForWrite(): Promise<void> {
+  if (backendMode() !== 'supabase') return;
+  await Promise.race([
+    ready(),
+    new Promise<void>((resolve) => setTimeout(resolve, WRITE_SYNC_BUDGET_MS)),
+  ]);
+}
+
+/**
+ * Roster, staff, locations, closures, services, the customer's private note —
+ * none of these live in Supabase, and `applyExternalState` only ever replaces
+ * bookings, rule state, service overrides, logos and categories. So a write to
+ * one of them cannot be clobbered by a late sync, and there is nothing to wait
+ * for: it applies now. That is the difference between a button that responds
+ * and one that seems broken while a dead connection times out.
+ */
+async function localWrite(): Promise<void> {
+  // Kept async so callers read the same either way, and so the sync can be
+  // reinstated here alone if any of these ever move server-side.
 }
 
 // ---- discovery -----------------------------------------------------------
@@ -326,7 +360,7 @@ export async function apiWaitlistJoin(shopId: string, serviceIds: string[], isoD
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.joinWaitlist(deviceId(), shopId, serviceIds, isoDate);
 }
 
@@ -335,7 +369,7 @@ export async function apiWaitlistLeave(id: string): Promise<void> {
     await fetch(`/api/waitlist/${id}`, { method: 'DELETE' });
     return;
   }
-  await ready();
+  await localWrite();
   store.leaveWaitlist(id);
 }
 
@@ -360,7 +394,7 @@ export async function apiPartnerApply(data: Record<string, unknown>): Promise<Sh
     });
     return res.ok ? (await res.json()).application : null;
   }
-  await ready();
+  await localWrite();
   const app = store.submitShopApplication(deviceId(), data);
   if (backendMode() === 'supabase') {
     try {
@@ -511,12 +545,12 @@ export async function apiMyShops(ownerKey: string): Promise<string[]> {
 }
 
 export async function apiClaimShop(shopId: string, ownerKey: string): Promise<void> {
-  await ready();
+  await localWrite();
   store.claimShop(shopId, ownerKey);
 }
 
 export async function apiReleaseShop(shopId: string): Promise<void> {
-  await ready();
+  await localWrite();
   store.releaseShop(shopId);
 }
 
@@ -527,7 +561,7 @@ export async function apiRecordExitFeedback(
   answers: Record<string, string>,
 ): Promise<void> {
   try {
-    await ready();
+    await localWrite();
     store.recordExitFeedback(kind, subject, answers);
   } catch {
     // feedback is a nice-to-have — losing it must never strand the deletion
@@ -556,7 +590,7 @@ export async function apiAddService(
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.addService(shopId, input);
 }
 
@@ -565,7 +599,7 @@ export async function apiArchiveService(shopId: string, serviceId: string): Prom
     await fetch(`/api/shop/${shopId}/services/${serviceId}`, { method: 'DELETE' });
     return;
   }
-  await ready();
+  await localWrite();
   store.archiveService(shopId, serviceId);
 }
 
@@ -587,7 +621,7 @@ export async function apiAddPricingRule(shopId: string, rule: Record<string, unk
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.addPricingRule(shopId, rule as Parameters<typeof store.addPricingRule>[1]);
 }
 
@@ -600,7 +634,7 @@ export async function apiUpdatePricingRule(shopId: string, ruleId: string, patch
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.updatePricingRule(shopId, ruleId, patch);
 }
 
@@ -609,7 +643,7 @@ export async function apiDeletePricingRule(shopId: string, ruleId: string): Prom
     await fetch(`/api/shop/${shopId}/pricing-rules/${ruleId}`, { method: 'DELETE' });
     return;
   }
-  await ready();
+  await localWrite();
   store.deletePricingRule(shopId, ruleId);
 }
 
@@ -636,7 +670,7 @@ export async function apiAddStaff(
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.addStaff(shopId, input);
 }
 
@@ -649,7 +683,7 @@ export async function apiPatchStaff(shopId: string, staffId: string, patch: Part
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.patchStaff(shopId, staffId, patch);
 }
 
@@ -658,7 +692,7 @@ export async function apiArchiveStaff(shopId: string, staffId: string): Promise<
     const res = await fetch(`/api/shop/${shopId}/staff/${staffId}`, { method: 'DELETE' });
     return res.ok;
   }
-  await ready();
+  await localWrite();
   try {
     store.archiveStaff(shopId, staffId);
     return true;
@@ -685,7 +719,7 @@ export async function apiAddLocation(shopId: string, input: Omit<ShopLocation, '
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.addLocation(shopId, input);
 }
 
@@ -698,7 +732,7 @@ export async function apiPatchLocation(shopId: string, locationId: string, patch
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.patchLocation(shopId, locationId, patch);
 }
 
@@ -707,7 +741,7 @@ export async function apiDeleteLocation(shopId: string, locationId: string): Pro
     const res = await fetch(`/api/shop/${shopId}/locations/${locationId}`, { method: 'DELETE' });
     return res.ok;
   }
-  await ready();
+  await localWrite();
   try {
     store.deleteLocation(shopId, locationId);
     return true;
@@ -725,6 +759,39 @@ export async function apiHrOverview(shopId: string, from: string, to: string): P
   }
   await readyForRead();
   return store.hrOverview(shopId, from, to);
+}
+
+// ---- reviews & waitlist (shop side) ---------------------------------------
+
+export async function apiShopReviewsForOwner(shopId: string): Promise<ShopReview[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/reviews`);
+    return res.ok ? (await res.json()).reviews : [];
+  }
+  await readyForRead();
+  return store.shopReviews(shopId);
+}
+
+export async function apiReplyToReview(shopId: string, bookingId: string, text: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/reviews`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bookingId, text }),
+    });
+    return;
+  }
+  await readyForWrite();
+  store.setReviewReply(shopId, bookingId, text);
+}
+
+export async function apiShopWaitlist(shopId: string, from: string): Promise<ShopWaitlistRow[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/waitlist?from=${from}`);
+    return res.ok ? (await res.json()).waiting : [];
+  }
+  await readyForRead();
+  return store.waitlistForShop(shopId, from);
 }
 
 // ---- customers ------------------------------------------------------------
@@ -747,7 +814,7 @@ export async function apiSetCustomerNote(shopId: string, key: string, note: stri
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.setCustomerNote(shopId, key, note);
 }
 
@@ -774,7 +841,7 @@ export async function apiAddClosure(
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.addClosure(shopId, input);
 }
 
@@ -783,7 +850,7 @@ export async function apiDeleteClosure(shopId: string, closureId: string): Promi
     await fetch(`/api/shop/${shopId}/closures/${closureId}`, { method: 'DELETE' });
     return;
   }
-  await ready();
+  await localWrite();
   store.deleteClosure(shopId, closureId);
 }
 
@@ -818,7 +885,7 @@ export async function apiAddAbsence(
     });
     return;
   }
-  await ready();
+  await localWrite();
   store.addAbsence(staffId, input);
 }
 
@@ -827,8 +894,8 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
     await fetch(`/api/shop/${shopId}/staff/${staffId}/absences/${absenceId}`, { method: 'DELETE' });
     return;
   }
-  await ready();
+  await localWrite();
   store.deleteAbsence(staffId, absenceId);
 }
 
-export type { HrRow, RosterCalendar, RevenueReport, CustomerRow, ShopClosure, Absence, AbsenceKind };
+export type { HrRow, RosterCalendar, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind };

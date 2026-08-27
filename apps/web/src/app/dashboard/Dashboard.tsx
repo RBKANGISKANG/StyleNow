@@ -15,6 +15,8 @@ import {
   apiAvailability,
   apiShopCreateBooking,
   apiRescheduleBooking,
+  apiShopWaitlist,
+  type ShopWaitlistRow,
 } from '@/lib/api';
 import { deviceId } from '@/lib/device';
 import { useConfirm } from '@/components/ConfirmDialog';
@@ -317,9 +319,60 @@ function TodayTab({ shopId }: { shopId: string }) {
     </>
   )}
 
+      <Waitlist shopId={shopId} />
+
       {toastEl}
       {dialog}
     </>
+  );
+}
+
+/**
+ * Who is waiting for a seat.
+ *
+ * The waitlist already existed but only the customer could see it, so a
+ * cancellation freed a slot and nobody was told. This is the missing half:
+ * the front desk sees who wanted that day, and — the part that turns it into
+ * money — whether anything has since opened up for them.
+ */
+function Waitlist({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [rows, setRows] = useState<ShopWaitlistRow[] | null>(null);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiShopWaitlist(shopId, todayIso()).then(setRows);
+  }, [shopId]);
+
+  if (!rows || rows.length === 0) return null;
+  const callable = rows.filter((r) => r.freeSlots > 0).length;
+
+  return (
+    <section className="section">
+      <h2>
+        ⏳ {t('wl_title')}
+        {callable > 0 && <span className="cus-tag risk" style={{ marginLeft: 8 }}>{t('wl_callable', { n: String(callable) })}</span>}
+      </h2>
+      <div className="panel">
+        {rows.map((w) => (
+          <div key={w.id} className="wl-row">
+            <div>
+              <strong>{w.isoDate}</strong>
+              <span>{w.serviceNames.map((n) => n[lang]).join(', ')}</span>
+            </div>
+            {w.freeSlots > 0 ? (
+              <span className="wl-free">
+                ✅ {t('wl_free', { n: String(w.freeSlots) })}
+                {w.nextFreeAt !== null && ` · ${timeOf(w.nextFreeAt, lang)}`}
+              </span>
+            ) : (
+              <span className="wl-full">{t('wl_full')}</span>
+            )}
+          </div>
+        ))}
+        <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 10 }}>💡 {t('wl_hint')}</p>
+      </div>
+    </section>
   );
 }
 

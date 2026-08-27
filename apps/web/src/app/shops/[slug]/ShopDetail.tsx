@@ -13,6 +13,7 @@ interface LiveReview {
   text: string;
   date: string;
   serviceNames: Array<{ en: string; de: string }>;
+  reply: { text: string; at: string } | null;
 }
 
 const AVATAR_COLORS = ['#f0566e', '#12a594', '#8b6cf0', '#f6a53c'];
@@ -163,6 +164,13 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
             <div className="svc">
               {r.serviceNames.map((n) => n[lang]).join(', ')} · {r.date}
             </div>
+            {/* How a shop answers a review says as much as the rating does. */}
+            {r.reply && (
+              <div className="rv-reply">
+                <strong>↩ {shop.name}</strong>
+                <p>{r.reply.text}</p>
+              </div>
+            )}
           </div>
         ))}
         {shop.reviews.map((r, i) => (

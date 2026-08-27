@@ -12,7 +12,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf } from '@/lib/format';
-import { apiShopCustomers, apiSetCustomerNote, type CustomerRow } from '@/lib/api';
+import {
+  apiShopCustomers,
+  apiSetCustomerNote,
+  apiShopReviewsForOwner,
+  apiReplyToReview,
+  type CustomerRow,
+  type ShopReview,
+} from '@/lib/api';
 import { useToast } from '../toast';
 import { OperatorShell } from '../shell';
 import type { ShopRef } from '@/lib/owned-shops';
@@ -216,7 +223,117 @@ function CustomersTab({ shopId }: { shopId: string }) {
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>💡 {t('cus_hint')}</p>
         </>
       )}
+
+      <ReviewsPanel shopId={shopId} onChanged={setToast} />
       {toastEl}
     </>
+  );
+}
+
+/**
+ * Reviews, and the shop's answer to them.
+ *
+ * A review was a one-way message: the customer said their piece and the shop
+ * had no reply. That is the one piece of customer service every other booking
+ * platform has, and the answer is public — future customers read how a shop
+ * handles a bad day at least as closely as they read the rating.
+ *
+ * Unanswered reviews sort first, because they are the work.
+ */
+function ReviewsPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t, lang } = useI18n();
+  const [rows, setRows] = useState<ShopReview[] | null>(null);
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiShopReviewsForOwner(shopId).then(setRows);
+  }, [shopId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (rows === null || rows.length === 0) return null;
+  const unanswered = rows.filter((r) => !r.reply).length;
+
+  return (
+    <section className="section">
+      <h2>
+        ⭐ {t('rv_title')}
+        {unanswered > 0 && <span className="cus-tag risk" style={{ marginLeft: 8 }}>{t('rv_unanswered', { n: String(unanswered) })}</span>}
+      </h2>
+      <div className="panel">
+        {rows.map((r) => (
+          <div key={r.bookingId} className="rv-item">
+            <div className="rv-top">
+              <span className="rv-stars" aria-label={`${r.rating}/5`}>
+                {'★'.repeat(r.rating)}
+                <span className="dim">{'★'.repeat(5 - r.rating)}</span>
+              </span>
+              <strong>{r.author}</strong>
+              <span className="rv-meta">
+                {r.serviceNames.map((n) => n[lang]).join(', ')}
+                {r.staffName && ` · ${r.staffName}`} · {r.date}
+              </span>
+            </div>
+            {r.text && <p className="rv-text">“{r.text}”</p>}
+
+            {r.reply ? (
+              <div className="rv-reply">
+                <strong>↩ {t('rv_your_reply')}</strong>
+                <p>{r.reply.text}</p>
+                <button
+                  className="btn btn-ghost sm"
+                  onClick={() => {
+                    setOpenFor(r.bookingId);
+                    setDraft(r.reply?.text ?? '');
+                  }}
+                >
+                  {t('rv_edit')}
+                </button>
+              </div>
+            ) : openFor !== r.bookingId ? (
+              <button className="btn btn-soft sm" onClick={() => { setOpenFor(r.bookingId); setDraft(''); }}>
+                ↩ {t('rv_reply')}
+              </button>
+            ) : null}
+
+            {openFor === r.bookingId && (
+              <div className="rv-form">
+                <textarea
+                  className="input"
+                  style={{ minHeight: 62, resize: 'vertical' }}
+                  placeholder={t('rv_reply_ph')}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  maxLength={500}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button className="btn btn-ghost sm" onClick={() => setOpenFor(null)}>
+                    ✕
+                  </button>
+                  <button
+                    className="btn btn-primary sm"
+                    disabled={!draft.trim()}
+                    onClick={() => {
+                      void apiReplyToReview(shopId, r.bookingId, draft).then(() => {
+                        setOpenFor(null);
+                        load();
+                        onChanged('✅ ' + t('rv_replied'));
+                      });
+                    }}
+                  >
+                    {t('rv_publish')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 10 }}>💡 {t('rv_hint')}</p>
+      </div>
+    </section>
   );
 }
