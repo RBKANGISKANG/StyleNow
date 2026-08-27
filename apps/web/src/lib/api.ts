@@ -105,6 +105,16 @@ async function localWrite(): Promise<void> {
   // reinstated here alone if any of these ever move server-side.
 }
 
+/**
+ * After a configuration write, push that shop's document so the change reaches
+ * the salon's other devices. Not awaited by the caller: the local mirror is
+ * already correct, so a slow or failed push costs a sync, never the edit.
+ */
+function syncConfig(shopId: string): void {
+  if (backendMode() !== 'supabase') return;
+  void sb.pushShopConfig(shopId);
+}
+
 // ---- discovery -----------------------------------------------------------
 
 export async function apiMatch(query: FeedQuery): Promise<FeedCard[]> {
@@ -548,11 +558,13 @@ export async function apiMyShops(ownerKey: string): Promise<string[]> {
 export async function apiClaimShop(shopId: string, ownerKey: string): Promise<void> {
   await localWrite();
   store.claimShop(shopId, ownerKey);
+  syncConfig(shopId);
 }
 
 export async function apiReleaseShop(shopId: string): Promise<void> {
   await localWrite();
   store.releaseShop(shopId);
+  syncConfig(shopId);
 }
 
 /** Store the answers given before a deletion; never blocks the deletion itself. */
@@ -593,6 +605,7 @@ export async function apiAddService(
   }
   await localWrite();
   store.addService(shopId, input);
+  syncConfig(shopId);
 }
 
 export async function apiArchiveService(shopId: string, serviceId: string): Promise<void> {
@@ -602,6 +615,7 @@ export async function apiArchiveService(shopId: string, serviceId: string): Prom
   }
   await localWrite();
   store.archiveService(shopId, serviceId);
+  syncConfig(shopId);
 }
 
 export async function apiShopServices(shopId: string) {
@@ -624,6 +638,7 @@ export async function apiAddPricingRule(shopId: string, rule: Record<string, unk
   }
   await localWrite();
   store.addPricingRule(shopId, rule as Parameters<typeof store.addPricingRule>[1]);
+  syncConfig(shopId);
 }
 
 export async function apiUpdatePricingRule(shopId: string, ruleId: string, patch: Record<string, unknown>): Promise<void> {
@@ -637,6 +652,7 @@ export async function apiUpdatePricingRule(shopId: string, ruleId: string, patch
   }
   await localWrite();
   store.updatePricingRule(shopId, ruleId, patch);
+  syncConfig(shopId);
 }
 
 export async function apiDeletePricingRule(shopId: string, ruleId: string): Promise<void> {
@@ -646,6 +662,7 @@ export async function apiDeletePricingRule(shopId: string, ruleId: string): Prom
   }
   await localWrite();
   store.deletePricingRule(shopId, ruleId);
+  syncConfig(shopId);
 }
 
 // ---- team (staff) & locations ---------------------------------------------
@@ -673,6 +690,7 @@ export async function apiAddStaff(
   }
   await localWrite();
   store.addStaff(shopId, input);
+  syncConfig(shopId);
 }
 
 export async function apiPatchStaff(shopId: string, staffId: string, patch: Partial<StaffMember>): Promise<void> {
@@ -686,6 +704,7 @@ export async function apiPatchStaff(shopId: string, staffId: string, patch: Part
   }
   await localWrite();
   store.patchStaff(shopId, staffId, patch);
+  syncConfig(shopId);
 }
 
 export async function apiArchiveStaff(shopId: string, staffId: string): Promise<boolean> {
@@ -700,6 +719,7 @@ export async function apiArchiveStaff(shopId: string, staffId: string): Promise<
   } catch {
     return false; // last team member — refuse rather than empty the calendar
   }
+  syncConfig(shopId);
 }
 
 export async function apiLocations(shopId: string): Promise<ShopLocation[]> {
@@ -722,6 +742,7 @@ export async function apiAddLocation(shopId: string, input: Omit<ShopLocation, '
   }
   await localWrite();
   store.addLocation(shopId, input);
+  syncConfig(shopId);
 }
 
 export async function apiPatchLocation(shopId: string, locationId: string, patch: Partial<ShopLocation>): Promise<void> {
@@ -735,6 +756,7 @@ export async function apiPatchLocation(shopId: string, locationId: string, patch
   }
   await localWrite();
   store.patchLocation(shopId, locationId, patch);
+  syncConfig(shopId);
 }
 
 export async function apiDeleteLocation(shopId: string, locationId: string): Promise<boolean> {
@@ -749,6 +771,7 @@ export async function apiDeleteLocation(shopId: string, locationId: string): Pro
   } catch {
     return false;
   }
+  syncConfig(shopId);
 }
 
 // ---- HR --------------------------------------------------------------------
@@ -817,6 +840,7 @@ export async function apiSetCustomerNote(shopId: string, key: string, note: stri
   }
   await localWrite();
   store.setCustomerNote(shopId, key, note);
+  syncConfig(shopId);
 }
 
 // ---- shop closures --------------------------------------------------------
@@ -844,6 +868,7 @@ export async function apiAddClosure(
   }
   await localWrite();
   store.addClosure(shopId, input);
+  syncConfig(shopId);
 }
 
 export async function apiDeleteClosure(shopId: string, closureId: string): Promise<void> {
@@ -853,6 +878,7 @@ export async function apiDeleteClosure(shopId: string, closureId: string): Promi
   }
   await localWrite();
   store.deleteClosure(shopId, closureId);
+  syncConfig(shopId);
 }
 
 export async function apiShopCalendar(shopId: string, from: string, to: string): Promise<CalendarDay[]> {
@@ -897,6 +923,7 @@ export async function apiAddAbsence(
   }
   await localWrite();
   store.addAbsence(staffId, input);
+  syncConfig(shopId);
 }
 
 export async function apiDeleteAbsence(shopId: string, staffId: string, absenceId: string): Promise<void> {
@@ -906,6 +933,7 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   }
   await localWrite();
   store.deleteAbsence(staffId, absenceId);
+  syncConfig(shopId);
 }
 
 export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind };

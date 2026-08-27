@@ -77,12 +77,13 @@ let syncPromise: Promise<void> | null = null;
 async function syncNow(): Promise<void> {
   const db = await sb();
   const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
-  const [bookings, rules, overrides, logos, cats] = await Promise.all([
+  const [bookings, rules, overrides, logos, cats, config] = await Promise.all([
     db.from('bookings').select('id,data').gte('starts_at', since),
     db.from('rule_state').select('rule_id,enabled'),
     db.from('service_overrides').select('service_id,patch'),
     db.from('shop_logos').select('shop_id,data_url'),
     db.from('custom_categories').select('id,label'),
+    db.from('shop_state').select('shop_id,data'),
   ]);
   if (bookings.error) throw bookings.error;
   store.setLocalPersistence(false); // Supabase owns the data; keep localStorage out of it
@@ -93,6 +94,17 @@ async function syncNow(): Promise<void> {
     shopLogos: (logos.data ?? []).map((r) => [r.shop_id as string, r.data_url as string]),
     customCategories: (cats.data ?? []).map((r) => [r.id as string, r.label as string]),
   });
+  // Team, branches, rosters, absences, closures, own services and rules, notes
+  // — the shop's configuration, which used to live only in the browser that
+  // typed it. A missing shop_state table is tolerated: older projects that have
+  // not re-run schema.sql keep working, they just stay device-local.
+  for (const row of (config.data ?? []) as Array<{ shop_id: string; data: store.ShopConfig }>) {
+    try {
+      store.applyShopConfig(row.shop_id, row.data);
+    } catch {
+      // one malformed document must not sink the whole sync
+    }
+  }
   synced = true;
 }
 
@@ -113,8 +125,36 @@ function toRow(b: Booking) {
     starts_at: new Date(b.startsAt).toISOString(),
     status: b.status,
     hold_expires_at: b.holdExpiresAt ? new Date(b.holdExpiresAt).toISOString() : null,
+    guest_phone: b.guestPhone ?? null,
+    guest_note: b.guestNote ?? null,
+    refunded_cents: b.refundedCents ?? 0,
+    review_reply: b.reviewReply ?? null,
     data: b,
   };
+}
+
+/**
+ * Push this shop's configuration document.
+ *
+ * Called after every configuration write. Deliberately fire-and-forget from the
+ * caller's point of view: the local mirror is already correct, so a failed push
+ * costs a sync, not the edit. A project that has not re-run schema.sql simply
+ * has no shop_state table — that is a degraded mode, not an error to surface.
+ */
+export async function pushShopConfig(shopId: string): Promise<void> {
+  if (!shopId) return;
+  try {
+    const db = await sb();
+    await deadline(
+      db.from('shop_state').upsert({
+        shop_id: shopId,
+        data: store.exportShopConfig(shopId),
+        updated_at: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // stays local; the next successful sync will carry it
+  }
 }
 
 /**

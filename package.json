@@ -2,16 +2,23 @@
   "name": "stylenow",
   "private": true,
   "version": "1.0.0",
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "npm run dev -w @stylenow/web",
     "build": "npm run build -w @stylenow/web",
     "start": "npm run start -w @stylenow/web",
-    "test": "tsx apps/api/src/domain/__tests__/domain.test.ts",
+    "test": "npm run test:domain && npm run test:config",
     "typecheck": "tsc -p tsconfig.domain.json",
     "db:migrate": "for f in db/migrations/*.sql; do psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\"; done",
-    "api:lint-openapi": "redocly lint apps/api/openapi.yaml"
+    "api:lint-openapi": "redocly lint apps/api/openapi.yaml",
+    "test:domain": "tsx apps/api/src/domain/__tests__/domain.test.ts",
+    "test:config": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/core/__tests__/config.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -262,3 +262,50 @@ create policy applications_insert on public.shop_applications
 -- Social login (Google / Apple / Facebook) is configured per provider in
 -- Supabase → Authentication → Providers; the app calls signInWithOAuth and
 -- shows a hint when a provider is not enabled yet.
+
+-- ---------------------------------------------------------------------------
+-- Shop configuration, as one document per shop.
+--
+-- Bookings are transactional and keep the relational model above, guarded by
+-- the EXCLUDE constraint on staff_occupancy. Everything a shop *configures* —
+-- its team and their rosters, branches, absences, closing days, own services
+-- and pricing rules, and the private notes it keeps about customers — is a
+-- document only that shop's operator edits, so it syncs as JSON.
+--
+-- Without this table the back office is per-browser: a salon that adds a
+-- stylist on the desktop still sees the old team on the tablet.
+-- ---------------------------------------------------------------------------
+create table if not exists public.shop_state (
+  shop_id    text primary key,
+  data       jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.shop_state enable row level security;
+drop policy if exists shop_state_rw on public.shop_state;
+create policy shop_state_rw on public.shop_state for all using (true) with check (true);
+
+-- Booking columns added after the first cut. Idempotent: safe to re-run.
+--   guest_phone / guest_note  captured at checkout, shown to the shop
+--   refunded_cents            money actually returned on a cancellation
+--   review_reply              the shop's public answer to a review
+-- They live inside bookings.data as well; these columns make them queryable.
+alter table public.bookings add column if not exists guest_phone   text;
+alter table public.bookings add column if not exists guest_note    text;
+alter table public.bookings add column if not exists refunded_cents integer not null default 0;
+alter table public.bookings add column if not exists review_reply  jsonb;
+
+-- The waiting list: who asked to be told when a day frees up.
+create table if not exists public.waitlist (
+  id          text primary key,
+  shop_id     text not null,
+  device_id   text not null,
+  service_ids text[] not null,
+  iso_date    date not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists waitlist_shop_day on public.waitlist (shop_id, iso_date);
+
+alter table public.waitlist enable row level security;
+drop policy if exists waitlist_rw on public.waitlist;
+create policy waitlist_rw on public.waitlist for all using (true) with check (true);

@@ -329,6 +329,129 @@ if (IS_BROWSER && state.bookings.size === 0) {
 }
 
 /** Replace live state from an external source of truth (Supabase sync). */
+// ---------------------------------------------------------------------------
+// shop configuration as a syncable document
+//
+// Bookings are transactional and keep their real relational model in Postgres,
+// guarded by the EXCLUDE constraint. Everything a shop *configures* — its team,
+// branches, roster absences, closing days, own services and rules, customer
+// notes — is a document that only that shop's operator edits. Syncing those as
+// one JSON document per shop is honest about what they are, and it is what
+// makes the back office work on more than one device: without it, a salon that
+// adds a stylist on the desktop still sees the old team on the tablet.
+// ---------------------------------------------------------------------------
+
+export interface ShopConfig {
+  owner?: string;
+  staff?: StaffMember[];
+  staffOverrides?: Array<[string, Partial<StaffMember>]>;
+  archivedStaff?: string[];
+  locations?: ShopLocation[];
+  absences?: Array<[string, Absence[]]>;
+  closures?: ShopClosure[];
+  services?: SeedService[];
+  archivedServices?: string[];
+  rules?: PricingRule[];
+  deletedRules?: string[];
+  customerNotes?: Array<[string, string]>;
+}
+
+/** Every staff id this shop knows about — seeded, added, or archived. */
+function staffIdsOf(shopId: string): Set<string> {
+  const shop = shopById(shopId);
+  const ids = new Set<string>((shop?.staff ?? []).map((s) => s.id));
+  for (const st of state.customStaff.get(shopId) ?? []) ids.add(st.id);
+  return ids;
+}
+
+function serviceIdsOf(shopId: string): Set<string> {
+  const shop = shopById(shopId);
+  const ids = new Set<string>((shop?.services ?? []).map((s) => s.id));
+  for (const sv of state.customServices.get(shopId) ?? []) ids.add(sv.id);
+  return ids;
+}
+
+function ruleIdsOf(shopId: string): Set<string> {
+  const shop = shopById(shopId);
+  const ids = new Set<string>((shop?.pricingRules ?? []).map((r) => r.id));
+  for (const r of state.customRules.get(shopId) ?? []) ids.add(r.id);
+  return ids;
+}
+
+/** Slice this shop's configuration out of the global state. */
+export function exportShopConfig(shopId: string): ShopConfig {
+  const staffIds = staffIdsOf(shopId);
+  const serviceIds = serviceIdsOf(shopId);
+  const ruleIds = ruleIdsOf(shopId);
+  return {
+    owner: state.shopOwners.get(shopId),
+    staff: state.customStaff.get(shopId) ?? [],
+    staffOverrides: [...state.staffOverrides.entries()].filter(([id]) => staffIds.has(id)),
+    archivedStaff: [...state.archivedStaff].filter((id) => staffIds.has(id)),
+    locations: state.shopLocations.get(shopId) ?? [],
+    absences: [...state.absences.entries()].filter(([id]) => staffIds.has(id)),
+    closures: state.closures.get(shopId) ?? [],
+    services: state.customServices.get(shopId) ?? [],
+    archivedServices: [...state.archivedServices].filter((id) => serviceIds.has(id)),
+    rules: state.customRules.get(shopId) ?? [],
+    deletedRules: [...state.deletedRules].filter((id) => ruleIds.has(id)),
+    customerNotes: [...state.customerNotes.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
+  };
+}
+
+/**
+ * Merge a synced document back in, replacing only this shop's slice. Another
+ * shop's configuration in the same maps is left alone, so two salons syncing
+ * against the same project never overwrite each other.
+ */
+export function applyShopConfig(shopId: string, doc: ShopConfig): void {
+  const staffIds = staffIdsOf(shopId);
+  const serviceIds = serviceIdsOf(shopId);
+  const ruleIds = ruleIdsOf(shopId);
+
+  if (doc.owner) state.shopOwners.set(shopId, doc.owner);
+  else state.shopOwners.delete(shopId);
+
+  if (doc.staff) state.customStaff.set(shopId, doc.staff);
+  if (doc.locations) state.shopLocations.set(shopId, doc.locations);
+  if (doc.closures) state.closures.set(shopId, doc.closures);
+  if (doc.services) state.customServices.set(shopId, doc.services);
+  if (doc.rules) state.customRules.set(shopId, doc.rules);
+
+  // Re-derive the ids this shop owns *after* its custom lists landed, so a
+  // stylist created on another device is recognised as ours.
+  const nextStaffIds = staffIdsOf(shopId);
+
+  if (doc.staffOverrides) {
+    for (const [id] of state.staffOverrides) if (staffIds.has(id) || nextStaffIds.has(id)) state.staffOverrides.delete(id);
+    for (const [id, patch] of doc.staffOverrides) state.staffOverrides.set(id, patch);
+  }
+  if (doc.archivedStaff) {
+    for (const id of [...state.archivedStaff]) if (staffIds.has(id) || nextStaffIds.has(id)) state.archivedStaff.delete(id);
+    for (const id of doc.archivedStaff) state.archivedStaff.add(id);
+  }
+  if (doc.absences) {
+    for (const [id] of state.absences) if (staffIds.has(id) || nextStaffIds.has(id)) state.absences.delete(id);
+    for (const [id, list] of doc.absences) state.absences.set(id, list);
+  }
+  if (doc.archivedServices) {
+    const next = serviceIdsOf(shopId);
+    for (const id of [...state.archivedServices]) if (serviceIds.has(id) || next.has(id)) state.archivedServices.delete(id);
+    for (const id of doc.archivedServices) state.archivedServices.add(id);
+  }
+  if (doc.deletedRules) {
+    const next = ruleIdsOf(shopId);
+    for (const id of [...state.deletedRules]) if (ruleIds.has(id) || next.has(id)) state.deletedRules.delete(id);
+    for (const id of doc.deletedRules) state.deletedRules.add(id);
+  }
+  if (doc.customerNotes) {
+    for (const k of [...state.customerNotes.keys()]) if (k.startsWith(`${shopId}:`)) state.customerNotes.delete(k);
+    for (const [k, v] of doc.customerNotes) state.customerNotes.set(k, v);
+  }
+
+  stateVersion += 1;
+}
+
 export function applyExternalState(snapshot: {
   bookings: Booking[];
   ruleDisabled: string[];
