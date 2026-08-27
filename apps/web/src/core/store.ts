@@ -1966,9 +1966,14 @@ export interface RevenueReport {
 
 export interface CalendarAppointment {
   id: string;
+  reference: string;
   startsAt: number;
   endsAt: number;
   guestName: string;
+  guestPhone: string;
+  guestNote: string;
+  customerKey: string;
+  serviceIds: string[];
   serviceNames: string[];
   staffId: string;
   staffName: string;
@@ -2017,9 +2022,14 @@ export function shopCalendar(shopId: string, fromIso: string, toIso: string): Ca
       if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) < now) continue; // dead hold
       appointments.push({
         id: b.id,
+        reference: b.reference,
         startsAt: b.startsAt,
         endsAt: b.endsAt,
         guestName: b.guestName,
+        guestPhone: b.guestPhone ?? '',
+        guestNote: b.guestNote ?? '',
+        customerKey: customerKeyOf(b),
+        serviceIds: b.serviceIds,
         serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
         staffId: b.staffId,
         staffName: staff.find((s) => s.id === b.staffId)?.name ?? '—',

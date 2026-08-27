@@ -24,12 +24,18 @@ export function ShopCalendar({
   to,
   span,
   onPickDay,
+  onOpenAppointment,
+  onAddOn,
 }: {
   shopId: string;
   from: string;
   to: string;
   span: 'week' | 'month';
   onPickDay: (iso: string) => void;
+  /** clicking an appointment chip opens it, without leaving the week */
+  onOpenAppointment: (appointment: CalendarDay['appointments'][number]) => void;
+  /** the ＋ on a day header: add straight onto that date */
+  onAddOn: (iso: string) => void;
 }) {
   const { t, lang } = useI18n();
   const [days, setDays] = useState<CalendarDay[] | null>(null);
@@ -92,14 +98,22 @@ export function ShopCalendar({
       {span === 'week' ? (
         <div className="wk-grid">
           {days.map((d) => (
-            <button
+            <div
               key={d.iso}
               className={`wk-col ${d.iso === today ? 'today' : ''} ${d.closed ? 'closed' : ''} ${d.staffOn === 0 ? 'off' : ''}`}
-              onClick={() => onPickDay(d.iso)}
             >
               <div className="wk-head">
-                <span className="dow">{dowLong.format(new Date(`${d.iso}T12:00:00Z`))}</span>
-                <span className="num">{Number(d.iso.slice(8, 10))}</span>
+                <div className="wk-head-top">
+                  <button className="wk-day" onClick={() => onPickDay(d.iso)} title={t('cal_open_day')}>
+                    <span className="dow">{dowLong.format(new Date(`${d.iso}T12:00:00Z`))}</span>
+                    <span className="num">{Number(d.iso.slice(8, 10))}</span>
+                  </button>
+                  {!d.closed && (
+                    <button className="wk-add" onClick={() => onAddOn(d.iso)} title={t('dash_new')} aria-label={`${t('dash_new')} ${d.iso}`}>
+                      ＋
+                    </button>
+                  )}
+                </div>
                 <span className="sum">
                   {d.closed
                     ? t('cls_closed')
@@ -118,22 +132,23 @@ export function ShopCalendar({
                   <span className="wk-empty">{d.closed || d.staffOn === 0 ? '' : t('cal_free')}</span>
                 ) : (
                   d.appointments.map((a) => (
-                    <span
+                    <button
                       key={a.id}
                       className={`wk-appt st-${a.status}`}
+                      onClick={() => onOpenAppointment(a)}
                       title={`${timeOf(a.startsAt, lang)} · ${a.guestName} · ${a.serviceNames.join(', ')} · ${a.staffName}`}
                     >
                       <b>{timeOf(a.startsAt, lang)}</b> {a.guestName}
                       <em>{a.staffName}</em>
-                    </span>
+                    </button>
                   ))
                 )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       ) : (
-        <MonthGrid days={days} today={today} onPickDay={onPickDay} />
+        <MonthGrid days={days} today={today} onPickDay={onPickDay} onAddOn={onAddOn} />
       )}
 
       <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 12 }}>💡 {t('cal_hint')}</p>
@@ -150,10 +165,12 @@ function MonthGrid({
   days,
   today,
   onPickDay,
+  onAddOn,
 }: {
   days: CalendarDay[];
   today: string;
   onPickDay: (iso: string) => void;
+  onAddOn: (iso: string) => void;
 }) {
   const { t, lang } = useI18n();
   const dowNarrow = useMemo(
@@ -181,12 +198,21 @@ function MonthGrid({
         <div className="mo-pad" key={`pad-${i}`} />
       ))}
       {days.map((d) => (
-        <button
+        <div
           key={d.iso}
           className={`mo-cell ${d.iso === today ? 'today' : ''} ${d.closed ? 'closed' : ''} ${d.staffOn === 0 ? 'off' : ''}`}
-          onClick={() => onPickDay(d.iso)}
-          title={`${d.iso} · ${d.bookingCount} · ${money(d.revenueCents, lang)}`}
         >
+          <button
+            className="mo-open"
+            onClick={() => onPickDay(d.iso)}
+            title={`${d.iso} · ${d.bookingCount} · ${money(d.revenueCents, lang)}`}
+            aria-label={`${t('cal_open_day')} ${d.iso}`}
+          />
+          {!d.closed && (
+            <button className="mo-add" onClick={() => onAddOn(d.iso)} title={t('dash_new')} aria-label={`${t('dash_new')} ${d.iso}`}>
+              ＋
+            </button>
+          )}
           <span className="num">{Number(d.iso.slice(8, 10))}</span>
           {d.closed ? (
             <span className="tag">{t('cls_closed')}</span>
@@ -201,7 +227,7 @@ function MonthGrid({
               <span className="rev">{d.revenueCents > 0 ? money(d.revenueCents, lang) : ''}</span>
             </>
           )}
-        </button>
+        </div>
       ))}
     </div>
   );

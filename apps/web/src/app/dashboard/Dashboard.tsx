@@ -2,7 +2,11 @@
 /**
  * Today tab — the screen a salon actually runs the day from: how full it is,
  * the live calendar per stylist, and the booking list. Click a free stretch to
- * add an appointment, click a booking to move it.
+ * add an appointment, click a booking to open it.
+ *
+ * Day / week / month are three windows on the same diary. Adding an
+ * appointment works from all three, and both dialogs are modals so you never
+ * lose the slot you were looking at.
  *
  * Everything that is set up rather than run — services, team, HR, shop
  * settings — lives on its own tab; see ./shell.tsx.
@@ -21,6 +25,8 @@ import {
 import { deviceId } from '@/lib/device';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar';
+import { AppointmentDialog, type DialogBooking } from '@/components/AppointmentDialog';
+import { Modal } from '@/components/Modal';
 import { useToast } from './toast';
 import { OperatorShell, useOverview, type Overview } from './shell';
 import type { ShopRef } from '@/lib/owned-shops';
@@ -87,9 +93,10 @@ function TodayTab({ shopId }: { shopId: string }) {
   const [date, setDate] = useState(todayIso());
   const { data, reload: load } = useOverview(shopId, date);
   const { setToast, toastEl } = useToast();
-  const [nbOpen, setNbOpen] = useState(false);
-  const [nbPrefill, setNbPrefill] = useState<{ staffId: string | null; minute?: number } | null>(null);
-  const [moveFor, setMoveFor] = useState<Overview['bookings'][number] | null>(null);
+  // Clicking an appointment anywhere opens it; adding one is reachable from
+  // every span, not just the day view.
+  const [openAppt, setOpenAppt] = useState<DialogBooking | null>(null);
+  const [addFor, setAddFor] = useState<{ date: string; staffId: string | null; minute?: number } | null>(null);
   const { ask, dialog } = useConfirm();
   // The strip now starts a fortnight in the past, so bring today into view
   // once — otherwise the shop opens on last week.
@@ -152,6 +159,9 @@ function TodayTab({ shopId }: { shopId: string }) {
             </button>
           </div>
         )}
+        <button className="btn btn-primary sm" onClick={() => setAddFor({ date, staffId: null })}>
+          {t('dash_new')}
+        </button>
         <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>
           {span === 'day' ? `🔒 ${t('own_scope')}` : `${range.from} → ${range.to}`}
         </span>
@@ -183,6 +193,8 @@ function TodayTab({ shopId }: { shopId: string }) {
           setDate(iso);
           chooseSpan('day');
         }}
+        onAddOn={(iso) => setAddFor({ date: iso, staffId: null })}
+        onOpenAppointment={(a) => setOpenAppt(a)}
       />
     ) : data === null ? (
       <div className="spinner" />
@@ -227,8 +239,7 @@ function TodayTab({ shopId }: { shopId: string }) {
                       if (row.working.length === 0) return;
                       const rect = e.currentTarget.getBoundingClientRect();
                       const minute = DAY_START_MIN + ((e.clientX - rect.left) / rect.width) * DAY_SPAN;
-                      setNbPrefill({ staffId: row.staffId, minute });
-                      setNbOpen(true);
+                      setAddFor({ date, staffId: row.staffId, minute });
                     }}
                   >
                     {row.working.length === 0 && <div className="cal-block off" style={{ left: 0, right: 0 }} />}
@@ -246,7 +257,7 @@ function TodayTab({ shopId }: { shopId: string }) {
                             e.stopPropagation();
                             if (b.kind !== 'booking' || !b.bookingId) return;
                             const bk = data.bookings.find((x) => x.id === b.bookingId);
-                            if (bk && ['confirmed', 'pending_payment'].includes(bk.status)) setMoveFor(bk);
+                            if (bk) setOpenAppt(bk);
                           }}
                           title={
                             b.kind === 'walk_in'
@@ -271,38 +282,6 @@ function TodayTab({ shopId }: { shopId: string }) {
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="section">
-          <NewBooking
-            shopId={shopId}
-            date={date}
-            services={data.shop.services}
-            staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))}
-            open={nbOpen}
-            setOpen={(v) => {
-              setNbOpen(v);
-              if (!v) setNbPrefill(null);
-            }}
-            prefill={nbPrefill}
-            onCreated={() => {
-              setToast('✅ ' + t('dash_created'));
-              void load();
-            }}
-          />
-          {moveFor && (
-            <MovePanel
-              shopId={shopId}
-              booking={moveFor}
-              staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))}
-              onClose={() => setMoveFor(null)}
-              onMoved={() => {
-                setMoveFor(null);
-                setToast('✅ ' + t('dash_moved'));
-                void load();
-              }}
-            />
-          )}
         </section>
 
         <section className="section">
@@ -355,7 +334,7 @@ function TodayTab({ shopId }: { shopId: string }) {
                                 ✓ {t('mark_completed')}
                               </button>
                             )}
-                            <button className="btn btn-soft sm" onClick={() => setMoveFor(b)}>
+                            <button className="btn btn-soft sm" onClick={() => setOpenAppt(b)}>
                               ⇄ {t('dash_move')}
                             </button>
                             {b.status === 'confirmed' && (
@@ -396,6 +375,31 @@ function TodayTab({ shopId }: { shopId: string }) {
   )}
 
       <Waitlist shopId={shopId} />
+
+      <AppointmentDialog
+        shopId={shopId}
+        booking={openAppt}
+        staff={(data?.staffRows ?? []).map((r) => ({ id: r.staffId, name: r.name }))}
+        onClose={() => setOpenAppt(null)}
+        onChanged={(msg) => {
+          setToast(msg);
+          void load();
+        }}
+      />
+
+      {addFor && data && (
+        <NewBooking
+          shopId={shopId}
+          services={data.shop.services}
+          staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))}
+          prefill={addFor}
+          onClose={() => setAddFor(null)}
+          onCreated={() => {
+            setToast('✅ ' + t('dash_created'));
+            void load();
+          }}
+        />
+      )}
 
       {toastEl}
       {dialog}
@@ -452,26 +456,31 @@ function Waitlist({ shopId }: { shopId: string }) {
   );
 }
 
+/**
+ * Adding an appointment, as a dialog rather than a panel.
+ *
+ * It carries its own date field, which is what makes it reachable from the
+ * week and month views: there is no "selected day" to inherit there, and
+ * jumping to the day view first only to come back is a detour.
+ */
 function NewBooking({
   shopId,
-  date,
   services,
   staff,
-  open,
-  setOpen,
   prefill,
+  onClose,
   onCreated,
 }: {
   shopId: string;
-  date: string;
   services: Overview['shop']['services'];
   staff: Array<{ id: string; name: string }>;
-  open: boolean;
-  setOpen: (v: boolean) => void;
-  prefill: { staffId: string | null; minute?: number } | null;
+  prefill: { date: string; staffId: string | null; minute?: number };
+  onClose: () => void;
   onCreated: () => void;
 }) {
   const { t, lang } = useI18n();
+  const [date, setDate] = useState(prefill.date);
+  const open = true;
   const [serviceId, setServiceId] = useState(services[0]?.id ?? '');
   const [staffId, setStaffId] = useState<string | null>(null);
   const [slots, setSlots] = useState<Array<{ start: number; priceCents: number }> | null>(null);
@@ -486,10 +495,11 @@ function NewBooking({
     setServiceId((cur) => (services.some((s) => s.id === cur) ? cur : services[0]?.id ?? ''));
   }, [services]);
 
-  // A click in a stylist's calendar row opens the panel with that stylist set.
+  // A click in a stylist's calendar row opens the dialog with that stylist set.
   useEffect(() => {
-    if (open && prefill) setStaffId(prefill.staffId);
-  }, [open, prefill]);
+    setStaffId(prefill.staffId);
+    setDate(prefill.date);
+  }, [prefill]);
 
   useEffect(() => {
     if (!open || !serviceId) return;
@@ -529,26 +539,23 @@ function NewBooking({
     setPhone('');
     setNote('');
     setStartsAt(null);
-    setOpen(false);
     onCreated();
+    onClose();
   };
 
-  if (!open) {
-    return (
-      <button className="btn btn-primary" onClick={() => setOpen(true)}>
-        {t('dash_new')}
-      </button>
-    );
-  }
-
   return (
-    <div className="panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <h3 style={{ marginBottom: 0 }}>{t('dash_new_title')}</h3>
-        <button className="btn btn-ghost sm" onClick={() => setOpen(false)}>✕</button>
-      </div>
-      {conflict && <div className="alert" style={{ marginTop: 10 }}>{t('slot_taken_body')}</div>}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
+    <Modal open wide onClose={onClose} title={t('dash_new_title')} subtitle={date}>
+      {conflict && <div className="alert" style={{ marginBottom: 10 }}>{t('slot_taken_body')}</div>}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '0 0 12px' }}>
+        <label className="chip">
+          {t('dash_pick_date')}
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }}
+          />
+        </label>
         <label className="chip">
           ✂️
           <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
@@ -613,122 +620,19 @@ function NewBooking({
         </div>
       )}
       <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', marginTop: 10 }}>{t('dash_pay_note')}</p>
-      <button
-        className="btn btn-primary"
-        style={{ marginTop: 10 }}
-        disabled={busy || !startsAt || !customer.trim()}
-        onClick={() => void create()}
-      >
-        {busy ? '…' : t('dash_create')}
-      </button>
-    </div>
+      <div className="md-card-foot" style={{ margin: '12px -20px -20px', borderTop: '1px solid var(--line)' }}>
+        <button className="btn btn-soft" onClick={onClose}>
+          {t('back')}
+        </button>
+        <button
+          className="btn btn-primary"
+          disabled={busy || !startsAt || !customer.trim()}
+          onClick={() => void create()}
+        >
+          {busy ? '…' : t('dash_create')}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
-function MovePanel({
-  shopId,
-  booking,
-  staff,
-  onClose,
-  onMoved,
-}: {
-  shopId: string;
-  booking: Overview['bookings'][number];
-  staff: Array<{ id: string; name: string }>;
-  onClose: () => void;
-  onMoved: () => void;
-}) {
-  const { t, lang } = useI18n();
-  const [date, setDate] = useState(isoDateOf(booking.startsAt));
-  // Default to the booking's own stylist: a slot that is free for someone
-  // else is not necessarily free for this booking's stylist.
-  const [staffId, setStaffId] = useState<string>(booking.staffId);
-  const [slots, setSlots] = useState<Array<{ start: number; priceCents: number }> | null>(null);
-  const [startsAt, setStartsAt] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [conflict, setConflict] = useState(false);
-  const minDate = todayIso();
-  const maxDate = addDays(todayIso(), 61);
-
-  useEffect(() => {
-    setSlots(null);
-    setStartsAt(null);
-    void apiAvailability(shopId, booking.serviceIds, date, staffId).then((s) =>
-      setSlots(s.map((x) => ({ start: x.start, priceCents: x.priceCents }))),
-    );
-  }, [shopId, booking.serviceIds, date, staffId]);
-
-  const move = async () => {
-    if (!startsAt) return;
-    setBusy(true);
-    setConflict(false);
-    const r = await apiRescheduleBooking(shopId, booking.id, startsAt, staffId);
-    setBusy(false);
-    if (!r.ok) {
-      setConflict(true);
-      setStartsAt(null);
-      return;
-    }
-    onMoved();
-  };
-
-  return (
-    <div className="panel move-panel" style={{ marginTop: 14, border: '2px solid var(--primary)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <h3 style={{ marginBottom: 0 }}>⇄ {t('dash_move_title', { name: booking.guestName })}</h3>
-        <button className="btn btn-ghost sm" onClick={onClose}>✕</button>
-      </div>
-      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginTop: 4 }}>
-        {booking.serviceNames.join(', ')} · {t('step_time')}: {timeOf(booking.startsAt, lang)}
-      </p>
-      {conflict && <div className="alert" style={{ marginTop: 10 }}>{t('slot_taken_body')}</div>}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
-        <label className="chip">
-          📅 {t('dash_pick_date')}
-          <input
-            type="date"
-            value={date}
-            min={minDate}
-            max={maxDate}
-            onChange={(e) => setDate(e.target.value)}
-            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }}
-          />
-        </label>
-        <label className="chip">
-          👤
-          <select value={staffId} onChange={(e) => setStaffId(e.target.value)}>
-            {staff.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {slots === null ? (
-        <div className="spinner" />
-      ) : slots.length === 0 ? (
-        <div className="empty" style={{ padding: '20px 14px' }}>{t('no_slots')}</div>
-      ) : (
-        <div className="slot-grid">
-          {slots.map((s) => (
-            <button
-              key={s.start}
-              className={`slot-chip ${startsAt === s.start ? 'sel' : ''}`}
-              onClick={() => setStartsAt(s.start)}
-            >
-              <div className="t">{timeOf(s.start, lang)}</div>
-              <div className="p">{money(s.priceCents, lang)}</div>
-            </button>
-          ))}
-        </div>
-      )}
-      <button
-        className="btn btn-primary move-submit"
-        style={{ marginTop: 12 }}
-        disabled={busy || !startsAt}
-        onClick={() => void move()}
-      >
-        {busy ? '…' : `⇄ ${t('dash_move')}`}
-      </button>
-    </div>
-  );
-}
