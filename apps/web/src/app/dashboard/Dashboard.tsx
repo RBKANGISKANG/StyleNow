@@ -7,7 +7,7 @@
  * Everything that is set up rather than run — services, team, HR, shop
  * settings — lives on its own tab; see ./shell.tsx.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import {
@@ -20,6 +20,7 @@ import {
 } from '@/lib/api';
 import { deviceId } from '@/lib/device';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar';
 import { useToast } from './toast';
 import { OperatorShell, useOverview, type Overview } from './shell';
 import type { ShopRef } from '@/lib/owned-shops';
@@ -54,18 +55,54 @@ export function Dashboard({ shops }: { shops: ShopRef[] }) {
   );
 }
 
+const SPAN_KEY = 'stylenow.today.span';
+
 function TodayTab({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
-  // Same two-month horizon the customer side books against.
-  const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
-  const [date, setDate] = useState(days[0]);
+  // Day is the shift you are running; week and month are the diary you plan in.
+  const [span, setSpan] = useState<'day' | 'week' | 'month'>('day');
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(SPAN_KEY);
+      if (saved === 'day' || saved === 'week' || saved === 'month') setSpan(saved);
+    } catch {
+      // private mode — day it is
+    }
+  }, []);
+
+  const chooseSpan = (next: 'day' | 'week' | 'month') => {
+    setSpan(next);
+    try {
+      window.localStorage.setItem(SPAN_KEY, next);
+    } catch {
+      // ignore
+    }
+  };
+  // Two months forward — the horizon the customer side books against — and a
+  // fortnight back, because a shop looks at yesterday too, and because the
+  // month view can hand you a date that has already been and gone.
+  const days = useMemo(() => Array.from({ length: 76 }, (_, i) => addDays(todayIso(), i - 14)), []);
+  const [date, setDate] = useState(todayIso());
   const { data, reload: load } = useOverview(shopId, date);
   const { setToast, toastEl } = useToast();
   const [nbOpen, setNbOpen] = useState(false);
   const [nbPrefill, setNbPrefill] = useState<{ staffId: string | null; minute?: number } | null>(null);
   const [moveFor, setMoveFor] = useState<Overview['bookings'][number] | null>(null);
   const { ask, dialog } = useConfirm();
+  // The strip now starts a fortnight in the past, so bring today into view
+  // once — otherwise the shop opens on last week.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const centred = useRef(false);
+
+  useEffect(() => {
+    if (centred.current || span !== 'day' || !stripRef.current) return;
+    const sel = stripRef.current.querySelector('.date-pill.sel') as HTMLElement | null;
+    if (!sel) return;
+    stripRef.current.scrollLeft = Math.max(sel.offsetLeft - 12, 0);
+    centred.current = true;
+  }, [span, data]);
 
   const setStatus = async (bookingId: string, status: 'completed' | 'no_show') => {
     await apiSetStatus(shopId, bookingId, status);
@@ -79,23 +116,49 @@ function TodayTab({ shopId }: { shopId: string }) {
     void load();
   };
 
+  // Week runs Monday–Sunday around the selected date; month is its calendar
+  // month. Both anchor on `date`, so the day you pick is the day you land on.
+  const range = useMemo(() => {
+    if (span === 'month') {
+      const first = `${date.slice(0, 8)}01`;
+      const d = new Date(`${first}T12:00:00Z`);
+      const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 12));
+      return { from: first, to: isoDateOf(last.getTime()) };
+    }
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay() || 7;
+    const monday = addDays(date, 1 - dow);
+    return { from: monday, to: addDays(monday, 6) };
+  }, [span, date]);
+
   const avgTicket = data && data.bookingCount > 0 ? Math.round(data.revenueCents / data.bookingCount) : 0;
 
   return (
     <>
       <div className="today-bar">
         <div className="seg">
-          <button className={view === 'calendar' ? 'on' : ''} onClick={() => setView('calendar')}>
-            🗓 {t('view_calendar')}
-          </button>
-          <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
-            ☰ {t('view_list')}
-          </button>
+          {CALENDAR_SPANS.map((sp) => (
+            <button key={sp} className={span === sp ? 'on' : ''} onClick={() => chooseSpan(sp)}>
+              {t(spanKey(sp))}
+            </button>
+          ))}
         </div>
-        <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>🔒 {t('own_scope')}</span>
+        {span === 'day' && (
+          <div className="seg">
+            <button className={view === 'calendar' ? 'on' : ''} onClick={() => setView('calendar')}>
+              🗓 {t('view_calendar')}
+            </button>
+            <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
+              ☰ {t('view_list')}
+            </button>
+          </div>
+        )}
+        <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>
+          {span === 'day' ? `🔒 ${t('own_scope')}` : `${range.from} → ${range.to}`}
+        </span>
       </div>
 
-    <div className="date-strip">
+    {span === 'day' && (
+    <div className="date-strip" ref={stripRef}>
       {days.map((d, i) => (
         <span key={d} style={{ display: 'contents' }}>
           {(i === 0 || d.slice(5, 7) !== days[i - 1].slice(5, 7)) && (
@@ -108,7 +171,20 @@ function TodayTab({ shopId }: { shopId: string }) {
         </span>
       ))}
     </div>
-    {data === null ? (
+    )}
+
+    {span !== 'day' ? (
+      <ShopCalendar
+        shopId={shopId}
+        from={range.from}
+        to={range.to}
+        span={span}
+        onPickDay={(iso) => {
+          setDate(iso);
+          chooseSpan('day');
+        }}
+      />
+    ) : data === null ? (
       <div className="spinner" />
     ) : (
       <>

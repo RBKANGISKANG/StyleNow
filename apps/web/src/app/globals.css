@@ -977,6 +977,76 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   .md-side { grid-column: 1 / -1; justify-items: start; text-align: left; }
 }
 
+/* Week view — seven day-columns of appointments, so a hole is a short column */
+.wk-grid {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px;
+  align-items: start;
+}
+.wk-col {
+  display: block; text-align: left; width: 100%;
+  background: var(--surface); border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm); overflow: hidden;
+  border: 2px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
+}
+.wk-col:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.wk-col.today { border-color: var(--primary); }
+.wk-col.off, .wk-col.closed { opacity: .68; }
+.wk-head { padding: 9px 10px 8px; border-bottom: 1px solid var(--line); display: grid; gap: 1px; }
+.wk-head .dow { font-size: 0.68rem; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; }
+.wk-head .num { font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; line-height: 1.1; }
+.wk-head .sum { font-size: 0.7rem; color: var(--ink-soft); }
+.wk-load { display: block; height: 4px; border-radius: 999px; background: var(--surface-2); margin-top: 5px; overflow: hidden; }
+.wk-load i { display: block; height: 100%; background: var(--teal); }
+.wk-body { padding: 7px; display: grid; gap: 5px; min-height: 64px; align-content: start; }
+.wk-empty { font-size: 0.7rem; color: var(--ink-soft); padding: 4px 2px; }
+.wk-appt {
+  display: grid; gap: 1px; padding: 5px 7px; border-radius: 8px;
+  background: var(--teal-soft); font-size: 0.7rem; line-height: 1.25;
+  border-left: 3px solid var(--teal);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wk-appt b { font-weight: 800; }
+.wk-appt em { font-style: normal; color: var(--ink-soft); font-size: 0.66rem; }
+.wk-appt.st-pending_payment { background: var(--amber-soft); border-left-color: var(--amber); }
+.wk-appt.st-completed { background: var(--surface-2); border-left-color: var(--ink-soft); }
+.wk-appt.st-no_show, .wk-appt.st-cancelled_by_customer, .wk-appt.st-cancelled_by_shop {
+  background: var(--surface-2); border-left-color: var(--danger); text-decoration: line-through; opacity: .7;
+}
+@media (max-width: 900px) {
+  .wk-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+}
+
+/* Month view — Monday-first columns, so "every Tuesday is dead" reads
+   vertically instead of having to be counted out. */
+.mo-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.mo-dow {
+  font-size: 0.68rem; font-weight: 800; color: var(--ink-soft);
+  text-transform: uppercase; text-align: center; padding-bottom: 2px;
+}
+.mo-pad { min-height: 74px; }
+.mo-cell {
+  min-height: 74px; padding: 7px 8px; border-radius: var(--r-sm);
+  background: var(--surface); box-shadow: var(--shadow-sm);
+  border: 2px solid transparent; display: grid; gap: 2px; align-content: start;
+  text-align: left; transition: transform .12s ease;
+}
+.mo-cell:hover { transform: translateY(-2px); }
+.mo-cell.today { border-color: var(--primary); }
+.mo-cell.off { background: repeating-linear-gradient(45deg, #f7f4f7, #f7f4f7 3px, #ece7ee 3px, #ece7ee 6px); }
+.mo-cell.closed { background: rgba(43,34,51,.1); }
+.mo-cell .num { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; }
+.mo-cell .cnt { font-size: 1.25rem; font-weight: 800; line-height: 1; color: var(--teal); }
+.mo-cell .rev { font-size: 0.68rem; color: var(--ink-soft); }
+.mo-cell .tag { font-size: 0.62rem; font-weight: 800; color: var(--ink-soft); text-transform: uppercase; }
+.mo-cell .tag.dim { opacity: .5; }
+.mo-load { display: block; height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.mo-load i { display: block; height: 100%; background: var(--teal); }
+@media (max-width: 560px) {
+  .mo-cell { min-height: 60px; padding: 5px; }
+  .mo-cell .cnt { font-size: 1rem; }
+  .mo-cell .rev { display: none; }
+}
+
 /* Reviews and the shop's answer to them */
 .rv-item { border-top: 1px solid var(--line); padding: 14px 0; }
 .rv-item:first-of-type { border-top: none; }

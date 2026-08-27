@@ -1962,6 +1962,89 @@ export interface RevenueReport {
  * separately as `walkInCents` so the breakdowns still add up to the total.
  * A booking counts on the day it starts, in shop time.
  */
+// --- shop calendar over a range --------------------------------------------
+
+export interface CalendarAppointment {
+  id: string;
+  startsAt: number;
+  endsAt: number;
+  guestName: string;
+  serviceNames: string[];
+  staffId: string;
+  staffName: string;
+  status: BookingStatus;
+  totalCents: number;
+}
+
+export interface CalendarDay {
+  iso: string;
+  closed: boolean;
+  /** how many stylists are rostered at all — 0 means nobody is in */
+  staffOn: number;
+  occupancyPct: number;
+  bookingCount: number;
+  revenueCents: number;
+  appointments: CalendarAppointment[];
+}
+
+/**
+ * The shop's diary over a range, one entry per day.
+ *
+ * The day view answers "what is happening now"; a week or a month answers
+ * "where are the holes" — which is the question you ask when deciding whether
+ * to run an offer, roster someone off, or take a holiday yourself. Same
+ * bookings, different unit of time.
+ */
+export function shopCalendar(shopId: string, fromIso: string, toIso: string): CalendarDay[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const now = Date.now();
+  const staff = effectiveStaff(shopId);
+
+  const dates: string[] = [];
+  for (let iso = fromIso; iso <= toIso && dates.length < 62; iso = addDays(iso, 1)) dates.push(iso);
+
+  return dates.map((iso) => {
+    const start = dayStart(iso);
+    const end = start + 24 * 60 * MIN;
+    const appointments: CalendarAppointment[] = [];
+    let revenueCents = 0;
+
+    for (const b of state.bookings.values()) {
+      if (b.shopId !== shopId) continue;
+      if (b.startsAt < start || b.startsAt >= end) continue;
+      if (b.status === 'hold') continue;
+      if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) < now) continue; // dead hold
+      appointments.push({
+        id: b.id,
+        startsAt: b.startsAt,
+        endsAt: b.endsAt,
+        guestName: b.guestName,
+        serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
+        staffId: b.staffId,
+        staffName: staff.find((s) => s.id === b.staffId)?.name ?? '—',
+        status: b.status,
+        totalCents: b.quote.totalCents,
+      });
+      if (['confirmed', 'completed'].includes(b.status)) revenueCents += b.quote.totalCents;
+    }
+    appointments.sort((a, b) => a.startsAt - b.startsAt);
+
+    const closed = isShopClosed(shopId, iso);
+    const staffOn = closed ? 0 : staff.filter((s) => staffWindows(shop, s.id, iso).length > 0).length;
+
+    return {
+      iso,
+      closed,
+      staffOn,
+      occupancyPct: staffOn === 0 ? 0 : occupancyPct(shop, iso, now),
+      bookingCount: appointments.filter((a) => !a.status.startsWith('cancelled')).length,
+      revenueCents,
+      appointments,
+    };
+  });
+}
+
 export function revenueReport(shopId: string, fromIso: string, toIso: string): RevenueReport {
   const shop = shopById(shopId);
   const empty: RevenueReport = {

@@ -28,6 +28,7 @@ import type {
   ShopLocation,
   HrRow,
   RosterCalendar,
+  CalendarDay,
   RevenueReport,
   CustomerRow,
   ShopClosure,
@@ -854,6 +855,15 @@ export async function apiDeleteClosure(shopId: string, closureId: string): Promi
   store.deleteClosure(shopId, closureId);
 }
 
+export async function apiShopCalendar(shopId: string, from: string, to: string): Promise<CalendarDay[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/calendar?from=${from}&to=${to}`);
+    return res.ok ? (await res.json()).days : [];
+  }
+  await readyForRead();
+  return store.shopCalendar(shopId, from, to);
+}
+
 export async function apiRevenueReport(shopId: string, from: string, to: string): Promise<RevenueReport | null> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/revenue?from=${from}&to=${to}`);
@@ -898,4 +908,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   store.deleteAbsence(staffId, absenceId);
 }
 
-export type { HrRow, RosterCalendar, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind };
+export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind };
