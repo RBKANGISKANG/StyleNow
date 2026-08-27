@@ -1537,3 +1537,61 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 
 .page-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 0 6px; flex-wrap: wrap; }
 .page-title h1 { font-size: 1.5rem; font-weight: 700; }
+
+/* --- a shop's own page: open/shut, next free times, opening hours --------- */
+
+/* The hero paints white-on-gradient, and `.shop-hero .meta-row span` gives every
+   chip a 16 %-white wash. Both have to be overridden here or the badge inherits
+   a translucent background it was never designed for: measured, the status text
+   came out at 3.4:1 against the gradient. A solid pill with --ink on it is
+   15.2:1, and the status colour moves to the dot, where it is a graphic rather
+   than something anyone has to read. */
+.shop-hero .meta-row span.open-badge,
+.open-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 13px; border-radius: 999px;
+  font-size: 0.78rem; font-weight: 800; letter-spacing: .01em;
+  background: #fff; color: var(--ink);
+}
+.open-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-soft); }
+.open-badge.on::before { background: var(--success); }
+
+/* Same trap: .btn-soft is a near-white pill, and the hero sets colour to #fff,
+   so the label was white on #fdf4ec — 1.09:1, i.e. invisible. */
+.shop-hero .btn-soft { color: var(--ink); }
+
+.no-sub { font-size: 0.83rem; color: var(--ink-soft); margin: -4px 0 12px; }
+.no-grid {
+  display: grid; gap: 10px; margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+}
+.no-slot {
+  display: grid; gap: 2px; justify-items: center;
+  padding: 12px 8px; border-radius: var(--r-md);
+  background: var(--surface); box-shadow: var(--shadow-sm);
+  border: 1.5px solid var(--line);
+  color: inherit; text-decoration: none;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.no-slot:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--primary); }
+.no-day { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); }
+.no-time { font-size: 1.05rem; font-weight: 800; font-family: var(--font-display); }
+.no-price { font-size: 0.76rem; font-weight: 700; color: var(--teal); }
+
+.oh-list { display: grid; gap: 2px; }
+.oh-list li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 7px 8px; border-radius: var(--r-sm); font-size: 0.87rem;
+}
+.oh-list li.is-today { background: var(--primary-soft); font-weight: 700; }
+.oh-day { display: flex; align-items: baseline; gap: 7px; }
+.oh-now {
+  font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--primary-deep);
+}
+.oh-win { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.oh-win.shut { color: var(--ink-soft); font-weight: 500; }
+.oh-closures {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+  display: grid; gap: 5px; font-size: 0.8rem; color: var(--ink-soft);
+}

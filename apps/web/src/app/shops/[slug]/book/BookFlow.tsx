@@ -74,10 +74,15 @@ export function BookFlow({ shop }: { shop: ShopInfo }) {
 function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const { t, lang } = useI18n();
   const { user } = useAuth();
-  const initialServiceId = useSearchParams().get('service');
+  const params = useSearchParams();
+  const initialServiceId = params.get('service');
+  // A tap on a time on the shop's own page arrives here already decided: which
+  // service, which day, which minute. Re-asking all three would throw that away.
+  const initialDate = params.get('date');
+  const initialAt = Number(params.get('at')) || null;
   // Two months of bookable days (matches the shops' 62-day booking horizon).
   const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(initialServiceId && initialAt ? 1 : 0);
   // Live menu: the shop may have added or archived services since build time.
   const [menu, setMenu] = useState<Svc[]>(shop.services);
   useEffect(() => {
@@ -96,7 +101,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
   );
   const [staffId, setStaffId] = useState<string | null>(null);
-  const [date, setDate] = useState(days[0]);
+  const [date, setDate] = useState(initialDate && days.includes(initialDate) ? initialDate : days[0]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [name, setName] = useState('');
@@ -162,6 +167,18 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   useEffect(() => {
     if (step === 1) void loadSlots();
   }, [step, loadSlots]);
+
+  // Honour ?at= exactly once. Doing it on every slot load would teleport the
+  // customer forward again the moment they pressed Back to pick another time.
+  const deepLinkUsed = useRef(false);
+  useEffect(() => {
+    if (deepLinkUsed.current || initialAt === null || slots === null) return;
+    deepLinkUsed.current = true;
+    const match = slots.find((s) => s.start === initialAt);
+    if (!match) return; // taken while they were deciding — leave them on the day
+    setSlot(match);
+    setStep(2);
+  }, [slots, initialAt]);
 
   // ---- hold + countdown --------------------------------------------------
   const holdTimer = useRef<ReturnType<typeof setInterval> | null>(null);

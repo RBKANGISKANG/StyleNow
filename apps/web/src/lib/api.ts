@@ -34,7 +34,11 @@ import type {
   ShopClosure,
   Absence,
   AbsenceKind,
+  OpeningDay,
+  ShopStatus,
+  Opening,
 } from '@/core/store';
+import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
 import * as sb from '@/lib/supabase-backend';
 
@@ -144,6 +148,39 @@ export async function apiAvailability(
   }
   await readyForRead();
   return store.availability(shopId, serviceIds, date, deviceId(), staffId).slots;
+}
+
+// ---- a shop's own page ----------------------------------------------------
+
+export interface ShopHours {
+  days: OpeningDay[];
+  status: ShopStatus;
+  closures: ShopClosure[];
+}
+
+export async function apiShopHours(shopId: string): Promise<ShopHours | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shops/${shopId}/hours`);
+    return res.ok ? await res.json() : null;
+  }
+  await readyForRead();
+  const today = todayIso();
+  return {
+    days: store.openingHours(shopId),
+    status: store.shopStatus(shopId),
+    closures: store.shopClosures(shopId).filter((c) => c.to >= today),
+  };
+}
+
+export async function apiNextOpenings(shopId: string, serviceIds: string[], limit = 6): Promise<Opening[]> {
+  if (serviceIds.length === 0) return [];
+  if (backendMode() === 'server') {
+    const params = new URLSearchParams({ serviceIds: serviceIds.join(','), deviceId: deviceId(), limit: String(limit) });
+    const res = await fetch(`/api/shops/${shopId}/openings?${params}`);
+    return res.ok ? (await res.json()).openings : [];
+  }
+  await readyForRead();
+  return store.nextOpenings(shopId, serviceIds, deviceId(), { limit });
 }
 
 // ---- booking loop --------------------------------------------------------

@@ -58,3 +58,17 @@ export function monthShort(isoDate: string, lang: 'en' | 'de'): string {
     month: 'short',
   }).format(new Date(`${isoDate}T12:00:00Z`));
 }
+
+/** Weekday name from an ISO weekday number (1 = Monday). 2024-01-01 was a Monday. */
+export function weekdayName(dow: number, lang: 'en' | 'de', style: 'long' | 'short' = 'long'): string {
+  return new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', {
+    timeZone: 'UTC',
+    weekday: style,
+  }).format(new Date(Date.UTC(2024, 0, dow)));
+}
+
+/** Minute-of-day as a clock time. Opening hours are stored as minutes, not instants. */
+export function hhmm(minuteOfDay: number): string {
+  const h = Math.floor(minuteOfDay / 60) % 24;
+  return `${String(h).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
+}

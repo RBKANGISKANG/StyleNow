@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShareShop } from '@/components/ShareShop';
+import { NextOpenings } from '@/components/NextOpenings';
+import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
 import { apiShopReviews, apiShopLogo, apiShopServices } from '@/lib/api';
@@ -59,6 +61,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   // The shop can add or archive services at any time — always show the live menu.
   const [services, setServices] = useState(shop.services);
+  const hours = useShopHours(shop.id);
   const fav = favs.includes(shop.id);
 
   useEffect(() => {
@@ -94,11 +97,14 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
           <span>🗣 {shop.languagesSpoken.map((l) => l.toUpperCase()).join(' · ')}</span>
           {shop.isMobile && <span>🚗 {t('mobile_badge')}</span>}
           {shop.isNew && <span>✨ {t('new_badge')}</span>}
+          <OpenBadge hours={hours} />
         </div>
         <div style={{ marginTop: 12 }}>
           <ShareShop name={shop.name} slug={shop.slug} />
         </div>
       </section>
+
+      <NextOpenings shopId={shop.id} slug={shop.slug} services={services} />
 
       <section className="section">
         <h2>{t('services')}</h2>
@@ -128,6 +134,8 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
           })}
         </div>
       </section>
+
+      <HoursTable hours={hours} />
 
       <section className="section">
         <h2>{t('about')}</h2>

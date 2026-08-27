@@ -666,6 +666,92 @@ export function deleteAbsence(staffId: string, absenceId: string): void {
   persist();
 }
 
+// ---------------------------------------------------------------------------
+// opening hours — what a shop's own page needs to say about itself
+// ---------------------------------------------------------------------------
+
+export interface OpeningWindow {
+  startMin: number;
+  endMin: number;
+}
+
+export interface OpeningDay {
+  /** ISO weekday, 1 = Monday … 7 = Sunday. */
+  dow: number;
+  /** Empty means shut that day. */
+  windows: OpeningWindow[];
+}
+
+/** Merge overlapping or touching windows so two stylists don't read as two shifts. */
+function mergeWindows(ws: OpeningWindow[]): OpeningWindow[] {
+  const out: OpeningWindow[] = [];
+  for (const w of [...ws].sort((a, b) => a.startMin - b.startMin)) {
+    const last = out[out.length - 1];
+    if (last && w.startMin <= last.endMin) last.endMin = Math.max(last.endMin, w.endMin);
+    else out.push({ ...w });
+  }
+  return out;
+}
+
+/**
+ * When the shop is open, Monday first.
+ *
+ * A salon has no opening hours of its own — it is open when somebody is
+ * standing behind a chair. Deriving them from the roster keeps the public page
+ * honest for free: hire a Saturday stylist and Saturday appears, with no second
+ * place for the owner to remember to update.
+ */
+export function openingHours(shopId: string): OpeningDay[] {
+  const byDow = new Map<number, OpeningWindow[]>();
+  for (const st of effectiveStaff(shopId)) {
+    for (const [key, windows] of Object.entries(st.shifts)) {
+      const list = byDow.get(Number(key)) ?? [];
+      for (const w of windows ?? []) list.push({ startMin: w.startMin, endMin: w.endMin });
+      byDow.set(Number(key), list);
+    }
+  }
+  return [1, 2, 3, 4, 5, 6, 7].map((dow) => ({ dow, windows: mergeWindows(byDow.get(dow) ?? []) }));
+}
+
+export interface ShopStatus {
+  open: boolean;
+  /** Minute of day the doors shut — only when open right now. */
+  closesAtMin: number | null;
+  /** The next day and time it opens — only when shut. */
+  nextOpenIso: string | null;
+  nextOpenMin: number | null;
+  /** Set when today falls inside a holiday closure, so the page can say why. */
+  closedReason: string | null;
+}
+
+/** Open or shut this minute, and when that changes. */
+export function shopStatus(shopId: string, now = Date.now()): ShopStatus {
+  const hours = openingHours(shopId);
+  const windowsOn = (iso: string): OpeningWindow[] =>
+    isShopClosed(shopId, iso) ? [] : hours.find((h) => h.dow === isoDow(dayStart(iso)))?.windows ?? [];
+
+  const today = isoDateOf(now);
+  const nowMin = minuteOfDay(now);
+  const shut = { open: false as const, closesAtMin: null };
+
+  const openNow = windowsOn(today).find((w) => nowMin >= w.startMin && nowMin < w.endMin);
+  if (openNow) {
+    return { open: true, closesAtMin: openNow.endMin, nextOpenIso: null, nextOpenMin: null, closedReason: null };
+  }
+
+  const reason =
+    (state.closures.get(shopId) ?? []).find((c) => today >= c.from && today <= c.to)?.reason ?? null;
+
+  // Later today first, then forward. Two weeks is long enough to cover a
+  // Christmas break; past that "we'll be back" is more honest than a date.
+  for (let d = 0; d < 14; d++) {
+    const iso = addDays(today, d);
+    const next = windowsOn(iso).find((w) => d > 0 || w.startMin > nowMin);
+    if (next) return { ...shut, nextOpenIso: iso, nextOpenMin: next.startMin, closedReason: reason };
+  }
+  return { ...shut, nextOpenIso: null, nextOpenMin: null, closedReason: reason };
+}
+
 // --- exit feedback ---------------------------------------------------------
 
 /**
@@ -1119,6 +1205,54 @@ export function availability(
   });
 
   return { slots, timing };
+}
+
+export interface Opening {
+  iso: string;
+  start: number;
+  end: number;
+  priceCents: number;
+  staffId: string;
+}
+
+/**
+ * The next few genuinely bookable times, for the shop's own page.
+ *
+ * Deliberately not "the next N slots": a shop with an empty Tuesday would
+ * answer 14:00, 14:15, 14:30 … which tells a customer nothing they can choose
+ * between. Spreading the picks across the day and across days answers the
+ * question people actually have — *can I get in tonight, and if not, when?*
+ */
+export function nextOpenings(
+  shopId: string,
+  serviceIds: string[],
+  deviceId: string,
+  opts: { limit?: number; horizonDays?: number; perDay?: number; spreadMin?: number } = {},
+): Opening[] {
+  const { limit = 6, horizonDays = 14, perDay = 2, spreadMin = 180 } = opts;
+  const now = Date.now();
+  const out: Opening[] = [];
+
+  for (let d = 0; d < horizonDays && out.length < limit; d++) {
+    const iso = addDays(isoDateOf(now), d);
+    let slots: ApiSlot[];
+    try {
+      slots = availability(shopId, serviceIds, iso, deviceId).slots;
+    } catch {
+      return out; // service archived mid-flight — better a short list than none
+    }
+
+    let takenToday = 0;
+    let lastStart = -Infinity;
+    for (const s of slots) {
+      if (takenToday >= perDay || out.length >= limit) break;
+      if (s.start <= now || s.start - lastStart < spreadMin * MIN) continue;
+      out.push({ iso, start: s.start, end: s.end, priceCents: s.priceCents, staffId: s.suggestedStaffId });
+      lastStart = s.start;
+      takenToday += 1;
+    }
+  }
+  return out;
 }
 
 const firstSlotCache = new Map<string, { v: number; val: number | null }>();
