@@ -180,14 +180,18 @@ export default function BookingsPage() {
                   href={icsHref({
                     reference: b.reference,
                     title: `${b.shop.name} — ${b.services.map((s) => s.name[lang]).join(', ')}`,
-                    location: b.shop.district,
+                    location: `${b.shop.name}, ${b.shop.district}`,
                     startsAt: b.startsAt,
                     endsAt: b.endsAt,
+                    description: `${b.services.map((s) => s.name[lang]).join(', ')}${b.staffName ? ` · ${b.staffName}` : ''}\n${t('booked_sub')}: ${b.reference}`,
                   })}
                   download={`stylenow-${b.reference}.ics`}
                 >
                   📅 {t('add_calendar')}
                 </a>
+                <span style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', alignSelf: 'center' }}>
+                  {t('cal_reminder_hint')}
+                </span>
               </div>
             )}
             {b.status === 'completed' && b.shop && (

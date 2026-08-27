@@ -27,6 +27,7 @@ import { useConfirm } from '@/components/ConfirmDialog';
 import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar';
 import { AppointmentDialog, type DialogBooking } from '@/components/AppointmentDialog';
 import { Modal } from '@/components/Modal';
+import { Briefing } from '@/components/Briefing';
 import { useToast } from './toast';
 import { OperatorShell, useOverview, type Overview } from './shell';
 import type { ShopRef } from '@/lib/owned-shops';
@@ -166,6 +167,8 @@ function TodayTab({ shopId }: { shopId: string }) {
           {span === 'day' ? `🔒 ${t('own_scope')}` : `${range.from} → ${range.to}`}
         </span>
       </div>
+
+    <Briefing shopId={shopId} />
 
     {span === 'day' && (
     <div className="date-strip" ref={stripRef}>

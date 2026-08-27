@@ -8,6 +8,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { icsHref } from '@/lib/ics';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices } from '@/lib/api';
@@ -265,6 +266,29 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             )}
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', margin: '12px 0 16px' }}>{t('price_note')}</p>
+
+          {/* The moment the reminder matters most. A static site cannot push a
+              notification, so hand the appointment to the calendar they already
+              carry — it alarms them the day before and two hours ahead. */}
+          {slot && (
+            <a
+              className="btn btn-primary"
+              style={{ width: '100%', justifyContent: 'center', marginBottom: 12 }}
+              href={icsHref({
+                reference: confirmed.reference,
+                title: `${shop.name} — ${selected.map((s) => s.name[lang]).join(', ')}`,
+                location: shop.name,
+                startsAt: slot.start,
+                endsAt: slot.end,
+                description: `${selected.map((s) => s.name[lang]).join(', ')}\n${t('booked_sub')}: ${confirmed.reference}`,
+              })}
+              download={`stylenow-${confirmed.reference}.ics`}
+            >
+              📅 {t('add_calendar')}
+            </a>
+          )}
+          <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginBottom: 16 }}>{t('cal_reminder_hint')}</p>
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/bookings" className="btn btn-primary">
               {t('view_bookings')}

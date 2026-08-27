@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ShareShop } from '@/components/ShareShop';
 import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
 import { apiShopReviews, apiShopLogo, apiShopServices } from '@/lib/api';
@@ -93,6 +94,9 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
           <span>🗣 {shop.languagesSpoken.map((l) => l.toUpperCase()).join(' · ')}</span>
           {shop.isMobile && <span>🚗 {t('mobile_badge')}</span>}
           {shop.isNew && <span>✨ {t('new_badge')}</span>}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <ShareShop name={shop.name} slug={shop.slug} />
         </div>
       </section>
 
