@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #fff9f3; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #2b2233; -webkit-font-smoothing: antialiased; }
+    a { color: #d63a55; text-decoration: none; }
+    a:hover { color: #b02a44; }
+    .disp { font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: -0.025em; }
+    .nav-item { display: flex; align-items: center; gap: 11px; padding: 10px 13px; border-radius: 14px; font-size: 13.5px; font-weight: 600; color: #857b8f; }
+    .nav-item.on { background: #2b2233; color: #fff; font-weight: 700; }
+    .lbl { font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: #857b8f; }
+    .card { background: #fff; border-radius: 22px; box-shadow: 0 2px 8px rgba(80,46,66,0.07); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    /* The day runs 09:00-20:00 = 660 min; every block sits at a true percentage
+       of that, so the hour ruler is a real axis rather than decoration. */
+    .col { position: relative; }
+    .col > * { position: absolute; left: 3px; right: 3px; }
+    .ev { border-radius: 11px; padding: 7px 10px; overflow: hidden; }
+    .ev.book { background: #fde8ec; border-left: 3px solid #f0566e; color: #d63a55; }
+    .ev.hold { background: #fdefdb; border-left: 3px solid #f6a53c; color: #a86717; }
+    .ev.brk { background: #ede8fd; border-left: 3px solid #8b6cf0; color: #5b3fc4; }
+    .ev.off { background: repeating-linear-gradient(45deg, rgba(43,34,51,0.055) 0 5px, transparent 5px 10px); color: #857b8f; }
+    .ev .t { font-size: 11.5px; font-weight: 800; }
+    .ev .w { font-size: 10.5px; margin-top: 2px; opacity: 0.72; }
+    .free { border-radius: 11px; border: 1px dashed rgba(43,34,51,0.16); display: grid; place-items: center; color: rgba(43,34,51,0.26); }
+    .ruler { position: relative; font-size: 10.5px; font-weight: 700; color: #857b8f; font-variant-numeric: tabular-nums; }
+    .ruler span { position: absolute; transform: translateY(-50%); }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; background: #fff9f3; padding-bottom: 24px;">
+
+  <div style="padding: 18px 20px 0; display: flex; align-items: center; gap: 12px;">
+    <span style="width: 40px; height: 40px; border-radius: 999px; background: #f0566e; color: #fff; display: grid; place-items: center; font-size: 15px; font-weight: 800;">L</span>
+    <div style="flex-grow: 1;">
+      <div style="font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #857b8f;">Thursday 27 Aug</div>
+      <div class="disp" style="font-size: 20px; font-weight: 700; line-height: 1.15;">Your day</div>
+    </div>
+    <div style="width: 38px; height: 38px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); display: grid; place-items: center; color: #857b8f;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5.5 5h13A2.5 2.5 0 0 1 21 7.5v11A2.5 2.5 0 0 1 18.5 21h-13A2.5 2.5 0 0 1 3 18.5v-11A2.5 2.5 0 0 1 5.5 5z M3 10h18 M8 3v4 M16 3v4"></path></svg></div>
+  </div>
+
+  <div style="display: flex; gap: 9px; padding: 0 20px; margin-top: 16px;">
+    <div class="card" style="flex: 1; padding: 13px 15px;">
+      <div class="lbl">Booked</div>
+      <div class="disp" style="font-size: 19px; font-weight: 700; margin-top: 3px;">5 h 45</div>
+    </div>
+    <div class="card" style="flex: 1; padding: 13px 15px;">
+      <div class="lbl">Clients</div>
+      <div class="disp" style="font-size: 19px; font-weight: 700; margin-top: 3px;">4</div>
+    </div>
+    <div class="card" style="flex: 1; padding: 13px 15px;">
+      <div class="lbl">Ends</div>
+      <div class="disp" style="font-size: 19px; font-weight: 700; margin-top: 3px;">18:45</div>
+    </div>
+  </div>
+
+  <!-- A stylist is not at the desk; they are at the chair with a phone in their
+       apron. One card per client, in order, with the one thing they must not
+       forget about that person on it. -->
+  <div style="padding: 0 20px; margin-top: 22px;">
+    <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 12px;">
+      <span class="disp" style="font-size: 18px; font-weight: 700;">Next</span>
+      <span class="pill" style="background: #e8f7f1; color: #1f9d6c;">in 24 min</span>
+    </div>
+
+    <div style="padding: 18px 20px; border-radius: 26px; background: #2b2233; color: #fff;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span class="disp" style="font-size: 30px; font-weight: 700; line-height: 1;">15:30</span>
+        <span style="font-size: 12px; color: rgba(255,255,255,0.6);">until 17:30</span>
+      </div>
+      <div style="font-size: 16px; font-weight: 700; margin-top: 10px;">Marie Hoffmann</div>
+      <div style="font-size: 12.5px; color: rgba(255,255,255,0.62); margin-top: 2px;">Balayage &amp; Gloss &middot; &euro;189</div>
+      <div style="display: flex; gap: 7px; margin-top: 12px; flex-wrap: wrap;">
+        <div class="pill" style="background: rgba(255,255,255,0.12);">7th visit</div>
+        <div class="pill" style="background: rgba(246,165,60,0.22); color: #f6a53c;">Allergic to bleach</div>
+      </div>
+      <div style="display: flex; gap: 9px; margin-top: 16px;">
+        <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; border-radius: 999px; background: #f0566e; font-size: 14px; font-weight: 700;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5 13l4 4L19 7"></path></svg>Check in</div>
+        <div style="width: 48px; display: grid; place-items: center; border-radius: 999px; background: rgba(255,255,255,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2.2 2A17 17 0 0 1 3 6.2 2 2 0 0 1 5 4z"></path></svg></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding: 0 20px; margin-top: 24px;">
+    <div class="disp" style="font-size: 18px; font-weight: 700; margin-bottom: 12px;">Rest of the day</div>
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+
+      <div class="card" style="display: flex; align-items: center; gap: 13px; padding: 14px 16px; opacity: 0.55;">
+        <div style="text-align: center; width: 46px;">
+          <div class="disp" style="font-size: 15px; font-weight: 700;">09:00</div>
+        </div>
+        <div style="flex-grow: 1;">
+          <div style="font-size: 13.5px; font-weight: 700; text-decoration: line-through;">Ida Roth</div>
+          <div style="font-size: 11.5px; color: #857b8f;">Cut &amp; Finish &middot; done</div>
+        </div>
+        <span style="color: #1f9d6c;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5 13l4 4L19 7"></path></svg></span>
+      </div>
+
+      <div class="card" style="display: flex; align-items: center; gap: 13px; padding: 14px 16px; opacity: 0.55;">
+        <div style="text-align: center; width: 46px;">
+          <div class="disp" style="font-size: 15px; font-weight: 700;">10:30</div>
+        </div>
+        <div style="flex-grow: 1;">
+          <div style="font-size: 13.5px; font-weight: 700; text-decoration: line-through;">Sofia Brandt</div>
+          <div style="font-size: 11.5px; color: #857b8f;">Balayage &amp; Gloss &middot; done</div>
+        </div>
+        <span style="color: #1f9d6c;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5 13l4 4L19 7"></path></svg></span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 22px; border: 1px dashed rgba(43,34,51,0.16);">
+        <div style="text-align: center; width: 46px; color: #857b8f;">
+          <div class="disp" style="font-size: 15px; font-weight: 700;">13:15</div>
+        </div>
+        <div style="flex-grow: 1;">
+          <div style="font-size: 13px; font-weight: 700; color: #857b8f;">2 h 15 free</div>
+          <div style="font-size: 11.5px; color: #a89ab0;">2 people are waiting for today</div>
+        </div>
+        <div class="pill" style="background: #fdefdb; color: #a86717;">Offer</div>
+      </div>
+
+      <div class="card" style="display: flex; align-items: center; gap: 13px; padding: 14px 16px; border-left: 4px solid #f6a53c;">
+        <div style="text-align: center; width: 46px;">
+          <div class="disp" style="font-size: 15px; font-weight: 700;">17:45</div>
+        </div>
+        <div style="flex-grow: 1;">
+          <div style="font-size: 13.5px; font-weight: 700;">Held &middot; 6:41 left</div>
+          <div style="font-size: 11.5px; color: #857b8f;">Booked online, not paid yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

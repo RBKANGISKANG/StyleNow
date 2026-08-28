@@ -7,6 +7,10 @@
     {
       "id": "page-2",
       "name": "Operator & system"
+    },
+    {
+      "id": "page-3",
+      "name": "Staff & gaps"
     }
   ],
   "artboards": [
@@ -72,6 +76,42 @@
       "y": 1060,
       "w": 1200,
       "h": 1120
+    },
+    {
+      "file": "StaffDay.dc.html",
+      "page": "page-3",
+      "title": "Employee calendar \u2014 one stylist's day",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "StaffWeek.dc.html",
+      "page": "page-3",
+      "title": "Employee calendar \u2014 the week",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "Waitlist.dc.html",
+      "page": "page-3",
+      "title": "Working the waiting list",
+      "x": 0,
+      "y": 1030,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "StaffPhone.dc.html",
+      "page": "page-3",
+      "title": "A stylist on their phone",
+      "x": 1560,
+      "y": 1030,
+      "w": 390,
+      "h": 844
     }
   ],
   "annotations": [
@@ -98,10 +138,18 @@
       "y": -150,
       "w": 700,
       "text": "The one deliberate departure from the shipped app: the seven-tab bar becomes a left spine. A tab bar is a customer-app pattern; a tool open eight hours a day wants persistent navigation with room for live counts."
+    },
+    {
+      "id": "staff-note",
+      "page": "page-3",
+      "x": 0,
+      "y": -190,
+      "w": 760,
+      "text": "Employee calendar, and the loop it opens up.\n\nThe shop calendar answers \"what is the salon doing\". These answer \"what am I doing\" \u2014 a different question, and the one a stylist actually asks. The week board frames it as sold hours against rostered hours, which turns \"Thursday is quiet\" into \"Thursday is eight paid hours nobody bought\".\n\nThat number is what the waiting-list board then acts on. The app already tells a shop \"2 on the waiting list can be called\" and gives it nowhere to call them."
     }
   ],
   "launch": {
     "view": "canvas",
-    "page": "page-1"
+    "page": "page-3"
   }
 }

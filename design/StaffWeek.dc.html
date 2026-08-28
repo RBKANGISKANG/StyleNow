@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #fff9f3; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #2b2233; -webkit-font-smoothing: antialiased; }
+    a { color: #d63a55; text-decoration: none; }
+    a:hover { color: #b02a44; }
+    .disp { font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: -0.025em; }
+    .nav-item { display: flex; align-items: center; gap: 11px; padding: 10px 13px; border-radius: 14px; font-size: 13.5px; font-weight: 600; color: #857b8f; }
+    .nav-item.on { background: #2b2233; color: #fff; font-weight: 700; }
+    .lbl { font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: #857b8f; }
+    .card { background: #fff; border-radius: 22px; box-shadow: 0 2px 8px rgba(80,46,66,0.07); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    /* The day runs 09:00-20:00 = 660 min; every block sits at a true percentage
+       of that, so the hour ruler is a real axis rather than decoration. */
+    .col { position: relative; }
+    .col > * { position: absolute; left: 3px; right: 3px; }
+    .ev { border-radius: 11px; padding: 7px 10px; overflow: hidden; }
+    .ev.book { background: #fde8ec; border-left: 3px solid #f0566e; color: #d63a55; }
+    .ev.hold { background: #fdefdb; border-left: 3px solid #f6a53c; color: #a86717; }
+    .ev.brk { background: #ede8fd; border-left: 3px solid #8b6cf0; color: #5b3fc4; }
+    .ev.off { background: repeating-linear-gradient(45deg, rgba(43,34,51,0.055) 0 5px, transparent 5px 10px); color: #857b8f; }
+    .ev .t { font-size: 11.5px; font-weight: 800; }
+    .ev .w { font-size: 10.5px; margin-top: 2px; opacity: 0.72; }
+    .free { border-radius: 11px; border: 1px dashed rgba(43,34,51,0.16); display: grid; place-items: center; color: rgba(43,34,51,0.26); }
+    .ruler { position: relative; font-size: 10.5px; font-weight: 700; color: #857b8f; font-variant-numeric: tabular-nums; }
+    .ruler span { position: absolute; transform: translateY(-50%); }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; background: #fff9f3; overflow: hidden;">
+  <div style="width: 236px; flex-shrink: 0; background: #fdf1e3; border-right: 1px solid rgba(43,34,51,0.09); padding: 20px 14px; display: flex; flex-direction: column; gap: 22px;">
+    <div style="display: flex; align-items: center; gap: 9px; padding: 0 4px;">
+      <div style="width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, #f0566e, #f6a53c); display: grid; place-items: center; color: #fff;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M20 4L8.5 15.5 M20 20L8.5 8.5"></path></svg></div>
+      <div class="disp" style="font-size: 18px; font-weight: 700;">Style<span style="color: #f0566e;">Now</span></div>
+    </div>
+    <div style="padding: 11px 13px; border-radius: 18px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); display: flex; align-items: center; gap: 10px;">
+      <div style="width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(140deg, #f0566e, #a83055); flex-shrink: 0;"></div>
+      <div style="flex-grow: 1; min-width: 0;">
+        <div style="font-size: 12.5px; font-weight: 700; line-height: 1.25;">Chroma Mitte</div>
+        <div style="font-size: 10.5px; color: #857b8f;">3 stylists</div>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 3px;">
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M12 2v2 M12 20v2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M2 12h2 M20 12h2"></path></svg>Today</div>
+      <div class="nav-item on"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5.5 5h13A2.5 2.5 0 0 1 21 7.5v11A2.5 2.5 0 0 1 18.5 21h-13A2.5 2.5 0 0 1 3 18.5v-11A2.5 2.5 0 0 1 5.5 5z M3 10h18 M8 3v4 M16 3v4"></path></svg>Calendar</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M17 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9.5 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M22 20v-2a4 4 0 0 0-3-3.9"></path></svg>Customers</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 17l6-6 4 4 8-8 M15 7h6v6"></path></svg>Revenue</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M5.5 6h13A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-9A2.5 2.5 0 0 1 5.5 6z M9 6V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V6"></path></svg>Team & HR</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M20 4L8.5 15.5 M20 20L8.5 8.5"></path></svg>Services</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z M12 10m-2.6 0a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0-5.2 0"></path></svg>Shop page</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="padding: 14px 15px 15px; border-radius: 20px; background: linear-gradient(150deg, #2b2233, #453954); color: #fff;">
+      <div class="lbl" style="color: rgba(255,255,255,0.55);">Lena, week 35</div>
+      <div class="disp" style="font-size: 24px; font-weight: 700; margin-top: 5px; line-height: 1;">31 / 52 h</div>
+      <div style="font-size: 11px; color: rgba(255,255,255,0.62); margin-top: 6px;">60 % of her rostered time sold</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 28px 24px;">
+
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <h1 class="disp" style="font-size: 24px; font-weight: 700; margin: 0;">Lena &middot; 25&ndash;31 August</h1>
+      <div style="display: flex; gap: 4px;">
+        <div style="width: 32px; height: 32px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); display: grid; place-items: center; color: #857b8f;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M15 18l-6-6 6-6"></path></svg></div>
+        <div style="width: 32px; height: 32px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); display: grid; place-items: center; color: #857b8f;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M9 6l6 6-6 6"></path></svg></div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; gap: 5px; padding: 4px; border-radius: 999px; background: #fdf1e3;">
+        <div style="padding: 7px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 700; color: #857b8f;">Day</div>
+        <div style="padding: 7px 16px; border-radius: 999px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); font-size: 12.5px; font-weight: 800;">Week</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 13px; font-weight: 700; box-shadow: 0 6px 16px rgba(240,86,110,0.35);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M12 5v14 M5 12h14"></path></svg>Add for Lena</div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 9px; margin-top: 16px;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #2b2233; color: #fff; border: 1.5px solid #2b2233; font-size: 12.5px; font-weight: 800;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #f0566e; color: #fff; display: grid; place-items: center; font-size: 10.5px; font-weight: 800;">L</span>
+          Lena
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #fff; color: #857b8f; border: 1.5px solid rgba(43,34,51,0.09); font-size: 12.5px; font-weight: 600;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #12a594; color: #fff; display: grid; place-items: center; font-size: 10.5px; font-weight: 800;">Y</span>
+          Yusuf
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #fff; color: #857b8f; border: 1.5px solid rgba(43,34,51,0.09); font-size: 12.5px; font-weight: 600;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #8b6cf0; color: #fff; display: grid; place-items: center; font-size: 10.5px; font-weight: 800;">M</span>
+          Marta
+        </div>
+    </div>
+
+    <!-- One person, seven days, sold hours against rostered hours. This is the
+         view a rota conversation needs: Thursday is not "quiet", it is eight
+         paid hours nobody bought. -->
+    <div class="card" style="flex-grow: 1; min-height: 0; margin-top: 16px; padding: 16px 18px; display: flex; flex-direction: column;">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+        <span class="disp" style="font-size: 15px; font-weight: 700;">Sold against rostered</span>
+        <div style="flex-grow: 1;"></div>
+        <div class="pill" style="background: #fdefdb; color: #a86717;">Thursday is 8 h nobody bought</div>
+      </div>
+      <div style="flex-grow: 1; min-height: 0; display: grid; grid-template-columns: 56px repeat(7, minmax(0, 1fr)); gap: 8px;">
+        <div style="display: flex; flex-direction: column;">
+          <div style="height: 54px;"></div>
+          <div class="ruler" style="flex-grow: 1;">
+      <span style="top: 0%;">09:00</span>
+      <span style="top: 18.18%;">11:00</span>
+      <span style="top: 36.36%;">13:00</span>
+      <span style="top: 54.55%;">15:00</span>
+      <span style="top: 72.73%;">17:00</span>
+      <span style="top: 90.91%;">19:00</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+          <div style="text-align: center;"><div class="lbl">Mon</div><div class="disp" style="font-size: 16px; font-weight: 700;">25</div></div>
+          <div style="display: flex; align-items: center; gap: 5px; justify-content: center; font-size: 10px; font-weight: 800; color: #1f9d6c;">6.5 / 9 h</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; overflow: hidden;"><div style="width: 72%; height: 100%; background: #1f9d6c;"></div></div>
+          <div class="col" style="flex-grow: 1; min-height: 0; background: #fdf4ec; border-radius: 14px;">
+            <div class="ev book" style="top: 0%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">09:00 Cut</div></div>
+            <div class="ev book" style="top: 18.18%; height: 13.64%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">11:00 Highlights</div></div>
+            <div class="ev book" style="top: 45.45%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">14:00 Cut</div></div>
+            <div class="ev book" style="top: 63.64%; height: 6.82%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">16:00 Toner</div></div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+          <div style="text-align: center;"><div class="lbl">Tue</div><div class="disp" style="font-size: 16px; font-weight: 700;">26</div></div>
+          <div style="display: flex; align-items: center; gap: 5px; justify-content: center; font-size: 10px; font-weight: 800; color: #1f9d6c;">8 / 9 h</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; overflow: hidden;"><div style="width: 89%; height: 100%; background: #1f9d6c;"></div></div>
+          <div class="col" style="flex-grow: 1; min-height: 0; background: #fdf4ec; border-radius: 14px;">
+            <div class="ev book" style="top: 0%; height: 18.18%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">09:00 Balayage</div></div>
+            <div class="ev book" style="top: 27.27%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">12:00 Cut</div></div>
+            <div class="ev book" style="top: 45.45%; height: 18.18%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">14:00 Balayage</div></div>
+            <div class="ev book" style="top: 77.27%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">17:30 Cut</div></div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+          <div style="text-align: center;"><div class="lbl">Wed</div><div class="disp" style="font-size: 16px; font-weight: 700;">27</div></div>
+          <div style="display: flex; align-items: center; gap: 5px; justify-content: center; font-size: 10px; font-weight: 800; color: #f6a53c;">5.75 / 9 h</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; overflow: hidden;"><div style="width: 64%; height: 100%; background: #f6a53c;"></div></div>
+          <div class="col" style="flex-grow: 1; min-height: 0; background: #fdf4ec; border-radius: 14px;">
+            <div class="ev book" style="top: 0%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">09:00 Cut</div></div>
+            <div class="ev book" style="top: 13.64%; height: 18.18%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">10:30 Balayage</div></div>
+            <div class="ev brk" style="top: 36.36%; height: 6.06%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">13:00 Lunch</div></div>
+            <div class="ev book" style="top: 59.09%; height: 18.18%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">15:30 Balayage</div></div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+          <div style="text-align: center;"><div class="lbl">Thu</div><div class="disp" style="font-size: 16px; font-weight: 700;">28</div></div>
+          <div style="display: flex; align-items: center; gap: 5px; justify-content: center; font-size: 10px; font-weight: 800; color: #d64545;">1 / 9 h</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; overflow: hidden;"><div style="width: 11%; height: 100%; background: #d64545;"></div></div>
+          <div class="col" style="flex-grow: 1; min-height: 0; background: #fdf4ec; border-radius: 14px;">
+            <div class="free" style="top: 11%; height: 78%;"><div style="text-align: center; color: #857b8f;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M12 5v14 M5 12h14"></path></svg><div style="font-size: 10.5px; font-weight: 700; margin-top: 3px;">8 h free</div></div></div>
+            <div class="ev book" style="top: 0%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">09:00 Cut</div></div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+          <div style="text-align: center;"><div class="lbl">Fri</div><div class="disp" style="font-size: 16px; font-weight: 700;">29</div></div>
+          <div style="display: flex; align-items: center; gap: 5px; justify-content: center; font-size: 10px; font-weight: 800; color: #f6a53c;">4.5 / 8 h</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; overflow: hidden;"><div style="width: 56%; height: 100%; background: #f6a53c;"></div></div>
+          <div class="col" style="flex-grow: 1; min-height: 0; background: #fdf4ec; border-radius: 14px;">
+            <div class="ev book" style="top: 9.09%; height: 13.64%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">10:00 Highlights</div></div>
+            <div class="ev book" style="top: 36.36%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">13:00 Cut</div></div>
+            <div class="ev book" style="top: 54.55%; height: 6.82%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">15:00 Toner</div></div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="text-align: center;"><div class="lbl">Sat</div><div class="disp" style="font-size: 16px; font-weight: 700; color: #857b8f;">30</div></div>
+          <div class="ev off" style="position: static; flex-grow: 1; border-radius: 14px; display: grid; place-items: center;"><span style="font-size: 10.5px; font-weight: 700;">Off</span></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+          <div style="text-align: center;"><div class="lbl">Sun</div><div class="disp" style="font-size: 16px; font-weight: 700;">31</div></div>
+          <div style="display: flex; align-items: center; gap: 5px; justify-content: center; font-size: 10px; font-weight: 800; color: #f6a53c;">5.5 / 8 h</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; overflow: hidden;"><div style="width: 69%; height: 100%; background: #f6a53c;"></div></div>
+          <div class="col" style="flex-grow: 1; min-height: 0; background: #fdf4ec; border-radius: 14px;">
+            <div class="ev book" style="top: 9.09%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">10:00 Cut</div></div>
+            <div class="ev book" style="top: 27.27%; height: 18.18%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">12:00 Balayage</div></div>
+            <div class="ev book" style="top: 63.64%; height: 9.09%; padding: 5px 8px;"><div class="t" style="font-size: 10.5px;">16:00 Cut</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

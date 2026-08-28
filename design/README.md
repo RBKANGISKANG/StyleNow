@@ -3,8 +3,8 @@
 Static mockups for the customer and operator surfaces, published as a Claude
 Design canvas: <https://claude.ai/code/artifact/d38eda96-9505-4bc7-9f80-b0af94c830b0>
 
-Each `*.dc.html` is one artboard; `canvas.json` places them and names the two
-pages (Customer, Operator & system).
+Each `*.dc.html` is one artboard; `canvas.json` places them and names the three
+pages (Customer, Operator & system, Staff & gaps).
 
 Everything here is matched to the shipped tokens in
 `apps/web/src/app/globals.css` — Poppins/Inter, coral `#f0566e` on cream
@@ -22,6 +22,10 @@ rounded to a grid, so the mockups and the app cannot drift apart quietly.
 | `Today.dc.html` | Back office Today — briefing, next up, the day's chairs |
 | `Calendar.dc.html` | Week calendar with the appointment popup anchored beside the booking |
 | `System.dc.html` | Colour, type, controls, the icon set, and what this pass changed |
+| `StaffDay.dc.html` | Employee calendar — one stylist's day, their gaps, their next client |
+| `StaffWeek.dc.html` | Employee calendar — the week, as sold hours against rostered hours |
+| `Waitlist.dc.html` | Working the waiting list: people waiting, gaps that fit, what the pairing is worth |
+| `StaffPhone.dc.html` | A stylist checking their own day on a phone |
 
 ## Two things that are proposals, not descriptions
 
@@ -30,6 +34,15 @@ rounded to a grid, so the mockups and the app cannot drift apart quietly.
 - The left sidebar on the operator boards **departs from the shipped app**,
   which uses a seven-tab bar. A tab bar is a customer-app pattern; a tool open
   all day wants a persistent spine with room for live counts.
+- The whole **Staff & gaps** page is proposal, not description: none of it is
+  built yet. The employee calendar reframes a week as sold-against-rostered
+  hours, which turns "Thursday is quiet" into "Thursday is eight paid hours
+  nobody bought"; the waiting-list board is where that number gets acted on.
+  The app already says "2 on the waiting list can be called" and gives nobody
+  anywhere to call them.
+
+Numbers on these boards are sample values consistent with the demo shop, not
+measurements.
 
 ## Re-publishing
 
