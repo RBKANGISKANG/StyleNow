@@ -10,6 +10,7 @@
  * person books from a laptop, then a phone, then gets booked at the counter.
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { usePaged, Pager } from '@/components/Pager';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf } from '@/lib/format';
@@ -207,6 +208,15 @@ function CustomersTab({ shopId }: { shopId: string }) {
                           )}
                         </td>
                         <td className="dt-actions">
+                          {/* Straight into this person's thread — the note you
+                              were about to scribble is usually a message. */}
+                          <Link
+                            className="btn btn-ghost sm"
+                            href={`/dashboard/messages?customer=${encodeURIComponent(c.key)}`}
+                            title={t('cus_message')}
+                          >
+                            💬
+                          </Link>
                           <button className="btn btn-soft sm" onClick={() => setOpen(open === c.key ? null : c.key)}>
                             {open === c.key ? t('cus_close') : t('cus_open')}
                           </button>

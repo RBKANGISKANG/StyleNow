@@ -39,6 +39,8 @@ interface Bk {
 interface Wl {
   id: string;
   isoDate: string;
+  serviceIds: string[];
+  offer?: { startsAt: number; expiresAt: number };
   shop: { slug: string; name: string; emoji: string } | null;
   serviceNames: Array<{ en: string; de: string }>;
 }
@@ -242,7 +244,7 @@ export default function BookingsPage() {
         <section className="section">
           <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>🔔 {t('waitlist_title')}</h2>
           {waitlist.map((w) => (
-            <div className="bk-card" key={w.id}>
+            <div className={`bk-card${w.offer ? ' wl-has-offer' : ''}`} key={w.id}>
               <div className="bk-main" style={{ alignItems: 'center' }}>
                 <div className="bk-when">
                   <div className="d">{w.isoDate.slice(8, 10)}.{w.isoDate.slice(5, 7)}.</div>
@@ -260,6 +262,23 @@ export default function BookingsPage() {
                   {t('waitlist_leave')}
                 </button>
               </div>
+              {/* The other half of the waitlist: the shop proposed an exact
+                  time. The button goes straight into checkout with that slot
+                  selected — the offer flags it, the seat stays on open sale. */}
+              {w.offer && w.shop && (
+                <div className="wl-offer-banner">
+                  <span>
+                    ✨ {t('wl_cus_offer', { time: timeOf(w.offer.startsAt, lang), date: dateOf(w.offer.startsAt, lang) })}
+                    <em> · {t('wl_offer_expires', { m: String(Math.max(1, Math.round((w.offer.expiresAt - Date.now()) / 60_000))) })}</em>
+                  </span>
+                  <Link
+                    className="btn btn-primary sm"
+                    href={`/shops/${w.shop.slug}/book?service=${w.serviceIds[0] ?? ''}&date=${w.isoDate}&at=${w.offer.startsAt}`}
+                  >
+                    {t('wl_cus_take')}
+                  </Link>
+                </div>
+              )}
             </div>
           ))}
         </section>

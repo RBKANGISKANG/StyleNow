@@ -20,6 +20,7 @@ import {
   apiShopCreateBooking,
   apiRescheduleBooking,
   apiShopWaitlist,
+  apiWaitlistOffer,
   type ShopWaitlistRow,
 } from '@/lib/api';
 import { deviceId } from '@/lib/device';
@@ -475,40 +476,89 @@ function TodayTab({ shopId }: { shopId: string }) {
 function Waitlist({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
   const [rows, setRows] = useState<ShopWaitlistRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!shopId) return;
     void apiShopWaitlist(shopId, todayIso()).then(setRows);
   }, [shopId]);
 
+  useEffect(load, [load]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   if (!rows || rows.length === 0) return null;
-  const callable = rows.filter((r) => r.freeSlots > 0).length;
+  const callable = rows.filter((r) => r.freeSlots > 0);
+  // What the list is worth if everyone with a fitting gap actually books —
+  // the number that turns "three people waiting" from admin into money.
+  const potentialCents = callable.reduce((n, r) => n + r.valueCents, 0);
+
+  const offer = async (entryId: string, startsAt: number) => {
+    setBusy(entryId);
+    const res = await apiWaitlistOffer(shopId, entryId, startsAt);
+    setBusy(null);
+    if (res.ok) setToast('✅ ' + t('wl_offered_toast'));
+    else setToast('⚠️ ' + t(res.code === 'slot_gone' ? 'wl_slot_gone' : 'wl_offer_failed'));
+    load();
+  };
 
   return (
     <section className="section">
       <h2>
         ⏳ {t('wl_title')}
-        {callable > 0 && <span className="cus-tag risk" style={{ marginLeft: 8 }}>{t('wl_callable', { n: String(callable) })}</span>}
+        {callable.length > 0 && (
+          <span className="cus-tag risk" style={{ marginLeft: 8 }}>{t('wl_callable', { n: String(callable.length) })}</span>
+        )}
       </h2>
+      {potentialCents > 0 && (
+        <p className="wl-worth">{t('wl_worth', { value: money(potentialCents, lang) })}</p>
+      )}
       <div className="panel">
         {rows.map((w) => (
           <div key={w.id} className="wl-row">
-            <div>
-              <strong>{w.isoDate}</strong>
-              <span>{w.serviceNames.map((n) => n[lang]).join(', ')}</span>
+            <div className="wl-main">
+              <div>
+                <strong>{weekdayShort(w.isoDate, lang)} {dayNum(w.isoDate)}. {monthShort(w.isoDate, lang)}</strong>
+                <span>{w.serviceNames.map((n) => n[lang]).join(', ')} · {money(w.valueCents, lang)}</span>
+              </div>
+              {w.offer ? (
+                <span className="wl-offered">
+                  ✉️ {t('wl_offer_out', { time: timeOf(w.offer.startsAt, lang) })}
+                  <em> · {t('wl_offer_expires', { m: String(Math.max(1, Math.round((w.offer.expiresAt - Date.now()) / 60_000))) })}</em>
+                </span>
+              ) : w.freeSlots > 0 ? (
+                <span className="wl-free">✅ {t('wl_free', { n: String(w.freeSlots) })}</span>
+              ) : (
+                <span className="wl-full">{t('wl_full')}</span>
+              )}
             </div>
-            {w.freeSlots > 0 ? (
-              <span className="wl-free">
-                ✅ {t('wl_free', { n: String(w.freeSlots) })}
-                {w.nextFreeAt !== null && ` · ${timeOf(w.nextFreeAt, lang)}`}
-              </span>
-            ) : (
-              <span className="wl-full">{t('wl_full')}</span>
+            {/* One tap per candidate time: an offer should cost less effort
+                than the phone call it replaces. */}
+            {!w.offer && w.slotStarts.length > 0 && (
+              <div className="wl-offer-row">
+                <span className="wl-offer-lbl">{t('wl_offer_lbl')}</span>
+                {w.slotStarts.map((at) => (
+                  <button
+                    key={at}
+                    className="btn btn-soft sm"
+                    disabled={busy === w.id}
+                    onClick={() => void offer(w.id, at)}
+                  >
+                    {timeOf(at, lang)}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         ))}
-        <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 10 }}>💡 {t('wl_hint')}</p>
+        <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 10 }}>💡 {t('wl_offer_hint')}</p>
       </div>
+      {toast && <div className="toast">{toast}</div>}
     </section>
   );
 }

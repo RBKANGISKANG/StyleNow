@@ -1140,12 +1140,11 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 
 /* Waiting list */
 .wl-row {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 0; border-top: 1px solid var(--line);
 }
 .wl-row:first-of-type { border-top: none; }
-.wl-row > div { display: grid; gap: 1px; flex: 1; min-width: 150px; }
-.wl-row > div span { font-size: 0.78rem; color: var(--ink-soft); }
+.wl-main > div { display: grid; gap: 1px; flex: 1; min-width: 150px; }
+.wl-main > div span { font-size: 0.78rem; color: var(--ink-soft); }
 .wl-free { font-size: 0.8rem; font-weight: 800; color: var(--teal); }
 .wl-full { font-size: 0.8rem; color: var(--ink-soft); }
 
@@ -2537,3 +2536,26 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 @media (max-width: 600px) {
   .sweek-ruler, .sweek-row { grid-template-columns: 40px 1fr 62px; gap: 7px; }
 }
+
+/* --- waitlist offers -------------------------------------------------------- */
+.wl-worth {
+  margin: 0 0 10px; padding: 9px 13px; border-radius: var(--r-sm);
+  background: var(--teal-soft); color: #0d6e60;
+  font-size: 0.78rem; font-weight: 700;
+}
+.wl-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.wl-offer-row {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin: 8px 0 2px;
+}
+.wl-offer-lbl { font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); }
+.wl-offered { font-size: 0.78rem; font-weight: 700; color: var(--violet); }
+.wl-offered em { font-style: normal; color: var(--ink-soft); font-weight: 600; }
+.wl-offer-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 0 18px 14px; padding: 11px 14px;
+  background: var(--primary-soft); border-radius: var(--r-md);
+  font-size: 0.8rem; font-weight: 700; color: var(--primary-deep);
+}
+.wl-offer-banner em { font-style: normal; font-weight: 600; color: var(--ink-soft); }
+.bk-card.wl-has-offer { box-shadow: 0 0 0 2px var(--primary-soft); }

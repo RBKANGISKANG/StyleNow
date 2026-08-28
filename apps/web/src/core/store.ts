@@ -106,6 +106,8 @@ export interface WaitlistEntry {
   serviceIds: string[];
   isoDate: string;
   createdAt: number;
+  /** The shop proposed this exact start; it lapses quietly after 30 minutes. */
+  offer?: { startsAt: number; offeredAt: number; expiresAt: number };
 }
 
 export interface ShopLocation {
@@ -2556,7 +2558,9 @@ export function leaveWaitlist(id: string): void {
   persist();
 }
 
-export interface WaitlistView extends WaitlistEntry {
+export interface WaitlistView extends Omit<WaitlistEntry, 'offer'> {
+  /** live offer only — a lapsed one is not shown */
+  offer?: { startsAt: number; expiresAt: number };
   shop: { slug: string; name: string; emoji: string } | null;
   serviceNames: Array<{ en: string; de: string }>;
 }
@@ -3293,6 +3297,12 @@ export interface ShopWaitlistRow {
   /** free starts that day for what they asked for — the reason to call them */
   freeSlots: number;
   nextFreeAt: number | null;
+  /** the first few free starts, so an offer is one tap rather than a search */
+  slotStarts: number[];
+  /** what this request is worth at list price — the money the gap is holding */
+  valueCents: number;
+  /** live offer, if one is out; expired offers read as no offer */
+  offer: { startsAt: number; expiresAt: number } | null;
 }
 
 /**
@@ -3323,8 +3333,42 @@ export function waitlistForShop(shopId: string, fromIso: string): ShopWaitlistRo
         createdAt: w.createdAt,
         freeSlots: slots.length,
         nextFreeAt: slots[0]?.start ?? null,
+        slotStarts: slots.slice(0, 4).map((s) => s.start),
+        valueCents: w.serviceIds.reduce((n, id) => n + (serviceOf(shop, id)?.basePriceCents ?? 0), 0),
+        offer: liveOffer(w),
       };
     });
+}
+
+/** An offer that has lapsed is not an offer — readers see it as none. */
+function liveOffer(w: WaitlistEntry): { startsAt: number; expiresAt: number } | null {
+  if (!w.offer) return null;
+  if (w.offer.expiresAt < Date.now()) return null;
+  return { startsAt: w.offer.startsAt, expiresAt: w.offer.expiresAt };
+}
+
+export const WAITLIST_OFFER_TTL_MIN = 30;
+
+/**
+ * Offer one concrete free time to somebody on the waiting list.
+ *
+ * Deliberately NOT a seat hold: the engine's holds are how money meets seats,
+ * and parking a phantom hold for half an hour would block the very gap the
+ * shop is trying to sell to anyone who walks in meanwhile. The offer is a
+ * flag with a deadline — the customer books it through the normal
+ * seat-before-money path, and if a walk-in beats them to it, the 409 flow
+ * offers the alternatives it always offers. First come stays first served.
+ */
+export function offerWaitlistSlot(shopId: string, entryId: string, startsAt: number): WaitlistEntry {
+  const w = state.waitlist.get(entryId);
+  if (!w || w.shopId !== shopId) throw new Error('not_found');
+  // Only offer what is actually free right now, for exactly what they asked.
+  const slots = availability(shopId, w.serviceIds, isoDateOf(startsAt), `shop:${shopId}`, null).slots;
+  if (!slots.some((s) => s.start === startsAt)) throw new Error('slot_gone');
+  const now = Date.now();
+  w.offer = { startsAt, offeredAt: now, expiresAt: now + WAITLIST_OFFER_TTL_MIN * 60_000 };
+  persist();
+  return w;
 }
 
 export function waitlistForDevice(deviceId: string): WaitlistView[] {
@@ -3335,6 +3379,8 @@ export function waitlistForDevice(deviceId: string): WaitlistView[] {
       const shop = shopById(w.shopId);
       return {
         ...w,
+        // The customer only ever sees a live offer; a lapsed one reads as none.
+        offer: liveOffer(w) ?? undefined,
         shop: shop ? { slug: shop.slug, name: shop.name, emoji: shop.emoji } : null,
         serviceNames: w.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
       };

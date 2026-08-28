@@ -13,7 +13,8 @@
  * floats to the top, and the thread opens beside the list on a desktop and over
  * it on a phone.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { timeOf, dateOf } from '@/lib/format';
 import { Icon } from '@/components/Icon';
@@ -26,15 +27,22 @@ import type { ShopRef } from '@/lib/owned-shops';
 export function MessagesScreen({ shops }: { shops: ShopRef[] }) {
   return (
     <OperatorShell shops={shops} active="/dashboard/messages">
-      {({ shopId }) => <MessagesTab shopId={shopId} />}
+      {({ shopId }) => (
+        <Suspense fallback={<div className="spinner" />}>
+          <MessagesTab shopId={shopId} />
+        </Suspense>
+      )}
     </OperatorShell>
   );
 }
 
 function MessagesTab({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
+  // ?customer=<key> lands straight in one conversation — how the Customers
+  // tab's message button gets here.
+  const wanted = useSearchParams().get('customer');
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(wanted);
   const [q, setQ] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
 
@@ -50,7 +58,15 @@ function MessagesTab({ shopId }: { shopId: string }) {
 
   useEffect(load, [load]);
   useMessagesChanged(load);
-  useEffect(() => setOpen(null), [shopId]);
+  // The deep link wins on arrival. The shell resolves shopId a beat after
+  // mount ('' → the real id), so resetting on every change would wipe the
+  // link before the list ever loads — only a switch between two real shops
+  // closes the open thread.
+  const prevShop = useRef(shopId);
+  useEffect(() => {
+    if (prevShop.current && shopId && prevShop.current !== shopId) setOpen(null);
+    prevShop.current = shopId;
+  }, [shopId]);
 
   const filtered = useMemo(() => {
     const rows = threads ?? [];

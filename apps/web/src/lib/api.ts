@@ -1090,6 +1090,29 @@ export async function apiReplyToReview(shopId: string, bookingId: string, text: 
   store.setReviewReply(shopId, bookingId, text);
 }
 
+export async function apiWaitlistOffer(
+  shopId: string,
+  entryId: string,
+  startsAt: number,
+): Promise<{ ok: boolean; code?: 'slot_gone' }> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/waitlist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entryId, startsAt }),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, code: res.status === 409 ? 'slot_gone' : undefined };
+  }
+  await localWrite();
+  try {
+    store.offerWaitlistSlot(shopId, entryId, startsAt);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, code: e instanceof Error && e.message === 'slot_gone' ? 'slot_gone' : undefined };
+  }
+}
+
 export async function apiShopWaitlist(shopId: string, from: string): Promise<ShopWaitlistRow[]> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/waitlist?from=${from}`);
