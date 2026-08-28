@@ -1595,3 +1595,138 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
   display: grid; gap: 5px; font-size: 0.8rem; color: var(--ink-soft);
 }
+
+/* ==========================================================================
+   STUDIO — the design pass, behind the header toggle.
+
+   Everything below is scoped to [data-design="studio"] so classic is untouched
+   and the two can be compared on the same page. Values come from the canvas in
+   design/, which in turn took them from the tokens above — this layer changes
+   how much of each is used, not what they are.
+   ========================================================================== */
+
+.design-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px; border-radius: 999px;
+  border: 1.5px solid var(--line); background: var(--surface);
+  font-weight: 700; font-size: 0.82rem; color: var(--ink-soft);
+  transition: all 0.2s ease;
+}
+.design-btn:hover { border-color: var(--primary); color: var(--primary); }
+.design-btn.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+@media (max-width: 860px) { .design-label { display: none; } .design-btn { padding: 8px 11px; } }
+
+/* --- type: the app topped out at 1.05rem, so no page had anything that led -- */
+[data-design="studio"] h1 { letter-spacing: -0.03em; }
+[data-design="studio"] .section > h2 { font-size: 1.32rem; letter-spacing: -0.025em; }
+[data-design="studio"] .page-title h1 { font-size: 1.75rem; }
+
+/* --- surfaces: deeper corners, softer lift -------------------------------- */
+[data-design="studio"] .panel,
+[data-design="studio"] .shop-card,
+[data-design="studio"] .svc-row,
+[data-design="studio"] .review-card { border-radius: var(--r-xl); }
+[data-design="studio"] .panel { padding: 22px 24px; }
+[data-design="studio"] .svc-row { padding: 15px 17px; }
+[data-design="studio"] .svc-ico { border-radius: 15px; }
+
+/* --- the shop hero: cover, then the identity lifted onto it ---------------- */
+[data-design="studio"] .shop-hero.cover {
+  min-height: 250px;
+  /* Top-left, not bottom: the identity card overlaps the last 52px of the
+     cover, and a marker hidden under it is the same as no marker. */
+  padding: 18px 22px;
+  border-radius: var(--r-xl);
+  box-shadow: none;
+  display: flex; align-items: flex-start;
+}
+/* Says out loud that the band is waiting for a photograph, rather than
+   pretending a gradient was the plan. */
+[data-design="studio"] .cover-mark {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 999px;
+  border: 1px dashed rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.63rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+/* Lifted onto the cover: the card is the page's anchor, the band behind it is
+   atmosphere. */
+[data-design="studio"] .shop-id {
+  position: relative; z-index: 2;
+  margin: -52px 14px 0;
+  padding: 20px 22px 18px;
+  background: var(--surface);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lift);
+}
+[data-design="studio"] .shop-id h1 { font-size: 1.7rem; line-height: 1.08; letter-spacing: -0.03em; }
+[data-design="studio"] .shop-id .sub { margin-top: 8px; font-size: 0.83rem; color: var(--ink-soft); }
+[data-design="studio"] .shop-id .meta-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 9px 12px;
+  margin-top: 15px; padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.79rem; font-weight: 600; color: var(--ink-soft);
+}
+[data-design="studio"] .shop-id .meta-row span { background: none; padding: 0; white-space: nowrap; }
+[data-design="studio"] .shop-id .open-badge { background: var(--teal-soft); color: #0d7f72; padding: 6px 12px; }
+[data-design="studio"] .shop-id .open-badge.off { background: var(--surface-2); color: var(--ink-soft); }
+[data-design="studio"] .shop-hero::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.15; mix-blend-mode: overlay;
+}
+/* Lift the hero's children over the grain ::after. Only z-index — adding
+   position:relative here silently un-absoluted the favourite button and
+   dropped it out of its corner. Both children (the absolute heart, the
+   flex-item cover marker) already stack without it. */
+[data-design="studio"] .shop-hero > * { z-index: 1; }
+
+/* --- next free: the times are the point, so they carry the display size ---- */
+[data-design="studio"] .no-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 11px; }
+[data-design="studio"] .no-slot { border-radius: var(--r-lg); padding: 14px 10px; gap: 3px; }
+[data-design="studio"] .no-time { font-size: 1.4rem; letter-spacing: -0.02em; }
+[data-design="studio"] .no-day { font-size: 0.66rem; }
+/* The soonest slot is usually the cheapest — let it look like the offer it is. */
+[data-design="studio"] .no-slot:first-child {
+  background: linear-gradient(160deg, var(--primary), var(--primary-deep));
+  border-color: transparent; box-shadow: 0 6px 16px rgba(240, 86, 110, 0.35);
+}
+[data-design="studio"] .no-slot:first-child .no-day { color: rgba(255, 255, 255, 0.85); }
+[data-design="studio"] .no-slot:first-child .no-time,
+[data-design="studio"] .no-slot:first-child .no-price { color: #fff; }
+
+/* --- opening hours ---------------------------------------------------------*/
+[data-design="studio"] .oh-list li { padding: 9px 12px; font-size: 0.9rem; }
+[data-design="studio"] .oh-list li.is-today { border-radius: var(--r-md); }
+
+/* --- slots in the booking flow -------------------------------------------- */
+[data-design="studio"] .slot-chip { border-radius: var(--r-md); padding: 12px 6px; }
+[data-design="studio"] .slot-chip .t { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em; }
+
+/* --- reviews: one at display size beats a wall of equal cards -------------- */
+[data-design="studio"] .review-card:first-of-type {
+  background: var(--ink); color: #fff; box-shadow: var(--shadow-lift);
+}
+[data-design="studio"] .review-card:first-of-type p {
+  font-family: var(--font-display); font-size: 1.12rem; font-weight: 600;
+  line-height: 1.35; letter-spacing: -0.02em;
+}
+[data-design="studio"] .review-card:first-of-type .svc { color: rgba(255, 255, 255, 0.6); }
+[data-design="studio"] .review-card:first-of-type .rv-reply {
+  background: rgba(255, 255, 255, 0.08); border-left-color: var(--amber);
+}
+[data-design="studio"] .review-card:first-of-type .rv-reply p { font-family: var(--font-body); font-size: 0.85rem; font-weight: 400; color: rgba(255, 255, 255, 0.8); }
+
+/* --- feed cards ------------------------------------------------------------*/
+[data-design="studio"] .shop-cover { height: 132px; }
+[data-design="studio"] .feed-grid { gap: 20px; }
+
+/* --- the operator briefing ------------------------------------------------ */
+[data-design="studio"] .bf-item { border-radius: var(--r-lg); padding: 15px 17px; }
+[data-design="studio"] .bf-text { font-size: 0.92rem; }
+
+/* --- controls --------------------------------------------------------------*/
+[data-design="studio"] .btn { font-weight: 700; }
+[data-design="studio"] .chip { border-radius: 999px; font-size: 0.82rem; }
+[data-design="studio"] .team-card { border-radius: var(--r-lg); }
+[data-design="studio"] .team-card .avatar { width: 54px; height: 54px; font-size: 1.25rem; }

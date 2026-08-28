@@ -11,6 +11,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { Glyph } from '@/components/Icon';
 import { money, timeOf, weekdayShort } from '@/lib/format';
 import { apiNextOpenings } from '@/lib/api';
 import type { Opening } from '@/core/store';
@@ -49,7 +50,9 @@ export function NextOpenings({ shopId, slug, services }: { shopId: string; slug:
 
   return (
     <section className="section">
-      <h2>⚡ {t('no_title')}</h2>
+      <h2>
+        <Glyph name="zap" emoji="⚡" size={20} /> {t('no_title')}
+      </h2>
       <p className="no-sub">{t('no_sub', { service: service.name[lang] })}</p>
       {openings.length === 0 ? (
         <div className="panel muted">{t('no_none')}</div>

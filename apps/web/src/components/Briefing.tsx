@@ -15,6 +15,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { Glyph, type IconName } from '@/components/Icon';
 import { money } from '@/lib/format';
 import {
   apiShopWaitlist,
@@ -27,6 +28,7 @@ import { todayIso, addDays } from '@/core/time';
 interface Item {
   key: string;
   icon: string;
+  drawn: IconName;
   text: string;
   href: string;
   cta: string;
@@ -57,6 +59,7 @@ export function Briefing({ shopId }: { shopId: string }) {
         out.push({
           key: 'waitlist',
           icon: '⏳',
+          drawn: 'bell',
           text: t('bf_waitlist', { n: String(callable.length) }),
           href: '/dashboard',
           cta: t('bf_see'),
@@ -69,6 +72,7 @@ export function Briefing({ shopId }: { shopId: string }) {
         out.push({
           key: 'reviews',
           icon: '⭐',
+          drawn: 'star',
           text: t('bf_reviews', { n: String(unanswered.length) }),
           href: '/dashboard/customers',
           cta: t('rv_reply'),
@@ -82,6 +86,7 @@ export function Briefing({ shopId }: { shopId: string }) {
         out.push({
           key: 'tomorrow',
           icon: '📉',
+          drawn: 'trend',
           text: t('bf_quiet', { pct: String(tomorrow.occupancyPct) }),
           href: '/dashboard',
           cta: t('bf_see'),
@@ -99,6 +104,7 @@ export function Briefing({ shopId }: { shopId: string }) {
         out.push({
           key: 'lapsed',
           icon: '💬',
+          drawn: 'message',
           text: t('bf_lapsed', { n: String(lapsed.length) }),
           href: '/dashboard/customers',
           cta: t('bf_see'),
@@ -112,6 +118,7 @@ export function Briefing({ shopId }: { shopId: string }) {
         out.push({
           key: 'week',
           icon: '📈',
+          drawn: 'trend',
           text: t('bf_week', { value: money(booked, lang) }),
           href: '/dashboard/revenue',
           cta: t('bf_see'),
@@ -131,11 +138,15 @@ export function Briefing({ shopId }: { shopId: string }) {
 
   return (
     <section className="section">
-      <h2>☀️ {t('bf_title')}</h2>
+      <h2>
+        <Glyph name="sun" emoji="☀️" size={20} /> {t('bf_title')}
+      </h2>
       <div className="bf-list">
         {items.map((i) => (
           <Link key={i.key} href={i.href} className={`bf-item ${i.tone}`}>
-            <span className="bf-ico">{i.icon}</span>
+            <span className="bf-ico">
+              <Glyph name={i.drawn} emoji={i.icon} size={19} />
+            </span>
             <span className="bf-text">{i.text}</span>
             <span className="bf-cta">{i.cta} →</span>
           </Link>

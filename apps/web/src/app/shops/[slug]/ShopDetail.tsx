@@ -8,6 +8,8 @@ import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
 import { apiShopReviews, apiShopLogo, apiShopServices } from '@/lib/api';
 import { Heart } from '@/components/Heart';
+import { Glyph, Icon } from '@/components/Icon';
+import { useStudio } from '@/lib/design';
 import { useFavourites } from '@/lib/favs';
 
 interface LiveReview {
@@ -62,6 +64,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   // The shop can add or archive services at any time — always show the live menu.
   const [services, setServices] = useState(shop.services);
   const hours = useShopHours(shop.id);
+  const studio = useStudio();
   const fav = favs.includes(shop.id);
 
   useEffect(() => {
@@ -74,35 +77,78 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
 
   return (
     <div>
-      <section
-        className="shop-hero"
-        style={{ background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }}
-      >
-        <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
-          <Heart on={fav} size={20} />
-        </button>
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="shop-logo-hero" />
-          ) : (
-            <span>{shop.emoji}</span>
-          )}
-          {shop.name}
-        </h1>
-        <p className="sub">{shop.tagline[lang]}</p>
-        <div className="meta-row">
-          <span>★ {shop.ratingAvg.toFixed(1)} ({shop.ratingCount})</span>
-          <span>📍 {shop.district}</span>
-          <span>🗣 {shop.languagesSpoken.map((l) => l.toUpperCase()).join(' · ')}</span>
-          {shop.isMobile && <span>🚗 {t('mobile_badge')}</span>}
-          {shop.isNew && <span>✨ {t('new_badge')}</span>}
-          <OpenBadge hours={hours} />
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <ShareShop name={shop.name} slug={shop.slug} />
-        </div>
-      </section>
+      {/* The identity — logo, name, rating, whether we are open — is the same in
+          both looks; only where it sits differs. Classic keeps it inside the
+          gradient; studio lifts it onto a card overlapping the cover, so the
+          band above can eventually carry a photograph. */}
+      {(() => {
+        const identity = (
+          <>
+            <h1 style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoUrl} alt="" className="shop-logo-hero" />
+              ) : (
+                <span>{shop.emoji}</span>
+              )}
+              {shop.name}
+            </h1>
+            <p className="sub">{shop.tagline[lang]}</p>
+            <div className="meta-row">
+              <span>
+                <Glyph name="star" emoji="★" size={14} /> {shop.ratingAvg.toFixed(1)} ({shop.ratingCount})
+              </span>
+              <span>
+                <Glyph name="pin" emoji="📍" size={14} /> {shop.district}
+              </span>
+              <span>
+                <Glyph name="globe" emoji="🗣" size={14} />{' '}
+                {shop.languagesSpoken.map((l) => l.toUpperCase()).join(' · ')}
+              </span>
+              {shop.isMobile && (
+                <span>
+                  <Glyph name="repeat" emoji="🚗" size={14} /> {t('mobile_badge')}
+                </span>
+              )}
+              {shop.isNew && (
+                <span>
+                  <Glyph name="sparkle" emoji="✨" size={14} /> {t('new_badge')}
+                </span>
+              )}
+              <OpenBadge hours={hours} />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <ShareShop name={shop.name} slug={shop.slug} />
+            </div>
+          </>
+        );
+
+        const cover = (
+          <section
+            className={`shop-hero${studio ? ' cover' : ''}`}
+            style={{ background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }}
+          >
+            <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
+              <Heart on={fav} size={20} />
+            </button>
+            {studio ? (
+              <span className="cover-mark">
+                <Icon name="image" size={13} strokeWidth={2} /> {t('cover_placeholder')}
+              </span>
+            ) : (
+              identity
+            )}
+          </section>
+        );
+
+        if (!studio) return cover;
+        return (
+          <>
+            {cover}
+            <section className="shop-id">{identity}</section>
+          </>
+        );
+      })()}
 
       <NextOpenings shopId={shop.id} slug={shop.slug} services={services} />
 
@@ -142,7 +188,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         <div className="panel">
           <p style={{ fontSize: '0.93rem' }}>{shop.about[lang]}</p>
           <p style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
-            📍 {shop.address} · {t('free_until', { h: shop.policy.freeUntilHours })}
+            <Glyph name="pin" emoji="📍" size={13} /> {shop.address} · {t('free_until', { h: shop.policy.freeUntilHours })}
           </p>
         </div>
       </section>

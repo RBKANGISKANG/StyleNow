@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { Glyph } from '@/components/Icon';
 import { weekdayName, hhmm } from '@/lib/format';
 import { apiShopHours, type ShopHours as Hours } from '@/lib/api';
 import { todayIso, isoDow, dayStart } from '@/core/time';
@@ -36,7 +37,9 @@ export function HoursTable({ hours }: { hours: Hours | null }) {
 
   return (
     <section className="section">
-      <h2>🕐 {t('oh_title')}</h2>
+      <h2>
+        <Glyph name="clock" emoji="🕐" size={20} /> {t('oh_title')}
+      </h2>
       <div className="panel">
         <ul className="oh-list">
           {hours.days.map((d) => (
@@ -57,7 +60,7 @@ export function HoursTable({ hours }: { hours: Hours | null }) {
           <ul className="oh-closures">
             {hours.closures.map((c) => (
               <li key={c.id}>
-                🎄 {t('cl_upcoming', { range: c.from === c.to ? c.from : `${c.from} – ${c.to}`, reason: c.reason })}
+                <Glyph name="calendar" emoji="🎄" size={14} /> {t('cl_upcoming', { range: c.from === c.to ? c.from : `${c.from} – ${c.to}`, reason: c.reason })}
               </li>
             ))}
           </ul>

@@ -10,6 +10,7 @@
  */
 import { useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { Glyph } from '@/components/Icon';
 
 export function ShareShop({ name, slug }: { name: string; slug: string }) {
   const { t } = useI18n();
@@ -43,7 +44,15 @@ export function ShareShop({ name, slug }: { name: string; slug: string }) {
 
   return (
     <button className="btn btn-soft sm" onClick={() => void share()}>
-      {copied ? `✅ ${t('share_copied')}` : `↗ ${t('share_cta')}`}
+      {copied ? (
+        <>
+          <Glyph name="check" emoji="✅" size={15} /> {t('share_copied')}
+        </>
+      ) : (
+        <>
+          <Glyph name="share" emoji="↗" size={15} /> {t('share_cta')}
+        </>
+      )}
     </button>
   );
 }

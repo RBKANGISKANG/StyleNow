@@ -3,14 +3,39 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
+import { useDesign } from '@/lib/design';
+import { Icon, type IconName } from '@/components/Icon';
 
 const TABS = [
-  { href: '/', key: 'nav_explore', ico: '🔍' },
-  { href: '/bookings', key: 'nav_bookings', ico: '📅' },
-  { href: '/my-day', key: 'nav_myday', ico: '🪄' },
-  { href: '/dashboard', key: 'nav_dashboard', ico: '💼' },
-  { href: '/account', key: 'nav_account', ico: '👤' },
-] as const;
+  { href: '/', key: 'nav_explore', ico: '🔍', icon: 'search' },
+  { href: '/bookings', key: 'nav_bookings', ico: '📅', icon: 'calendar' },
+  { href: '/my-day', key: 'nav_myday', ico: '🪄', icon: 'sparkle' },
+  { href: '/dashboard', key: 'nav_dashboard', ico: '💼', icon: 'briefcase' },
+  { href: '/account', key: 'nav_account', ico: '👤', icon: 'user' },
+] as const satisfies ReadonlyArray<{ href: string; key: string; ico: string; icon: IconName }>;
+
+/**
+ * Classic or studio, in one press.
+ *
+ * It sits in the header rather than buried in account settings because its
+ * whole point is comparison: you flip it, look at the same page, and flip back.
+ */
+function DesignToggle() {
+  const { t } = useI18n();
+  const { design, setDesign } = useDesign();
+  const studio = design === 'studio';
+  return (
+    <button
+      className={`design-btn${studio ? ' on' : ''}`}
+      onClick={() => setDesign(studio ? 'classic' : 'studio')}
+      aria-pressed={studio}
+      title={t(studio ? 'design_on' : 'design_off')}
+    >
+      <Icon name="sparkle" size={15} />
+      <span className="design-label">{t(studio ? 'design_studio' : 'design_classic')}</span>
+    </button>
+  );
+}
 
 function isActive(pathname: string, href: string): boolean {
   return href === '/' ? pathname === '/' || pathname.startsWith('/shops') : pathname.startsWith(href);
@@ -34,11 +59,13 @@ export function Header() {
             </Link>
           ))}
         </nav>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DesignToggle />
+        </div>
         <button
           className="lang-btn"
           onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
           aria-label="Switch language"
-          style={{ marginLeft: 'auto' }}
         >
           {lang === 'en' ? '🇩🇪 DE' : '🇬🇧 EN'}
         </button>
@@ -61,12 +88,15 @@ export function Header() {
 
 export function BottomNav() {
   const { t } = useI18n();
+  const { design } = useDesign();
   const pathname = usePathname();
   return (
     <nav className="bottom-nav">
       {TABS.map((tab) => (
         <Link key={tab.href} href={tab.href} className={isActive(pathname, tab.href) ? 'active' : ''}>
-          <span className="ico">{tab.ico}</span>
+          <span className="ico">
+            {design === 'studio' ? <Icon name={tab.icon} size={21} strokeWidth={1.9} /> : tab.ico}
+          </span>
           {t(tab.key)}
         </Link>
       ))}
