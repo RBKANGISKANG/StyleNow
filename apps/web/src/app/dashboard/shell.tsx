@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { useStudio } from '@/lib/design';
 import { Icon, type IconName } from '@/components/Icon';
-import { apiClaimShop, apiOverview } from '@/lib/api';
+import { apiClaimShop, apiOverview, apiShopUnread, MESSAGES_CHANGED } from '@/lib/api';
 import { useOwnedShops, type ShopRef } from '@/lib/owned-shops';
 import { todayIso } from '@/core/time';
 
@@ -80,6 +80,7 @@ export const OPERATOR_TABS = [
   { href: '/dashboard', key: 'tab_today', ico: '📅', icon: 'sun' },
   { href: '/dashboard/revenue', key: 'tab_revenue', ico: '📈', icon: 'trend' },
   { href: '/dashboard/customers', key: 'tab_customers', ico: '👤', icon: 'users' },
+  { href: '/dashboard/messages', key: 'tab_messages', ico: '💬', icon: 'message' },
   { href: '/dashboard/services', key: 'tab_services', ico: '✂️', icon: 'scissors' },
   { href: '/dashboard/team', key: 'tab_team', ico: '👥', icon: 'user' },
   { href: '/dashboard/hr', key: 'tab_hr', ico: '🧾', icon: 'briefcase' },
@@ -148,6 +149,35 @@ export function OperatorShell({
   }, []);
   const { ownerKey, ownedIds, myShops, shopId, setShopId, refresh } = useOwnedShops(shops);
 
+  // Unread messages, refreshed on a slow beat. Cheap: it is a scan of one
+  // shop's threads, and it only matters that the badge is right within a
+  // minute, not within a second.
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!shopId) {
+      setUnread(0);
+      return;
+    }
+    let alive = true;
+    let seq = 0;
+    const read = () => {
+      const mine = ++seq;
+      void apiShopUnread(shopId).then((n) => {
+        // Out-of-order responses would otherwise restore a count the user has
+        // already cleared.
+        if (alive && mine === seq) setUnread(n);
+      });
+    };
+    read();
+    const id = setInterval(() => document.visibilityState === 'visible' && read(), 20000);
+    window.addEventListener(MESSAGES_CHANGED, read);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      window.removeEventListener(MESSAGES_CHANGED, read);
+    };
+  }, [shopId, pathname]);
+
   if (ownedIds === null) return <div className="spinner" />;
 
   if (myShops.length === 0) {
@@ -207,10 +237,14 @@ export function OperatorShell({
   const nav = OPERATOR_TABS.map((tab) => {
     // `active` decides, not the URL: /dashboard prefixes every tab.
     const on = tab.href === active || (active === '' && pathname === tab.href);
+    // A message nobody notices is the same as no message, so the count rides on
+    // the tab itself rather than waiting to be discovered inside it.
+    const badge = tab.href === '/dashboard/messages' && unread > 0 ? unread : 0;
     return (
       <Link key={tab.href} href={tab.href} className={on ? 'on' : ''} aria-current={on ? 'page' : undefined}>
         <span className="ico">{studio ? <Icon name={tab.icon} size={18} strokeWidth={1.9} /> : tab.ico}</span>
         {t(tab.key)}
+        {badge > 0 && <em className="tab-badge">{badge > 99 ? '99+' : badge}</em>}
       </Link>
     );
   });

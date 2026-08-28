@@ -11,6 +11,7 @@ import {
   apiLoyaltyBalance,
   apiMyWaitlist,
   apiWaitlistLeave,
+  apiMyUnread,
 } from '@/lib/api';
 import { icsHref } from '@/lib/ics';
 
@@ -26,7 +27,7 @@ interface Bk {
   depositCents: number;
   cancellation: { feeCents: number; refundCents: number; reason: string } | null;
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
-  shop: { slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
+  shop: { id: string; slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
   services: Array<{ name: { en: string; de: string }; emoji: string }>;
   serviceIds: string[];
   staffName: string | null;
@@ -49,11 +50,13 @@ export default function BookingsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [points, setPoints] = useState(0);
   const [waitlist, setWaitlist] = useState<Wl[]>([]);
+  const [unread, setUnread] = useState(0);
 
   const load = useCallback(async () => {
     setBookings(await apiMyBookings());
     setPoints(await apiLoyaltyBalance());
     setWaitlist(await apiMyWaitlist());
+    setUnread(await apiMyUnread());
   }, []);
 
   useEffect(() => {
@@ -93,6 +96,10 @@ export default function BookingsPage() {
         <span className="chip" title={t('loyalty_hint')} style={{ cursor: 'default' }}>
           ⭐ {points} {t('loyalty_balance')}
         </span>
+        <Link className="btn btn-soft sm" href="/messages">
+          {t('mg_open')}
+          {unread > 0 && <em className="tab-badge">{unread > 99 ? '99+' : unread}</em>}
+        </Link>
         <div className="seg">
           <button className={tab === 'upcoming' ? 'on' : ''} onClick={() => setTab('upcoming')}>
             {t('upcoming')} ({upcoming.length})
@@ -189,6 +196,11 @@ export default function BookingsPage() {
                 >
                   📅 {t('add_calendar')}
                 </a>
+                {/* Straight into the right conversation — "can I move this?" is
+                    the message people actually want to send from here. */}
+                <Link className="btn btn-soft sm" href={`/messages?shop=${b.shop.id}`}>
+                  💬 {t('mg_shop_thread')}
+                </Link>
                 <span style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', alignSelf: 'center' }}>
                   {t('cal_reminder_hint')}
                 </span>

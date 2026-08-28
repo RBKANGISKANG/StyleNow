@@ -180,6 +180,7 @@ interface State {
   absences: Map<string, Absence[]>; // staffId → holiday / sick / training
   closures: Map<string, ShopClosure[]>; // shopId → days the whole shop is shut
   customerNotes: Map<string, string>; // `${shopId}:${customerKey}` → private note
+  messages: Map<string, Message[]>; // `${shopId}:${customerKey}` → the conversation
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
 }
@@ -234,6 +235,7 @@ const state: State =
     absences: new Map(),
     closures: new Map(),
     customerNotes: new Map(),
+    messages: new Map(),
     exitFeedback: [],
     seq: 1,
   });
@@ -293,6 +295,7 @@ function persist(): boolean {
         absences: [...state.absences.entries()],
         closures: [...state.closures.entries()],
         customerNotes: [...state.customerNotes.entries()],
+        messages: [...state.messages.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
       }),
@@ -329,6 +332,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         absences?: Array<[string, Absence[]]>;
         closures?: Array<[string, ShopClosure[]]>;
         customerNotes?: Array<[string, string]>;
+        messages?: Array<[string, Message[]]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
       };
@@ -352,6 +356,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.absences = new Map(d.absences ?? []);
       state.closures = new Map(d.closures ?? []);
       state.customerNotes = new Map(d.customerNotes ?? []);
+      state.messages = new Map(d.messages ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
     }
@@ -564,6 +569,7 @@ export interface ShopConfig {
   deletedRules?: string[];
   customerNotes?: Array<[string, string]>;
   photos?: ShopPhoto[];
+  messages?: Array<[string, Message[]]>;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -607,6 +613,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     deletedRules: [...state.deletedRules].filter((id) => ruleIds.has(id)),
     customerNotes: [...state.customerNotes.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     photos: state.shopPhotos.get(shopId) ?? [],
+    messages: [...state.messages.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
   };
 }
 
@@ -659,6 +666,22 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.customerNotes) {
     for (const k of [...state.customerNotes.keys()]) if (k.startsWith(`${shopId}:`)) state.customerNotes.delete(k);
     for (const [k, v] of doc.customerNotes) state.customerNotes.set(k, v);
+  }
+
+  // Conversations merge by message id rather than replace: the customer writes
+  // from their own device and the shop from theirs, so a wholesale overwrite
+  // would drop whichever side had not synced yet.
+  if (doc.messages) {
+    for (const [k, incoming] of doc.messages) {
+      const have = state.messages.get(k) ?? [];
+      const byId = new Map(have.map((m) => [m.id, m]));
+      for (const m of incoming) {
+        const mine = byId.get(m.id);
+        // Later of the two read stamps wins — read is a fact, not an opinion.
+        byId.set(m.id, mine ? { ...m, readAt: Math.max(mine.readAt ?? 0, m.readAt ?? 0) || null } : m);
+      }
+      state.messages.set(k, [...byId.values()].sort((a, b) => a.at - b.at));
+    }
   }
 
   stateVersion += 1;
@@ -2190,7 +2213,7 @@ export interface BookingView {
   depositCents: number;
   cancellation: { feeCents: number; refundCents: number; reason: string } | null;
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
-  shop: { slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
+  shop: { id: string; slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
   services: Array<{ name: { en: string; de: string }; emoji: string }>;
   serviceIds: string[];
   staffName: string | null;
@@ -2214,7 +2237,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       cancellation: b.cancellation ?? null,
       policy: b.policySnapshot,
       shop: shop
-        ? { slug: shop.slug, name: shop.name, emoji: shop.emoji, district: shop.district, gradient: shop.gradient }
+        ? { id: shop.id, slug: shop.slug, name: shop.name, emoji: shop.emoji, district: shop.district, gradient: shop.gradient }
         : null,
       services: b.serviceIds.map((id) => {
         const s = shop ? serviceOf(shop, id) : undefined;
@@ -2447,8 +2470,16 @@ function customerKeyOf(b: Booking): string {
   return `n:${b.guestName.trim().toLowerCase()}`;
 }
 
-/** Everyone who has ever booked at this shop, most recently seen first. */
-export function customersForShop(shopId: string): CustomerRow[] {
+/**
+ * Everyone who has ever booked at this shop, most recently seen first.
+ *
+ * Memoised, because it is not cheap: it groups every booking the shop has ever
+ * taken — three months of trading is several thousand rows — and both the
+ * Customers tab and the message inbox ask for it, the inbox on every change.
+ * Uncached it blocked the main thread for over a second each time, which is how
+ * an unread badge ends up a second behind the click that cleared it.
+ */
+export const customersForShop = memoByShop(function customersForShopUncached(shopId: string): CustomerRow[] {
   const shop = shopById(shopId);
   if (!shop) return [];
   const now = Date.now();
@@ -2497,6 +2528,196 @@ export function customersForShop(shopId: string): CustomerRow[] {
   }
 
   return rows.sort((a, b) => (b.lastVisit ?? b.nextVisit ?? 0) - (a.lastVisit ?? a.nextVisit ?? 0));
+});
+
+// --- messages --------------------------------------------------------------
+
+/**
+ * A message between a salon and one of its customers.
+ *
+ * Until now the only way for a shop to reach somebody was the phone number on
+ * the booking, and the only way for a customer to reach a shop was to ring
+ * during opening hours. Both are fine for "I'm running ten minutes late" and
+ * hopeless for "can you do Saturday instead?" — which is the question that
+ * otherwise becomes a cancellation.
+ *
+ * A thread is keyed by shop and customer, not by booking, because people are
+ * continuous and appointments are not: last month's colour and next month's
+ * cut are the same conversation.
+ */
+export interface Message {
+  id: string;
+  from: 'shop' | 'customer';
+  text: string;
+  at: number;
+  /** when the *other* side read it, null while unread */
+  readAt: number | null;
+}
+
+export interface ThreadSummary {
+  shopId: string;
+  shopName: string;
+  shopEmoji: string;
+  shopSlug: string;
+  customerKey: string;
+  customerName: string;
+  customerPhone: string;
+  lastMessage: Message | null;
+  /** unread by whoever asked for the list */
+  unread: number;
+  /** their next appointment here, so a reply can be answered in context */
+  nextVisit: number | null;
+}
+
+const threadKey = (shopId: string, customerKey: string) => `${shopId}:${customerKey}`;
+
+export function messageThread(shopId: string, customerKey: string): Message[] {
+  return state.messages.get(threadKey(shopId, customerKey)) ?? [];
+}
+
+export function sendMessage(
+  shopId: string,
+  customerKey: string,
+  from: 'shop' | 'customer',
+  text: string,
+): Message | null {
+  const body = text.trim().slice(0, 1000);
+  if (!body) return null;
+  const msg: Message = {
+    id: `m-${state.seq++}-${Date.now().toString(36)}`,
+    from,
+    text: body,
+    at: Date.now(),
+    readAt: null,
+  };
+  const key = threadKey(shopId, customerKey);
+  state.messages.set(key, [...(state.messages.get(key) ?? []), msg]);
+  persist();
+  return msg;
+}
+
+/** Mark everything the other side sent as read. */
+export function markThreadRead(shopId: string, customerKey: string, reader: 'shop' | 'customer'): void {
+  const key = threadKey(shopId, customerKey);
+  const thread = state.messages.get(key);
+  if (!thread) return;
+  const now = Date.now();
+  let changed = false;
+  const next = thread.map((m) => {
+    if (m.from === reader || m.readAt !== null) return m;
+    changed = true;
+    return { ...m, readAt: now };
+  });
+  if (!changed) return;
+  state.messages.set(key, next);
+  persist();
+}
+
+function unreadFor(thread: Message[], reader: 'shop' | 'customer'): number {
+  return thread.filter((m) => m.from !== reader && m.readAt === null).length;
+}
+
+function summarise(
+  shopId: string,
+  customerKey: string,
+  thread: Message[],
+  reader: 'shop' | 'customer',
+  person: { name: string; phone: string; nextVisit: number | null },
+): ThreadSummary | null {
+  const shop = shopById(shopId);
+  if (!shop) return null;
+  return {
+    shopId,
+    shopName: shop.name,
+    shopEmoji: shop.emoji,
+    shopSlug: shop.slug,
+    customerKey,
+    customerName: person.name,
+    customerPhone: person.phone,
+    lastMessage: thread[thread.length - 1] ?? null,
+    unread: unreadFor(thread, reader),
+    nextVisit: person.nextVisit,
+  };
+}
+
+/**
+ * The salon's inbox.
+ *
+ * Every customer who has ever booked gets a row, not only the ones who have
+ * written — the shop's most useful message is usually the first one, and an
+ * inbox that only lists existing conversations makes starting one impossible.
+ * Rows with unread messages come first, then live conversations by recency,
+ * then everybody else the way the customer list sorts them.
+ */
+export function shopThreads(shopId: string): ThreadSummary[] {
+  const rows = customersForShop(shopId);
+  const out: ThreadSummary[] = [];
+  for (const c of rows) {
+    const thread = messageThread(shopId, c.key);
+    const s = summarise(shopId, c.key, thread, 'shop', {
+      name: c.name,
+      phone: c.phone,
+      nextVisit: c.nextVisit,
+    });
+    if (s) out.push(s);
+  }
+  return out.sort((a, b) => {
+    if (a.unread !== b.unread) return b.unread - a.unread;
+    return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0);
+  });
+}
+
+/**
+ * The customer's side: one thread per salon they have booked with.
+ *
+ * Their key can differ from shop to shop — a phone typed at one counter, a
+ * device at another — so it is derived from their own bookings rather than
+ * assumed, exactly the way the shop derived it.
+ */
+export function threadsForDevice(deviceId: string): ThreadSummary[] {
+  const groups = new Map<string, { shopId: string; key: string; bookings: Booking[] }>();
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || b.status === 'hold') continue;
+    const key = customerKeyOf(b);
+    const id = threadKey(b.shopId, key);
+    const bucket = groups.get(id);
+    if (bucket) bucket.bookings.push(b);
+    else groups.set(id, { shopId: b.shopId, key, bookings: [b] });
+  }
+
+  const now = Date.now();
+  const out: ThreadSummary[] = [];
+  for (const g of groups.values()) {
+    g.bookings.sort((a, b) => a.startsAt - b.startsAt);
+    const latest = [...g.bookings].reverse();
+    const upcoming = g.bookings.find(
+      (b) => b.startsAt > now && ['confirmed', 'pending_payment'].includes(b.status),
+    );
+    const s = summarise(g.shopId, g.key, messageThread(g.shopId, g.key), 'customer', {
+      name: latest.find((b) => b.guestName.trim())?.guestName ?? '',
+      phone: latest.find((b) => b.guestPhone)?.guestPhone ?? '',
+      nextVisit: upcoming?.startsAt ?? null,
+    });
+    if (s) out.push(s);
+  }
+  return out.sort((a, b) => {
+    if (a.unread !== b.unread) return b.unread - a.unread;
+    return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0);
+  });
+}
+
+/** Badge counts, cheap enough to poll. */
+export function unreadForShop(shopId: string): number {
+  let n = 0;
+  for (const [key, thread] of state.messages) {
+    if (!key.startsWith(`${shopId}:`)) continue;
+    n += unreadFor(thread, 'shop');
+  }
+  return n;
+}
+
+export function unreadForDevice(deviceId: string): number {
+  return threadsForDevice(deviceId).reduce((sum, t) => sum + t.unread, 0);
 }
 
 export function setCustomerNote(shopId: string, key: string, note: string): void {

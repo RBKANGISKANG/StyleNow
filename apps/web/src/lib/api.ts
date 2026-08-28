@@ -11,6 +11,7 @@
  *               RPCs guarded by a real EXCLUDE constraint, then mirrored into
  *               the local engine for slot projection and pricing.
  */
+import { useEffect, useRef } from 'react';
 import * as store from '@/core/store';
 import type {
   ApiSlot,
@@ -38,6 +39,8 @@ import type {
   ShopStatus,
   Opening,
   ShopPhoto,
+  Message,
+  ThreadSummary,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -639,6 +642,138 @@ export async function apiCaptionShopPhoto(shopId: string, photoId: string, capti
   syncConfig(shopId);
 }
 
+// ---- messages -------------------------------------------------------------
+
+/**
+ * Anything that changes an unread count announces it.
+ *
+ * The badge on the Messages tab polls, because nothing here pushes. Polling is
+ * fine for a message that arrives from the other side — nobody expects that
+ * within the second — but it is wrong for your own actions: reading a thread
+ * and then watching the tab insist you still have one unread for another twenty
+ * seconds makes the badge look broken. So local changes ring a bell.
+ */
+export const MESSAGES_CHANGED = 'stylenow:messages';
+
+function announceMessages(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(MESSAGES_CHANGED));
+}
+
+/**
+ * Re-run `fn` whenever anything in this tab changes a message.
+ *
+ * Every list that shows an unread count subscribes, rather than each one being
+ * told by whichever component happened to cause the change. Passing the news
+ * down through callbacks worked most of the time and lost the race the rest —
+ * a thread marking itself read while the list was still fetching left the old
+ * count on screen until the next poll.
+ */
+export function useMessagesChanged(fn: () => void): void {
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => {
+    const run = () => latest.current();
+    window.addEventListener(MESSAGES_CHANGED, run);
+    return () => window.removeEventListener(MESSAGES_CHANGED, run);
+  }, []);
+}
+
+export async function apiThread(shopId: string, customerKey: string): Promise<Message[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/messages?shopId=${shopId}&customerKey=${encodeURIComponent(customerKey)}`);
+    return res.ok ? (await res.json()).messages : [];
+  }
+  await readyForRead();
+  return store.messageThread(shopId, customerKey);
+}
+
+export async function apiSendMessage(
+  shopId: string,
+  customerKey: string,
+  from: 'shop' | 'customer',
+  text: string,
+): Promise<Message | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ shopId, customerKey, from, text }),
+    });
+    const msg = res.ok ? (await res.json()).message : null;
+    announceMessages();
+    return msg;
+  }
+  await localWrite();
+  const msg = store.sendMessage(shopId, customerKey, from, text);
+  syncConfig(shopId);
+  announceMessages();
+  return msg;
+}
+
+export async function apiMarkThreadRead(
+  shopId: string,
+  customerKey: string,
+  reader: 'shop' | 'customer',
+): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch('/api/messages', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ shopId, customerKey, reader }),
+    });
+    announceMessages();
+    return;
+  }
+  await localWrite();
+  store.markThreadRead(shopId, customerKey, reader);
+  syncConfig(shopId);
+  announceMessages();
+}
+
+export async function apiShopThreads(shopId: string): Promise<ThreadSummary[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/messages/threads?shopId=${shopId}`);
+    return res.ok ? (await res.json()).threads : [];
+  }
+  await readyForRead();
+  return store.shopThreads(shopId);
+}
+
+/**
+ * Just the count.
+ *
+ * The badge used to ask for the whole thread list, which builds every customer
+ * row for the shop — a scan of twelve weeks of bookings to render a number.
+ * Counting unread messages only touches the message threads themselves.
+ */
+export async function apiShopUnread(shopId: string): Promise<number> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/messages/threads?shopId=${shopId}&count=1`);
+    return res.ok ? ((await res.json()).unread ?? 0) : 0;
+  }
+  await readyForRead();
+  return store.unreadForShop(shopId);
+}
+
+export async function apiMyUnread(): Promise<number> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/messages/threads?deviceId=${encodeURIComponent(deviceId())}&count=1`);
+    return res.ok ? ((await res.json()).unread ?? 0) : 0;
+  }
+  await readyForRead();
+  return store.unreadForDevice(deviceId());
+}
+
+/** The customer's own conversations — one per salon they have booked with. */
+export async function apiMyThreads(): Promise<ThreadSummary[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/messages/threads?deviceId=${encodeURIComponent(deviceId())}`);
+    return res.ok ? (await res.json()).threads : [];
+  }
+  await readyForRead();
+  return store.threadsForDevice(deviceId());
+}
+
 // ---- custom categories ----------------------------------------------------
 
 export async function apiCustomCategories(): Promise<Array<{ id: string; label: string }>> {
@@ -1056,4 +1191,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind };
+export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary };
