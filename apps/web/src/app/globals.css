@@ -2220,3 +2220,108 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   margin: 10px 2px 0; font-size: 0.76rem; font-weight: 600;
   color: var(--ink-soft); text-align: center;
 }
+
+/* --- the salon's own photographs ------------------------------------------- */
+/* A photograph carries its own badges and hearts, so those get a shadow to sit
+   on; over a flat gradient they never needed one. */
+.shop-cover.shot .badges .badge,
+.shop-cover.shot .fav-btn { box-shadow: 0 2px 8px rgba(24, 16, 28, 0.35); }
+.shop-hero.shot .fav-btn { box-shadow: 0 2px 10px rgba(24, 16, 28, 0.4); }
+
+/* Back office: the gallery the owner manages. */
+.photo-panel { display: flex; flex-direction: column; gap: 14px; }
+.photo-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.photo-hint { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5; max-width: 62ch; margin: 0; }
+.photo-count { font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); white-space: nowrap; }
+.photo-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.photo-tile {
+  margin: 0; position: relative; overflow: hidden;
+  border-radius: var(--r-md); border: 1px solid var(--line);
+  background: var(--surface-2);
+  display: flex; flex-direction: column;
+}
+.photo-tile.cover { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.photo-tile > img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.photo-badge {
+  position: absolute; top: 9px; left: 9px;
+  background: var(--primary); color: #fff;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 999px;
+}
+.photo-tile figcaption { padding: 9px 10px 0; }
+.photo-cap {
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+  font-size: 0.78rem; font-weight: 600; color: var(--ink); line-height: 1.4;
+}
+.photo-cap.empty { color: var(--ink-soft); font-weight: 700; }
+.photo-cap:hover { color: var(--primary-deep); }
+.photo-cap-input {
+  width: 100%; border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 6px 9px; font: inherit; font-size: 0.78rem; background: var(--surface);
+}
+.photo-acts { display: flex; align-items: center; gap: 8px; padding: 9px 10px 10px; margin-top: auto; }
+.photo-acts .btn-ghost { margin-left: auto; color: var(--ink-soft); }
+.photo-acts .btn-ghost:hover { color: var(--danger); }
+.photo-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 190px; cursor: pointer;
+  border: 1.5px dashed var(--line); border-radius: var(--r-md);
+  background: var(--surface-2); color: var(--ink-soft);
+}
+.photo-add:hover:not(:disabled) { border-color: var(--primary); color: var(--primary-deep); background: var(--primary-soft); }
+.photo-add:disabled { opacity: 0.6; cursor: default; }
+.photo-add span { font-size: 0.83rem; font-weight: 800; }
+.photo-add em { font-size: 0.7rem; font-style: normal; font-weight: 600; }
+
+/* Customer side: the strip, and the lightbox. */
+.gal-strip {
+  display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+}
+.gal-item {
+  position: relative; flex: 0 0 auto; scroll-snap-align: start;
+  width: min(280px, 74vw); border: 0; padding: 0; cursor: zoom-in;
+  border-radius: var(--r-md); overflow: hidden; background: var(--surface-2);
+}
+.gal-item img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.gal-cap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 18px 12px 9px; text-align: left;
+  background: linear-gradient(transparent, rgba(24, 16, 28, 0.72));
+  color: #fff; font-size: 0.76rem; font-weight: 700;
+}
+.gal-box {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(24, 16, 28, 0.9);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; gap: 8px;
+}
+.gal-figure { margin: 0; max-width: min(1000px, 92vw); display: flex; flex-direction: column; gap: 10px; }
+.gal-figure img {
+  max-width: 100%; max-height: 76vh; object-fit: contain;
+  border-radius: var(--r-md); display: block; margin: 0 auto;
+}
+.gal-figure figcaption {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  color: rgba(255, 255, 255, 0.92); font-size: 0.85rem; font-weight: 600;
+}
+/* margin-left, not space-between: most photos have no caption, and with one
+   child space-between would park the counter on the left. */
+.gal-of { margin-left: auto; color: rgba(255, 255, 255, 0.62); font-weight: 700; font-size: 0.76rem; }
+.gal-nav, .gal-close {
+  border: 0; cursor: pointer; color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  width: 42px; height: 42px; border-radius: 50%;
+  display: grid; place-items: center; flex: 0 0 auto;
+}
+.gal-nav:hover, .gal-close:hover { background: rgba(255, 255, 255, 0.26); }
+.gal-close { position: absolute; top: 18px; right: 18px; font-size: 1.05rem; }
+@media (max-width: 680px) {
+  .gal-box { padding: 14px; }
+  .gal-nav { position: absolute; bottom: 20px; }
+  .gal-nav.prev { left: 22px; }
+  .gal-nav.next { right: 22px; }
+}

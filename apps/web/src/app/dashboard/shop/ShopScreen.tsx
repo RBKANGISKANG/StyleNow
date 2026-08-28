@@ -1,6 +1,7 @@
 'use client';
 /**
- * Shop tab — the company's own settings: logo, branches, and the exit door.
+ * Shop tab — the company's own settings: logo, photos, branches, and the exit
+ * door.
  * Nothing here is part of running today, which is why it is not on the Today
  * tab getting in the way.
  */
@@ -19,6 +20,7 @@ import {
   type ShopClosure,
 } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
+import { PhotoManager } from '@/components/PhotoManager';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
@@ -124,6 +126,12 @@ function ShopTab({
   return (
     <>
       {logoSection}
+
+      <section className="section">
+        <h2>{t('ph_title')}</h2>
+        <PhotoManager shopId={shopId} onToast={setToast} />
+      </section>
+
       {locationsSection}
 
       <section className="section">

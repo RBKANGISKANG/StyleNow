@@ -37,6 +37,7 @@ import type {
   OpeningDay,
   ShopStatus,
   Opening,
+  ShopPhoto,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -558,6 +559,84 @@ export async function apiSetShopLogo(shopId: string, dataUrl: string | null): Pr
   await ready();
   if (backendMode() === 'supabase') await sb.setShopLogo(shopId, dataUrl);
   else store.setShopLogo(shopId, dataUrl);
+}
+
+// ---- shop photos ----------------------------------------------------------
+
+export async function apiShopPhotos(shopId: string): Promise<ShopPhoto[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/photos`);
+    return res.ok ? (await res.json()).photos : [];
+  }
+  await readyForRead();
+  return store.shopPhotos(shopId);
+}
+
+export type PhotoError = 'photo_limit' | 'photo_storage_full' | 'error';
+
+export async function apiAddShopPhoto(
+  shopId: string,
+  dataUrl: string,
+  caption = '',
+): Promise<{ ok: true } | { ok: false; code: PhotoError }> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/photos`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dataUrl, caption }),
+    });
+    if (res.ok) return { ok: true };
+    const code = (await res.json().catch(() => ({}))).error;
+    return { ok: false, code: code === 'photo_limit' ? 'photo_limit' : 'error' };
+  }
+  await ready();
+  try {
+    store.addShopPhoto(shopId, dataUrl, caption);
+    syncConfig(shopId);
+    return { ok: true };
+  } catch (e) {
+    // The one failure worth naming: the browser refused to keep the picture.
+    if (e instanceof store.PhotoStorageFull) return { ok: false, code: 'photo_storage_full' };
+    return { ok: false, code: e instanceof Error && e.message === 'photo_limit' ? 'photo_limit' : 'error' };
+  }
+}
+
+export async function apiRemoveShopPhoto(shopId: string, photoId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/photos?photoId=${encodeURIComponent(photoId)}`, { method: 'DELETE' });
+    return;
+  }
+  await ready();
+  store.removeShopPhoto(shopId, photoId);
+  syncConfig(shopId);
+}
+
+export async function apiMakeShopCover(shopId: string, photoId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/photos`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ photoId, cover: true }),
+    });
+    return;
+  }
+  await ready();
+  store.makeShopCover(shopId, photoId);
+  syncConfig(shopId);
+}
+
+export async function apiCaptionShopPhoto(shopId: string, photoId: string, caption: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/photos`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ photoId, caption }),
+    });
+    return;
+  }
+  await ready();
+  store.captionShopPhoto(shopId, photoId, caption);
+  syncConfig(shopId);
 }
 
 // ---- custom categories ----------------------------------------------------

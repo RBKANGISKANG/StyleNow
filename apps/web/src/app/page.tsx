@@ -41,6 +41,7 @@ interface Card {
   reasons: string[];
   minutesToFirstSlot: number | null;
   logoUrl: string | null;
+  coverUrl: string | null;
 }
 
 const VIEW_KEY = 'stylenow.feed.view';
@@ -391,11 +392,17 @@ function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () =>
   };
   return (
     <Link href={`/shops/${card.slug}`} className="shop-card">
+      {/* A photograph if the salon has uploaded one; otherwise the gradient and
+          their mark, which is a placeholder that at least looks deliberate. */}
       <div
-        className="shop-cover"
-        style={{ background: `linear-gradient(135deg, ${card.gradient[0]}, ${card.gradient[1]})` }}
+        className={`shop-cover${card.coverUrl ? ' shot' : ''}`}
+        style={
+          card.coverUrl
+            ? { backgroundImage: `url(${card.coverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : { background: `linear-gradient(135deg, ${card.gradient[0]}, ${card.gradient[1]})` }
+        }
       >
-        {card.logoUrl ? (
+        {card.coverUrl ? null : card.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={card.logoUrl} alt="" className="shop-logo" />
         ) : (

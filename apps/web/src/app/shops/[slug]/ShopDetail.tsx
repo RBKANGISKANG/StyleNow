@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShareShop } from '@/components/ShareShop';
 import { NextOpenings } from '@/components/NextOpenings';
+import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopServices } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -64,6 +65,9 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   const [favs, toggleFav] = useFavourites();
   const [liveReviews, setLiveReviews] = useState<LiveReview[]>([]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  // The shop's own cover photo, if they have uploaded one. Until then the
+  // gradient stands in — a marked placeholder, not a pretence.
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
   // The shop can add or archive services at any time — always show the live menu.
   const [services, setServices] = useState(shop.services);
   const hours = useShopHours(shop.id);
@@ -73,6 +77,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   useEffect(() => {
     void apiShopReviews(shop.id).then(setLiveReviews);
     void apiShopLogo(shop.id).then(setLogoUrl);
+    void apiShopPhotos(shop.id).then((ps) => setCoverUrl(ps[0]?.dataUrl ?? null));
     void apiShopServices(shop.id).then((live) => {
       if (Array.isArray(live) && live.length) setServices(live as ShopData['services']);
     });
@@ -128,16 +133,28 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
 
         const cover = (
           <section
-            className={`shop-hero${studio ? ' cover' : ''}`}
-            style={{ background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }}
+            className={`shop-hero${studio ? ' cover' : ''}${coverUrl ? ' shot' : ''}`}
+            style={
+              coverUrl
+                ? // The scrim keeps white text legible over an unknown photograph;
+                  // without it every light-coloured salon interior loses the name.
+                  {
+                    backgroundImage: `linear-gradient(180deg, rgba(24,16,28,0.42), rgba(24,16,28,0.62)), url(${coverUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }
+                : { background: `linear-gradient(130deg, ${shop.gradient[0]}, ${shop.gradient[1]})` }
+            }
           >
             <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
               <Heart on={fav} size={20} />
             </button>
             {studio ? (
-              <span className="cover-mark">
-                <Icon name="image" size={13} strokeWidth={2} /> {t('cover_placeholder')}
-              </span>
+              coverUrl ? null : (
+                <span className="cover-mark">
+                  <Icon name="image" size={13} strokeWidth={2} /> {t('cover_placeholder')}
+                </span>
+              )
             ) : (
               identity
             )}
@@ -154,6 +171,8 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
       })()}
 
       <NextOpenings shopId={shop.id} slug={shop.slug} services={services} />
+
+      <ShopGallery shopId={shop.id} />
 
       <section className="section">
         <h2>{t('services')}</h2>

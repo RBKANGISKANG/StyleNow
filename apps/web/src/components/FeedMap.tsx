@@ -55,6 +55,7 @@ export interface MapPin {
   lng: number;
   emoji: string;
   logoUrl: string | null;
+  coverUrl: string | null;
   ratingAvg: number;
   ratingCount: number;
   priceFromCents: number;
@@ -292,9 +293,9 @@ export function FeedMap({ pins }: { pins: MapPin[] }) {
       {chosen ? (
         <Link href={`/shops/${chosen.slug}`} className="fm-peek">
           <span className="fm-peek-ico">
-            {chosen.logoUrl ? (
+            {chosen.coverUrl || chosen.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={chosen.logoUrl} alt="" />
+              <img src={chosen.coverUrl ?? chosen.logoUrl!} alt="" />
             ) : (
               chosen.emoji
             )}

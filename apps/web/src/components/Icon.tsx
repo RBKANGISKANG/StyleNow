@@ -17,9 +17,10 @@ export type IconName =
   | 'scissors' | 'star' | 'pin' | 'clock' | 'calendar' | 'zap' | 'bell' | 'heart'
   | 'share' | 'trend' | 'users' | 'message' | 'shield' | 'repeat' | 'phone'
   | 'search' | 'plus' | 'check' | 'chevron' | 'sparkle' | 'globe' | 'briefcase'
-  | 'user' | 'image' | 'sun';
+  | 'user' | 'image' | 'sun' | 'trash';
 
 const STROKE: Partial<Record<IconName, string>> = {
+  trash: 'M4 7h16 M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7 M6.5 7l.8 11.4A1.7 1.7 0 0 0 9 20h6a1.7 1.7 0 0 0 1.7-1.6L17.5 7 M10.5 11v5 M13.5 11v5',
   scissors: 'M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M20 4L8.5 15.5 M20 20L8.5 8.5',
   pin: 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z M12 10m-2.6 0a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0-5.2 0',
   clock: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3.5 2',

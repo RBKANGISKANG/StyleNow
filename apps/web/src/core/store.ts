@@ -166,6 +166,7 @@ interface State {
   waitlist: Map<string, WaitlistEntry>;
   applications: Map<string, ShopApplication>;
   shopLogos: Map<string, string>;
+  shopPhotos: Map<string, ShopPhoto[]>; // shopId → gallery, first one is the cover
   customCategories: Map<string, string>; // id → label
   shopOwners: Map<string, string>; // shopId → ownerKey (account email or device)
   customServices: Map<string, SeedService[]>; // shopId → services the shop added
@@ -181,6 +182,20 @@ interface State {
   customerNotes: Map<string, string>; // `${shopId}:${customerKey}` → private note
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
+}
+
+/**
+ * A photo of the salon.
+ *
+ * Stored as a data URL because the demo has no object store; the uploader
+ * downscales hard before it ever gets here (see lib/image.ts) precisely
+ * because this ends up in localStorage next to everybody's bookings.
+ */
+export interface ShopPhoto {
+  id: string;
+  dataUrl: string;
+  caption: string;
+  addedAt: number;
 }
 
 /** Answers collected before a deletion — the only chance to ask. */
@@ -205,6 +220,7 @@ const state: State =
     waitlist: new Map(),
     applications: new Map(),
     shopLogos: new Map(),
+    shopPhotos: new Map(),
     customCategories: new Map(),
     shopOwners: new Map(),
     customServices: new Map(),
@@ -239,9 +255,20 @@ export function setLocalPersistence(on: boolean): void {
 /** Bumped on every mutation so the derived-view caches below can invalidate. */
 let stateVersion = 0;
 
-function persist(): void {
+/**
+ * Returns whether the write actually landed.
+ *
+ * Almost every caller can ignore this: losing a booking to a full disk is
+ * already handled by the server transports, and in the local demo there is
+ * nothing better to do than carry on in memory. Photos are the exception —
+ * they are the first thing big enough to fill the quota on their own, and an
+ * owner who uploads six pictures and finds them gone tomorrow deserved to be
+ * told at upload time. So the failure is reported rather than swallowed, and
+ * addShopPhoto below rolls back and says so.
+ */
+function persist(): boolean {
   stateVersion += 1;
-  if (!persistenceEnabled) return;
+  if (!persistenceEnabled) return true;
   try {
     localStorage.setItem(
       LS_KEY,
@@ -252,6 +279,7 @@ function persist(): void {
         waitlist: [...state.waitlist.values()],
         applications: [...state.applications.values()],
         shopLogos: [...state.shopLogos.entries()],
+        shopPhotos: [...state.shopPhotos.entries()],
         customCategories: [...state.customCategories.entries()],
         shopOwners: [...state.shopOwners.entries()],
         customServices: [...state.customServices.entries()],
@@ -269,8 +297,10 @@ function persist(): void {
         seq: state.seq,
       }),
     );
+    return true;
   } catch {
     // quota exceeded / private mode — demo keeps working in memory
+    return false;
   }
 }
 
@@ -285,6 +315,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         waitlist?: WaitlistEntry[];
         applications?: ShopApplication[];
         shopLogos?: Array<[string, string]>;
+        shopPhotos?: Array<[string, ShopPhoto[]]>;
         customCategories?: Array<[string, string]>;
         shopOwners?: Array<[string, string]>;
         customServices?: Array<[string, SeedService[]]>;
@@ -307,6 +338,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.waitlist = new Map((d.waitlist ?? []).map((w) => [w.id, w]));
       state.applications = new Map((d.applications ?? []).map((a) => [a.id, a]));
       state.shopLogos = new Map(d.shopLogos ?? []);
+      state.shopPhotos = new Map(d.shopPhotos ?? []);
       state.customCategories = new Map(d.customCategories ?? []);
       state.shopOwners = new Map(d.shopOwners ?? []);
       state.customServices = new Map(d.customServices ?? []);
@@ -531,6 +563,7 @@ export interface ShopConfig {
   rules?: PricingRule[];
   deletedRules?: string[];
   customerNotes?: Array<[string, string]>;
+  photos?: ShopPhoto[];
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -573,6 +606,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     rules: state.customRules.get(shopId) ?? [],
     deletedRules: [...state.deletedRules].filter((id) => ruleIds.has(id)),
     customerNotes: [...state.customerNotes.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
+    photos: state.shopPhotos.get(shopId) ?? [],
   };
 }
 
@@ -594,6 +628,7 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.closures) state.closures.set(shopId, doc.closures);
   if (doc.services) state.customServices.set(shopId, doc.services);
   if (doc.rules) state.customRules.set(shopId, doc.rules);
+  if (doc.photos) state.shopPhotos.set(shopId, doc.photos);
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
   // stylist created on another device is recognised as ours.
@@ -683,6 +718,77 @@ export function getShopLogo(shopId: string): string | null {
 export function setShopLogo(shopId: string, dataUrl: string | null): void {
   if (dataUrl) state.shopLogos.set(shopId, dataUrl);
   else state.shopLogos.delete(shopId);
+  persist();
+}
+
+// --- photos of the salon ---------------------------------------------------
+
+/**
+ * Six is the cap, and it is not arbitrary.
+ *
+ * Every photo lives in the same localStorage record as every booking, so an
+ * unbounded gallery is a way to lose the shop's diary. Six also happens to be
+ * about as many pictures as anybody looks at before deciding — past that a
+ * gallery is a slideshow nobody finishes.
+ */
+export const MAX_SHOP_PHOTOS = 6;
+
+/** Thrown when the browser refused to store the picture. */
+export class PhotoStorageFull extends Error {
+  constructor() {
+    super('photo_storage_full');
+    this.name = 'PhotoStorageFull';
+  }
+}
+
+export function shopPhotos(shopId: string): ShopPhoto[] {
+  return state.shopPhotos.get(shopId) ?? [];
+}
+
+/** The picture that represents the shop in the feed and at the top of its page. */
+export function shopCover(shopId: string): string | null {
+  return state.shopPhotos.get(shopId)?.[0]?.dataUrl ?? null;
+}
+
+export function addShopPhoto(shopId: string, dataUrl: string, caption = ''): ShopPhoto {
+  const before = shopPhotos(shopId);
+  if (before.length >= MAX_SHOP_PHOTOS) throw new Error('photo_limit');
+  const photo: ShopPhoto = {
+    id: `ph-${state.seq++}-${Date.now().toString(36)}`,
+    dataUrl,
+    caption: caption.trim().slice(0, 90),
+    addedAt: Date.now(),
+  };
+  state.shopPhotos.set(shopId, [...before, photo]);
+  if (!persist()) {
+    // Put the gallery back the way it was: a photo that is only in memory
+    // would vanish on the next reload with no explanation.
+    state.shopPhotos.set(shopId, before);
+    persist();
+    throw new PhotoStorageFull();
+  }
+  return photo;
+}
+
+export function removeShopPhoto(shopId: string, photoId: string): void {
+  state.shopPhotos.set(shopId, shopPhotos(shopId).filter((p) => p.id !== photoId));
+  persist();
+}
+
+/** Promote a photo to the front — the front one is the cover, everywhere. */
+export function makeShopCover(shopId: string, photoId: string): void {
+  const list = shopPhotos(shopId);
+  const hit = list.find((p) => p.id === photoId);
+  if (!hit) return;
+  state.shopPhotos.set(shopId, [hit, ...list.filter((p) => p.id !== photoId)]);
+  persist();
+}
+
+export function captionShopPhoto(shopId: string, photoId: string, caption: string): void {
+  state.shopPhotos.set(
+    shopId,
+    shopPhotos(shopId).map((p) => (p.id === photoId ? { ...p, caption: caption.trim().slice(0, 90) } : p)),
+  );
   persist();
 }
 
@@ -1520,6 +1626,8 @@ export interface FeedCard {
   minutesToFirstSlot: number | null;
   languages: string[];
   logoUrl: string | null;
+  /** The shop's own cover photo, if it has uploaded one. */
+  coverUrl: string | null;
 }
 
 export function feed(q: FeedQuery): FeedCard[] {
@@ -1600,6 +1708,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       minutesToFirstSlot: firstSlot.get(s.id) ?? null,
       languages: s.languagesSpoken,
       logoUrl: getShopLogo(s.id),
+      coverUrl: shopCover(s.id),
     };
   });
 
