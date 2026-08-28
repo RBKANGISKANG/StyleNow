@@ -1,0 +1,297 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #fff9f3; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #2b2233; -webkit-font-smoothing: antialiased; }
+    a { color: #d63a55; text-decoration: none; }
+    a:hover { color: #b02a44; }
+    .disp { font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: -0.025em; }
+    .nav-item { display: flex; align-items: center; gap: 11px; padding: 10px 13px; border-radius: 14px; font-size: 13.5px; font-weight: 600; color: #857b8f; }
+    .nav-item.on { background: #2b2233; color: #fff; font-weight: 700; }
+    /* The day runs 09:00-20:00 = 660 min. Every block is positioned as a true
+       percentage of that span, so the hour ruler on the left is not decoration:
+       15:30 sits at 15:30. */
+    .col { position: relative; border-radius: 16px; background: #fdf4ec; }
+    .col > .ev { position: absolute; left: 5px; right: 5px; border-radius: 11px; padding: 6px 9px; overflow: hidden; }
+    .ev.book { background: #fde8ec; border-left: 3px solid #f0566e; }
+    .ev.hold { background: #fdefdb; border-left: 3px solid #f6a53c; }
+    .ev.off { background: repeating-linear-gradient(45deg, rgba(43,34,51,0.055) 0 5px, transparent 5px 10px); display: grid; place-items: center; }
+    .ev .t { font-size: 11px; font-weight: 800; }
+    .ev .w { font-size: 10.5px; margin-top: 2px; }
+    .hd { height: 30px; display: flex; align-items: center; gap: 7px; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; background: #fff9f3; overflow: hidden;">
+
+  <!-- ============ SIDEBAR ============ -->
+  <!-- Seven tabs in a top bar is a customer-app pattern. A desk tool open for
+       eight hours wants a persistent spine with room for live counts. -->
+  <div style="width: 236px; flex-shrink: 0; background: #fdf1e3; border-right: 1px solid rgba(43,34,51,0.09); padding: 20px 14px; display: flex; flex-direction: column; gap: 22px;">
+    <div style="display: flex; align-items: center; gap: 9px; padding: 0 4px;">
+      <div style="width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, #f0566e, #f6a53c); display: grid; place-items: center;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4L8.5 15.5"></path><path d="M20 20L8.5 8.5"></path></svg>
+      </div>
+      <div class="disp" style="font-size: 18px; font-weight: 700;">Style<span style="color: #f0566e;">Now</span></div>
+    </div>
+
+    <div style="padding: 11px 13px; border-radius: 18px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); display: flex; align-items: center; gap: 10px;">
+      <div style="width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(140deg, #f0566e, #a83055); flex-shrink: 0;"></div>
+      <div style="flex-grow: 1; min-width: 0;">
+        <div style="font-size: 12.5px; font-weight: 700; line-height: 1.25;">Chroma Mitte</div>
+        <div style="font-size: 10.5px; color: #857b8f;">3 stylists</div>
+      </div>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#857b8f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"></path><path d="M16 15l-4 4-4-4"></path></svg>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 3px;">
+      <div class="nav-item on">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M4.9 4.9l1.4 1.4"></path><path d="M17.7 17.7l1.4 1.4"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="M4.9 19.1l1.4-1.4"></path><path d="M17.7 6.3l1.4-1.4"></path></svg>
+        Today
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg>
+        Calendar
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9.5" cy="7" r="4"></circle><path d="M22 20v-2a4 4 0 0 0-3-3.9"></path></svg>
+        Customers
+        <div style="flex-grow: 1;"></div>
+        <span style="padding: 2px 7px; border-radius: 999px; background: #fde8ec; color: #d63a55; font-size: 10.5px; font-weight: 800;">3</span>
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>
+        Revenue
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2.5"></rect><path d="M9 6V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V6"></path></svg>
+        Team &amp; HR
+        <div style="flex-grow: 1;"></div>
+        <span style="padding: 2px 7px; border-radius: 999px; background: #fdefdb; color: #c9791d; font-size: 10.5px; font-weight: 800;">1</span>
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4L8.5 15.5"></path><path d="M20 20L8.5 8.5"></path></svg>
+        Services
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="2.6"></circle></svg>
+        Shop page
+      </div>
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+
+    <div style="padding: 15px 15px 16px; border-radius: 20px; background: linear-gradient(150deg, #2b2233, #453954); color: #fff;">
+      <div style="font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.55);">This week</div>
+      <div class="disp" style="font-size: 25px; font-weight: 700; margin-top: 5px; line-height: 1;">€4,180</div>
+      <div style="display: flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 11.5px; font-weight: 700; color: #7ee0d0;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>
+        12% on last week
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MAIN ============ -->
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+
+    <!-- header -->
+    <div style="display: flex; align-items: center; gap: 14px; padding: 20px 28px 0;">
+      <div>
+        <h1 class="disp" style="font-size: 26px; font-weight: 700; margin: 0; line-height: 1.15;">Thursday, 27 August</h1>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #857b8f;">9 appointments · 3 stylists on · open until 20:00</p>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 9px; padding: 10px 15px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); color: #857b8f; width: 210px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+        <span style="font-size: 13px;">Find a customer</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 11px 19px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 13.5px; font-weight: 700; box-shadow: 0 6px 16px rgba(240,86,110,0.35);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+        New appointment
+      </div>
+    </div>
+
+    <!-- briefing -->
+    <div style="padding: 20px 28px 0;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 11px;">
+        <span class="disp" style="font-size: 15px; font-weight: 700;">What needs you</span>
+        <span style="padding: 2px 8px; border-radius: 999px; background: #fde8ec; color: #d63a55; font-size: 10.5px; font-weight: 800;">3</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 15px 17px; border-radius: 20px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); border-left: 4px solid #f0566e;">
+          <div style="width: 38px; height: 38px; border-radius: 13px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; flex-shrink: 0;">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M13.7 21a2 2 0 0 1-3.4 0"></path></svg>
+          </div>
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="font-size: 13px; font-weight: 700; line-height: 1.35;">2 on the waiting list can be called</div>
+            <div style="font-size: 11.5px; color: #857b8f; margin-top: 2px;">Friday freed up this morning</div>
+          </div>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#d63a55" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M9 6l6 6-6 6"></path></svg>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; padding: 15px 17px; border-radius: 20px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); border-left: 4px solid #f6a53c;">
+          <div style="width: 38px; height: 38px; border-radius: 13px; background: #fdefdb; color: #c9791d; display: grid; place-items: center; flex-shrink: 0;">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.58 1.11 6.47L12 17.45l-5.81 3.05 1.11-6.47-4.7-4.58 6.5-.95z"></path></svg>
+          </div>
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="font-size: 13px; font-weight: 700; line-height: 1.35;">1 review still unanswered</div>
+            <div style="font-size: 11.5px; color: #857b8f; margin-top: 2px;">3 stars, from Tuesday</div>
+          </div>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#c9791d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M9 6l6 6-6 6"></path></svg>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; padding: 15px 17px; border-radius: 20px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); border-left: 4px solid #12a594;">
+          <div style="width: 38px; height: 38px; border-radius: 13px; background: #dff5f1; color: #0d7f72; display: grid; place-items: center; flex-shrink: 0;">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3l-9 9"></path><path d="M21 3v6"></path><path d="M21 3h-6"></path><path d="M3 17l6-6"></path></svg>
+          </div>
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="font-size: 13px; font-weight: 700; line-height: 1.35;">Tomorrow is 21% booked</div>
+            <div style="font-size: 11.5px; color: #857b8f; margin-top: 2px;">Still time to fill it</div>
+          </div>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0d7f72" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M9 6l6 6-6 6"></path></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- next up + numbers -->
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 18px 28px 0;">
+      <div style="grid-column: span 2; display: flex; align-items: center; gap: 18px; padding: 20px 22px; border-radius: 24px; background: #2b2233; color: #fff;">
+        <div style="text-align: center; padding-right: 18px; border-right: 1px solid rgba(255,255,255,0.14);">
+          <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255,255,255,0.55);">Next up</div>
+          <div class="disp" style="font-size: 32px; font-weight: 700; line-height: 1.05; margin-top: 4px;">15:30</div>
+          <div style="font-size: 11.5px; color: #7ee0d0; font-weight: 700; margin-top: 2px;">in 24 min</div>
+        </div>
+        <div style="flex-grow: 1;">
+          <div class="disp" style="font-size: 19px; font-weight: 700;">Marie Hoffmann</div>
+          <div style="font-size: 12.5px; color: rgba(255,255,255,0.62); margin-top: 4px;">Balayage &amp; Gloss · 120 min · with Lena</div>
+          <div style="display: flex; gap: 7px; margin-top: 11px;">
+            <span style="padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,0.12); font-size: 11px; font-weight: 700;">7th visit</span>
+            <span style="padding: 4px 10px; border-radius: 999px; background: rgba(246,165,60,0.22); color: #f6a53c; font-size: 11px; font-weight: 700;">Note: allergic to bleach</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 7px; padding: 11px 20px; border-radius: 999px; background: #f0566e; font-size: 13px; font-weight: 700;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>
+            Check in
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 7px; padding: 11px 20px; border-radius: 999px; background: rgba(255,255,255,0.1); font-size: 13px; font-weight: 700;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            Message
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+        <div style="padding: 15px 16px; border-radius: 20px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07);">
+          <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #857b8f;">Booked today</div>
+          <div class="disp" style="font-size: 26px; font-weight: 700; margin-top: 4px; line-height: 1;">€742</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; margin-top: 10px; overflow: hidden;">
+            <div style="width: 78%; height: 100%; background: #12a594; border-radius: 999px;"></div>
+          </div>
+        </div>
+        <div style="padding: 15px 16px; border-radius: 20px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07);">
+          <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #857b8f;">Chairs full</div>
+          <div class="disp" style="font-size: 26px; font-weight: 700; margin-top: 4px; line-height: 1;">78%</div>
+          <div style="height: 4px; border-radius: 999px; background: #fdf1e3; margin-top: 10px; overflow: hidden;">
+            <div style="width: 78%; height: 100%; background: #f6a53c; border-radius: 999px;"></div>
+          </div>
+        </div>
+        <div style="grid-column: span 2; padding: 15px 16px; border-radius: 20px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); display: flex; align-items: center; gap: 12px;">
+          <div style="width: 36px; height: 36px; border-radius: 12px; background: #ede8fd; color: #6b4fd6; display: grid; place-items: center; flex-shrink: 0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.5-7-9.5A4 4 0 0 1 12 7a4 4 0 0 1 7 3.5C19 15.5 12 20 12 20z"></path></svg>
+          </div>
+          <div style="flex-grow: 1;">
+            <div style="font-size: 13px; font-weight: 700;">2 new regulars this week</div>
+            <div style="font-size: 11.5px; color: #857b8f; margin-top: 1px;">Second visit within 6 weeks</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- day timeline -->
+    <div style="flex-grow: 1; min-height: 0; padding: 18px 28px 24px;">
+      <div style="height: 100%; background: #fff; border-radius: 26px; box-shadow: 0 2px 8px rgba(80,46,66,0.07); padding: 16px 18px; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 13px;">
+          <span class="disp" style="font-size: 15px; font-weight: 700;">Today's chairs</span>
+          <div style="flex-grow: 1;"></div>
+          <div style="display: flex; align-items: center; gap: 14px; font-size: 11.5px; font-weight: 600; color: #857b8f;">
+            <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 9px; height: 9px; border-radius: 3px; background: #f0566e;"></span>Confirmed</span>
+            <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 9px; height: 9px; border-radius: 3px; background: #f6a53c;"></span>Held</span>
+            <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 9px; height: 9px; border-radius: 3px; background: repeating-linear-gradient(45deg, rgba(43,34,51,0.14) 0 3px, transparent 3px 6px);"></span>Off</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 52px repeat(3, minmax(0, 1fr)); gap: 10px; flex-grow: 1; min-height: 0;">
+
+          <!-- hour ruler -->
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div class="hd"></div>
+            <div style="position: relative; flex-grow: 1; font-size: 11px; font-weight: 700; color: #857b8f; font-variant-numeric: tabular-nums;">
+              <span style="position: absolute; top: 0%; transform: translateY(-50%);">09:00</span>
+              <span style="position: absolute; top: 18.18%; transform: translateY(-50%);">11:00</span>
+              <span style="position: absolute; top: 36.36%; transform: translateY(-50%);">13:00</span>
+              <span style="position: absolute; top: 54.55%; transform: translateY(-50%);">15:00</span>
+              <span style="position: absolute; top: 72.73%; transform: translateY(-50%);">17:00</span>
+              <span style="position: absolute; top: 90.91%; transform: translateY(-50%);">19:00</span>
+            </div>
+          </div>
+
+          <!-- Lena -->
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div class="hd">
+              <div style="width: 22px; height: 22px; border-radius: 999px; background: #f0566e; color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 800;">L</div>
+              <span style="font-size: 12.5px; font-weight: 700;">Lena</span>
+              <span style="font-size: 11px; color: #857b8f;">6h booked</span>
+            </div>
+            <div class="col" style="flex-grow: 1;">
+              <div class="ev book" style="top: 0%; height: 9.09%;"><div class="t" style="color: #d63a55;">09:00 Cut</div></div>
+              <div class="ev book" style="top: 13.64%; height: 18.18%;"><div class="t" style="color: #d63a55;">10:30 Balayage</div><div class="w" style="color: #a86a7d;">Sofia B. · 120 min</div></div>
+              <div class="ev book" style="top: 59.09%; height: 18.18%;"><div class="t" style="color: #d63a55;">15:30 Balayage</div><div class="w" style="color: #a86a7d;">Marie H. · 120 min</div></div>
+            </div>
+          </div>
+
+          <!-- Yusuf -->
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div class="hd">
+              <div style="width: 22px; height: 22px; border-radius: 999px; background: #12a594; color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 800;">Y</div>
+              <span style="font-size: 12.5px; font-weight: 700;">Yusuf</span>
+              <span style="font-size: 11px; color: #857b8f;">3h booked</span>
+            </div>
+            <div class="col" style="flex-grow: 1;">
+              <div class="ev book" style="top: 11.36%; height: 9.09%;"><div class="t" style="color: #d63a55;">10:15 Cut</div></div>
+              <div class="ev hold" style="top: 27.27%; height: 9.09%;"><div class="t" style="color: #a86717;">12:00 Held · 6:41</div></div>
+              <div class="ev book" style="top: 72.73%; height: 9.09%;"><div class="t" style="color: #d63a55;">17:00 Fade</div></div>
+            </div>
+          </div>
+
+          <!-- Marta -->
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div class="hd">
+              <div style="width: 22px; height: 22px; border-radius: 999px; background: #8b6cf0; color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 800;">M</div>
+              <span style="font-size: 12.5px; font-weight: 700;">Marta</span>
+              <span style="font-size: 11px; color: #857b8f;">half day</span>
+            </div>
+            <div class="col" style="flex-grow: 1;">
+              <div class="ev book" style="top: 0%; height: 13.64%;"><div class="t" style="color: #d63a55;">09:00 Highlights</div><div class="w" style="color: #a86a7d;">Nina W. · 90 min</div></div>
+              <div class="ev book" style="top: 18.18%; height: 6.82%;"><div class="t" style="color: #d63a55;">11:00 Toner</div></div>
+              <div class="ev off" style="top: 36.36%; height: 63.64%;"><span style="font-size: 11px; font-weight: 700; color: #857b8f;">Off from 13:00</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,107 @@
+{
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Customer"
+    },
+    {
+      "id": "page-2",
+      "name": "Operator & system"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "page": "page-1",
+      "title": "Shop landing page",
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 2500
+    },
+    {
+      "file": "Discovery.dc.html",
+      "page": "page-1",
+      "title": "Discovery feed",
+      "x": 500,
+      "y": 0,
+      "w": 390,
+      "h": 1500
+    },
+    {
+      "file": "Booking.dc.html",
+      "page": "page-1",
+      "title": "Booking \u2014 pick a time",
+      "x": 1000,
+      "y": 0,
+      "w": 390,
+      "h": 800
+    },
+    {
+      "file": "Confirmed.dc.html",
+      "page": "page-1",
+      "title": "Booked",
+      "x": 1500,
+      "y": 0,
+      "w": 390,
+      "h": 900
+    },
+    {
+      "file": "Today.dc.html",
+      "page": "page-2",
+      "title": "Back office \u2014 Today",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "Calendar.dc.html",
+      "page": "page-2",
+      "title": "Week calendar + appointment popup",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "System.dc.html",
+      "page": "page-2",
+      "title": "Design vocabulary",
+      "x": 0,
+      "y": 1060,
+      "w": 1200,
+      "h": 1120
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "page": "page-1",
+      "x": 0,
+      "y": -190,
+      "w": 620,
+      "text": "StyleNow \u2014 design pass\n\nMatched to the shipped tokens in apps/web/src/app/globals.css: Poppins/Inter, coral #f0566e on cream #fff9f3, teal/amber/violet accents, radii 12/16/22/28, pill controls. Nothing rounded to a grid.\n\nWhat changed and why is on the 'Design vocabulary' board, page 2."
+    },
+    {
+      "id": "photo-note",
+      "page": "page-1",
+      "x": 0,
+      "y": 2570,
+      "w": 390,
+      "text": "The cover is a marked placeholder. A salon page really wants photography here \u2014 it is the biggest remaining gap, and no drawing substitutes for it."
+    },
+    {
+      "id": "sidebar-note",
+      "page": "page-2",
+      "x": 0,
+      "y": -150,
+      "w": 700,
+      "text": "The one deliberate departure from the shipped app: the seven-tab bar becomes a left spine. A tab bar is a customer-app pattern; a tool open eight hours a day wants persistent navigation with room for live counts."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
+}

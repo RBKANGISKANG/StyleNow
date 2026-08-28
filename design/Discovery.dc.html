@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #fff9f3; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #2b2233; -webkit-font-smoothing: antialiased; }
+    a { color: #d63a55; text-decoration: none; }
+    a:hover { color: #b02a44; }
+    .disp { font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: -0.03em; }
+    .grain::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      opacity: 0.16; mix-blend-mode: overlay;
+    }
+    .rail { display: flex; gap: 10px; overflow: hidden; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 1500px; background: #fff9f3; padding-bottom: 86px; position: relative;">
+
+  <!-- ============ TOP BAR ============ -->
+  <div style="display: flex; align-items: center; gap: 10px; padding: 14px 18px 10px;">
+    <div style="width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, #f0566e, #f6a53c); display: grid; place-items: center; box-shadow: 0 2px 8px rgba(80,46,66,0.07);">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4L8.5 15.5"></path><path d="M20 20L8.5 8.5"></path></svg>
+    </div>
+    <div class="disp" style="font-size: 20px; font-weight: 700;">Style<span style="color: #f0566e;">Now</span></div>
+    <div style="flex-grow: 1;"></div>
+    <div style="padding: 7px 12px; border-radius: 999px; border: 1.5px solid rgba(43,34,51,0.09); background: #fff; font-size: 12px; font-weight: 700;">DE</div>
+    <div style="width: 34px; height: 34px; border-radius: 999px; border: 1.5px solid rgba(43,34,51,0.09); background: #fff; display: grid; place-items: center; color: #857b8f;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"></path></svg>
+    </div>
+  </div>
+
+  <!-- ============ SEARCH HERO ============ -->
+  <!-- The old hero spent a third of the screen restating the product name.
+       This one asks the only two questions that narrow a result set. -->
+  <div class="grain" style="position: relative; margin: 6px 14px 0; padding: 22px 20px 20px; border-radius: 28px; overflow: hidden; color: #fff; background: radial-gradient(110% 80% at 88% -10%, rgba(246,165,60,0.5) 0%, transparent 58%), radial-gradient(100% 90% at -8% 110%, rgba(139,108,240,0.45) 0%, transparent 60%), linear-gradient(126deg, #ee5570, #c93150);">
+    <h1 class="disp" style="font-size: 27px; font-weight: 700; line-height: 1.1; margin: 0; max-width: 260px; position: relative;">Book a chair<br>for tonight.</h1>
+    <p style="margin: 9px 0 0; font-size: 13px; opacity: 0.9; max-width: 250px; position: relative;">142 salons in Berlin with free slots in the next 48 hours.</p>
+
+    <div style="display: flex; gap: 8px; margin-top: 18px; position: relative;">
+      <div style="flex-grow: 1; display: flex; align-items: center; gap: 9px; padding: 13px 16px; border-radius: 999px; background: rgba(255,255,255,0.96); color: #2b2233;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#857b8f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="2.6"></circle></svg>
+        <span style="font-size: 13.5px; font-weight: 600;">Mitte, Berlin</span>
+      </div>
+      <div style="width: 48px; height: 48px; border-radius: 999px; background: #2b2233; display: grid; place-items: center; flex-shrink: 0;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ FILTER CHIPS ============ -->
+  <div class="rail" style="padding: 16px 18px 4px;">
+    <div style="flex-shrink: 0; display: flex; align-items: center; gap: 7px; padding: 10px 15px; border-radius: 999px; background: #2b2233; color: #fff; font-size: 12.5px; font-weight: 700;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>
+      Filters
+      <span style="min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #f0566e; font-size: 10.5px; font-weight: 800; display: grid; place-items: center;">2</span>
+    </div>
+    <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 15px; border-radius: 999px; background: #12a594; color: #fff; font-size: 12.5px; font-weight: 700;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13z"></path></svg>
+      Free tonight
+    </div>
+    <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 15px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 12.5px; font-weight: 700;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.58 1.11 6.47L12 17.45l-5.81 3.05 1.11-6.47-4.7-4.58 6.5-.95z"></path></svg>
+      4.5+
+    </div>
+    <div style="flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 15px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); color: #857b8f; font-size: 12.5px; font-weight: 700;">
+      Under €60
+    </div>
+  </div>
+
+  <!-- ============ TONIGHT RAIL ============ -->
+  <div style="margin-top: 22px;">
+    <div style="display: flex; align-items: flex-end; gap: 10px; padding: 0 18px 12px;">
+      <div style="flex-grow: 1;">
+        <h2 class="disp" style="font-size: 21px; font-weight: 700; margin: 0; line-height: 1.15;">Still free tonight</h2>
+        <p style="margin: 3px 0 0; font-size: 12.5px; color: #857b8f;">Last-minute slots, often cheaper</p>
+      </div>
+    </div>
+    <div class="rail" style="padding: 0 18px;">
+      <div style="flex-shrink: 0; width: 156px; border-radius: 24px; overflow: hidden; background: #fff; box-shadow: 0 4px 14px rgba(80,46,66,0.08);">
+        <div class="grain" style="position: relative; height: 88px; background: linear-gradient(140deg, #f0566e, #a83055);">
+          <div style="position: absolute; right: 9px; top: 9px; padding: 4px 9px; border-radius: 999px; background: rgba(255,255,255,0.94); color: #1f9d6c; font-size: 10.5px; font-weight: 800;">−20%</div>
+        </div>
+        <div style="padding: 12px 13px 14px;">
+          <div style="font-size: 13.5px; font-weight: 700; line-height: 1.25;">Chroma Studio Mitte</div>
+          <div style="display: flex; align-items: center; gap: 6px; margin-top: 7px;">
+            <span class="disp" style="font-size: 17px; font-weight: 700;">18:45</span>
+            <span style="font-size: 12px; color: #857b8f; text-decoration: line-through;">€65</span>
+            <span style="font-size: 13px; font-weight: 800; color: #1f9d6c;">€52</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex-shrink: 0; width: 156px; border-radius: 24px; overflow: hidden; background: #fff; box-shadow: 0 4px 14px rgba(80,46,66,0.08);">
+        <div class="grain" style="position: relative; height: 88px; background: linear-gradient(140deg, #12a594, #0b6f64);"></div>
+        <div style="padding: 12px 13px 14px;">
+          <div style="font-size: 13.5px; font-weight: 700; line-height: 1.25;">Fadehouse Barbers</div>
+          <div style="display: flex; align-items: center; gap: 6px; margin-top: 7px;">
+            <span class="disp" style="font-size: 17px; font-weight: 700;">19:15</span>
+            <span style="font-size: 13px; font-weight: 800;">€34</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex-shrink: 0; width: 156px; border-radius: 24px; overflow: hidden; background: #fff; box-shadow: 0 4px 14px rgba(80,46,66,0.08);">
+        <div class="grain" style="position: relative; height: 88px; background: linear-gradient(140deg, #8b6cf0, #5b3fc4);"></div>
+        <div style="padding: 12px 13px 14px;">
+          <div style="font-size: 13.5px; font-weight: 700; line-height: 1.25;">Velvet Nails</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RESULT LIST ============ -->
+  <div style="padding: 0 18px; margin-top: 28px;">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+      <h2 class="disp" style="font-size: 21px; font-weight: 700; margin: 0; line-height: 1.15; flex-grow: 1;">All salons</h2>
+      <div style="display: flex; padding: 3px; border-radius: 999px; background: #fdf1e3;">
+        <div style="padding: 6px 11px; border-radius: 999px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); color: #2b2233;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6"></rect><rect x="14" y="3" width="7" height="7" rx="1.6"></rect><rect x="3" y="14" width="7" height="7" rx="1.6"></rect><rect x="14" y="14" width="7" height="7" rx="1.6"></rect></svg>
+        </div>
+        <div style="padding: 6px 11px; border-radius: 999px; color: #857b8f;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 1 -->
+    <div style="border-radius: 26px; overflow: hidden; background: #fff; box-shadow: 0 4px 14px rgba(80,46,66,0.08), 0 16px 40px rgba(80,46,66,0.09);">
+      <div class="grain" style="position: relative; height: 132px; background: radial-gradient(90% 130% at 82% 6%, #ffcfa1 0%, transparent 58%), linear-gradient(140deg, #f0566e, #a83055);">
+        <div style="position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,0.95); color: #2b2233; font-size: 11.5px; font-weight: 800;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="#f6a53c"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.58 1.11 6.47L12 17.45l-5.81 3.05 1.11-6.47-4.7-4.58 6.5-.95z"></path></svg>
+            4.8 · 214
+          </div>
+        </div>
+        <div style="position: absolute; right: 11px; top: 11px; width: 32px; height: 32px; border-radius: 999px; background: rgba(255,255,255,0.22); backdrop-filter: blur(8px); display: grid; place-items: center; color: #fff;">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.5-7-9.5A4 4 0 0 1 12 7a4 4 0 0 1 7 3.5C19 15.5 12 20 12 20z"></path></svg>
+        </div>
+      </div>
+      <div style="padding: 15px 17px 16px;">
+        <div style="display: flex; align-items: flex-start; gap: 10px;">
+          <div style="flex-grow: 1;">
+            <div class="disp" style="font-size: 17px; font-weight: 700; line-height: 1.2;">Chroma Studio Mitte</div>
+            <div style="font-size: 12.5px; color: #857b8f; margin-top: 4px;">Colour · Mitte · 1.2 km</div>
+          </div>
+          <div style="text-align: right; flex-shrink: 0;">
+            <div style="font-size: 10.5px; color: #857b8f; font-weight: 700;">from</div>
+            <div class="disp" style="font-size: 18px; font-weight: 700;">€52</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 13px; padding-top: 13px; border-top: 1px solid rgba(43,34,51,0.09);">
+          <div style="display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; background: #e8f7f1; color: #1f9d6c; font-size: 11.5px; font-weight: 800;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13z"></path></svg>
+            Free in 40 min
+          </div>
+          <div style="flex-grow: 1;"></div>
+          <div style="padding: 9px 18px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 13px; font-weight: 700; box-shadow: 0 6px 16px rgba(240,86,110,0.35);">Book</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2 -->
+    <div style="border-radius: 26px; overflow: hidden; background: #fff; box-shadow: 0 4px 14px rgba(80,46,66,0.08), 0 16px 40px rgba(80,46,66,0.09); margin-top: 14px;">
+      <div class="grain" style="position: relative; height: 132px; background: radial-gradient(90% 130% at 20% 10%, #7ee0d0 0%, transparent 60%), linear-gradient(140deg, #12a594, #0a5f56);">
+        <div style="position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,0.95); color: #2b2233; font-size: 11.5px; font-weight: 800;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="#f6a53c"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.58 1.11 6.47L12 17.45l-5.81 3.05 1.11-6.47-4.7-4.58 6.5-.95z"></path></svg>
+            4.6 · 88
+          </div>
+          <div style="padding: 5px 10px; border-radius: 999px; background: rgba(43,34,51,0.5); backdrop-filter: blur(8px); color: #fff; font-size: 11.5px; font-weight: 800;">New</div>
+        </div>
+        <div style="position: absolute; right: 11px; top: 11px; width: 32px; height: 32px; border-radius: 999px; background: rgba(255,255,255,0.22); backdrop-filter: blur(8px); display: grid; place-items: center; color: #fff;">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.5-7-9.5A4 4 0 0 1 12 7a4 4 0 0 1 7 3.5C19 15.5 12 20 12 20z"></path></svg>
+        </div>
+      </div>
+      <div style="padding: 15px 17px 16px;">
+        <div style="display: flex; align-items: flex-start; gap: 10px;">
+          <div style="flex-grow: 1;">
+            <div class="disp" style="font-size: 17px; font-weight: 700; line-height: 1.2;">Fadehouse Barbers</div>
+            <div style="font-size: 12.5px; color: #857b8f; margin-top: 4px;">Barber · Kreuzberg · 2.6 km</div>
+          </div>
+          <div style="text-align: right; flex-shrink: 0;">
+            <div style="font-size: 10.5px; color: #857b8f; font-weight: 700;">from</div>
+            <div class="disp" style="font-size: 18px; font-weight: 700;">€34</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 13px; padding-top: 13px; border-top: 1px solid rgba(43,34,51,0.09);">
+          <div style="display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; background: #fdf4ec; color: #857b8f; font-size: 11.5px; font-weight: 700;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3.5 2"></path></svg>
+            Next free tomorrow 09:30
+          </div>
+          <div style="flex-grow: 1;"></div>
+          <div style="padding: 9px 18px; border-radius: 999px; background: #fdf4ec; border: 1.5px solid rgba(43,34,51,0.09); color: #2b2233; font-size: 13px; font-weight: 700;">Book</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BOTTOM NAV ============ -->
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; display: flex; padding: 9px 10px 16px; background: rgba(255,255,255,0.94); backdrop-filter: blur(16px); border-top: 1px solid rgba(43,34,51,0.09);">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; border-radius: 16px; background: #fde8ec; color: #f0566e;">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <span style="font-size: 10.5px; font-weight: 700;">Explore</span>
+    </div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; color: #857b8f;">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg>
+      <span style="font-size: 10.5px; font-weight: 700;">Bookings</span>
+    </div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; color: #857b8f;">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.5-7-9.5A4 4 0 0 1 12 7a4 4 0 0 1 7 3.5C19 15.5 12 20 12 20z"></path></svg>
+      <span style="font-size: 10.5px; font-weight: 700;">Saved</span>
+    </div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; color: #857b8f;">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"></path></svg>
+      <span style="font-size: 10.5px; font-weight: 700;">Account</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

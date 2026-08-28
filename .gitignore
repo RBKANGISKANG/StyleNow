@@ -5,3 +5,6 @@ dist/
 !.env.example
 *.log
 out/
+
+# Seeded design canvas — 2.6 MB of editor payload, rebuilt from design/*.dc.html
+design/stylenow-design-pass.html

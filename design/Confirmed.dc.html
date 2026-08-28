@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #fff9f3; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #2b2233; -webkit-font-smoothing: antialiased; }
+    a { color: #d63a55; text-decoration: none; }
+    a:hover { color: #b02a44; }
+    .disp { font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: -0.03em; }
+    .grain::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      opacity: 0.16; mix-blend-mode: overlay;
+    }
+  </style>
+</helmet>
+
+<div style="width: 390px; background: #fff9f3; padding-bottom: 34px;">
+
+  <!-- ============ CONFIRMATION BAND ============ -->
+  <div class="grain" style="position: relative; padding: 44px 22px 74px; overflow: hidden; text-align: center; color: #fff; background: radial-gradient(100% 80% at 20% 0%, rgba(126,224,208,0.5) 0%, transparent 58%), linear-gradient(150deg, #1f9d6c, #0f6b4c);">
+    <div style="width: 62px; height: 62px; margin: 0 auto; border-radius: 999px; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); display: grid; place-items: center; position: relative;">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>
+    </div>
+    <h1 class="disp" style="font-size: 27px; font-weight: 700; margin: 18px 0 0; line-height: 1.15; position: relative;">Your chair is booked</h1>
+    <p style="margin: 8px auto 0; font-size: 13.5px; opacity: 0.9; max-width: 250px; position: relative;">Lena is expecting you. We've emailed the details to anna@example.com.</p>
+  </div>
+
+  <!-- ============ TICKET ============ -->
+  <div style="margin: -54px 16px 0; position: relative;">
+    <div style="background: #fff; border-radius: 28px 28px 0 0; padding: 22px 22px 18px; box-shadow: 0 8px 20px rgba(80,46,66,0.13), 0 28px 60px rgba(80,46,66,0.14);">
+      <div style="display: flex; align-items: flex-start; gap: 13px;">
+        <div style="width: 50px; height: 50px; border-radius: 17px; background: linear-gradient(140deg, #f0566e, #f6a53c); display: grid; place-items: center; flex-shrink: 0; box-shadow: 0 6px 16px rgba(240,86,110,0.3);">
+          <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4L8.5 15.5"></path><path d="M20 20L8.5 8.5"></path></svg>
+        </div>
+        <div style="flex-grow: 1;">
+          <div class="disp" style="font-size: 18px; font-weight: 700; line-height: 1.2;">Cut &amp; Finish</div>
+          <div style="font-size: 12.5px; color: #857b8f; margin-top: 4px;">Chroma Studio Mitte · with Lena K.</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px;">
+        <div style="padding: 14px 15px; border-radius: 20px; background: #fdf4ec;">
+          <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #857b8f;">When</div>
+          <div class="disp" style="font-size: 19px; font-weight: 700; margin-top: 4px; line-height: 1.1;">18:45</div>
+          <div style="font-size: 12px; font-weight: 600; color: #857b8f; margin-top: 2px;">Thu 27 Aug</div>
+        </div>
+        <div style="padding: 14px 15px; border-radius: 20px; background: #fdf4ec;">
+          <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #857b8f;">Where</div>
+          <div style="font-size: 13px; font-weight: 700; margin-top: 6px; line-height: 1.3;">Torstr. 112<br>10119 Berlin</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Perforation: the paid/unpaid split is a real seam, so it looks like one. -->
+    <div style="position: relative; height: 22px; background: #fff; box-shadow: 0 8px 20px rgba(80,46,66,0.13);">
+      <div style="position: absolute; left: -11px; top: 0; width: 22px; height: 22px; border-radius: 999px; background: #fff9f3;"></div>
+      <div style="position: absolute; right: -11px; top: 0; width: 22px; height: 22px; border-radius: 999px; background: #fff9f3;"></div>
+      <div style="position: absolute; left: 18px; right: 18px; top: 10px; height: 2px; background: repeating-linear-gradient(to right, rgba(43,34,51,0.14) 0 6px, transparent 6px 12px);"></div>
+    </div>
+
+    <div style="background: #fff; border-radius: 0 0 28px 28px; padding: 4px 22px 22px; box-shadow: 0 28px 60px rgba(80,46,66,0.14);">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0;">
+        <div style="flex-grow: 1;">
+          <div style="font-size: 12px; color: #857b8f; font-weight: 600;">Paid now — deposit</div>
+          <div style="font-size: 12px; color: #857b8f; font-weight: 600; margin-top: 5px;">On the day</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="disp" style="font-size: 16px; font-weight: 700; color: #1f9d6c;">€10.00</div>
+          <div class="disp" style="font-size: 16px; font-weight: 700; margin-top: 3px;">€42.00</div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-radius: 16px; background: #fdf4ec; margin-top: 6px;">
+        <span style="font-size: 11.5px; font-weight: 700; color: #857b8f; letter-spacing: 0.05em;">REF</span>
+        <span class="disp" style="font-size: 14px; font-weight: 700; letter-spacing: 0.08em; font-variant-numeric: tabular-nums;">CM-4K7Q2</span>
+        <div style="flex-grow: 1;"></div>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#857b8f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2.5"></rect><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"></path></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ACTIONS ============ -->
+  <!-- Add-to-calendar is the primary action here, not a footnote: a static app
+       cannot push a reminder, so the customer's own calendar has to carry it. -->
+  <div style="padding: 0 16px; margin-top: 18px;">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-radius: 24px; background: #2b2233; color: #fff;">
+      <div style="width: 42px; height: 42px; border-radius: 14px; background: rgba(255,255,255,0.12); display: grid; place-items: center; flex-shrink: 0;">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg>
+      </div>
+      <div style="flex-grow: 1;">
+        <div style="font-size: 14px; font-weight: 700;">Add to calendar</div>
+        <div style="font-size: 11.5px; color: rgba(255,255,255,0.62); margin-top: 2px;">Reminders a day and 2 hours before</div>
+      </div>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+    </div>
+
+    <div style="display: flex; gap: 10px; margin-top: 10px;">
+      <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); font-size: 13.5px; font-weight: 700;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path><path d="M12 15V3"></path><path d="M8 7l4-4 4 4"></path></svg>
+        Share
+      </div>
+      <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); font-size: 13.5px; font-weight: 700;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="2.6"></circle></svg>
+        Directions
+      </div>
+    </div>
+
+    <!-- The cancellation terms in plain numbers, before anyone has to ask. -->
+    <div style="margin-top: 14px; padding: 16px 18px; border-radius: 24px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07);">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#12a594" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg>
+        <span style="font-size: 13.5px; font-weight: 700;">Free to cancel until Wed 18:45</span>
+      </div>
+      <p style="margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: #857b8f;">After that the €10 deposit covers 30% of the service. Cancel any time from My bookings — the refund is automatic.</p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

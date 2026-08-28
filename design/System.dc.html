@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #fff9f3; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; color: #2b2233; -webkit-font-smoothing: antialiased; }
+    a { color: #d63a55; text-decoration: none; }
+    a:hover { color: #b02a44; }
+    .disp { font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: -0.025em; }
+    .lbl { font-size: 10.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: #857b8f; }
+    .sw { border-radius: 16px; padding: 11px 12px 10px; height: 74px; display: flex; flex-direction: column; justify-content: flex-end; }
+    .sw b { font-size: 11.5px; font-weight: 800; display: block; }
+    .sw span { font-size: 10px; font-weight: 600; opacity: 0.75; font-variant-numeric: tabular-nums; }
+    .ico { width: 46px; height: 46px; border-radius: 15px; background: #fff; box-shadow: 0 2px 8px rgba(80,46,66,0.07); display: grid; place-items: center; color: #2b2233; }
+    .card { background: #fff; border-radius: 24px; padding: 22px 24px; box-shadow: 0 2px 8px rgba(80,46,66,0.07); }
+  </style>
+</helmet>
+
+<div style="width: 1200px; background: #fff9f3; padding: 34px 36px 40px;">
+
+  <div style="display: flex; align-items: flex-end; gap: 16px; margin-bottom: 26px;">
+    <div style="flex-grow: 1;">
+      <div class="lbl">StyleNow</div>
+      <h1 class="disp" style="font-size: 34px; font-weight: 700; margin: 6px 0 0; line-height: 1.1;">Design vocabulary</h1>
+      <p style="margin: 7px 0 0; font-size: 13.5px; color: #857b8f; max-width: 560px;">Lifted from <code style="font-family: ui-monospace, monospace; font-size: 12.5px;">apps/web/src/app/globals.css</code>. Every value below is the one the app ships — nothing rounded to a grid.</p>
+    </div>
+    <div style="display: flex; align-items: center; gap: 9px; padding: 11px 16px; border-radius: 18px; background: #2b2233; color: #fff;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7ee0d0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>
+      <span style="font-size: 12.5px; font-weight: 700;">Matches shipped tokens</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;">
+
+    <!-- COLOUR -->
+    <div class="card">
+      <div class="lbl">Colour</div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 13px;">
+        <div class="sw" style="background: #f0566e; color: #fff;"><b>Primary</b><span>#f0566e</span></div>
+        <div class="sw" style="background: #d63a55; color: #fff;"><b>Primary deep</b><span>#d63a55</span></div>
+        <div class="sw" style="background: #12a594; color: #fff;"><b>Teal</b><span>#12a594</span></div>
+        <div class="sw" style="background: #8b6cf0; color: #fff;"><b>Violet</b><span>#8b6cf0</span></div>
+        <div class="sw" style="background: #f6a53c; color: #4a2f08;"><b>Amber</b><span>#f6a53c</span></div>
+        <div class="sw" style="background: #1f9d6c; color: #fff;"><b>Success</b><span>#1f9d6c</span></div>
+        <div class="sw" style="background: #d64545; color: #fff;"><b>Danger</b><span>#d64545</span></div>
+        <div class="sw" style="background: #2b2233; color: #fff;"><b>Ink</b><span>#2b2233</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 9px;">
+        <div class="sw" style="background: #fff9f3; color: #2b2233; border: 1.5px solid rgba(43,34,51,0.09); height: 56px;"><b>Canvas</b><span>#fff9f3</span></div>
+        <div class="sw" style="background: #ffffff; color: #2b2233; border: 1.5px solid rgba(43,34,51,0.09); height: 56px;"><b>Surface</b><span>#ffffff</span></div>
+        <div class="sw" style="background: #fdf4ec; color: #2b2233; height: 56px;"><b>Surface 2</b><span>#fdf4ec</span></div>
+        <div class="sw" style="background: #fde8ec; color: #d63a55; height: 56px;"><b>Primary soft</b><span>#fde8ec</span></div>
+      </div>
+      <p style="margin: 13px 0 0; font-size: 12px; line-height: 1.5; color: #857b8f;">Accents carry meaning, not decoration: teal for money and availability, amber for held or waiting, violet for loyalty, red only for destructive.</p>
+    </div>
+
+    <!-- TYPE -->
+    <div class="card">
+      <div class="lbl">Type</div>
+      <div style="margin-top: 13px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span class="disp" style="font-size: 34px; font-weight: 700; line-height: 1;">Display 34</span>
+          <span style="font-size: 11px; color: #857b8f; font-weight: 600;">Poppins 700 · −0.03em</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span class="disp" style="font-size: 21px; font-weight: 700; line-height: 1;">Section 21</span>
+          <span style="font-size: 11px; color: #857b8f; font-weight: 600;">Poppins 700</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="font-size: 14.5px; font-weight: 700;">Label 14.5</span>
+          <span style="font-size: 11px; color: #857b8f; font-weight: 600;">Inter 700</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="font-size: 13.5px;">Body 13.5 — a cut that fits your week.</span>
+          <span style="font-size: 11px; color: #857b8f; font-weight: 600;">Inter 400 · 1.5</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="font-size: 12px; color: #857b8f; font-weight: 600;">Meta 12</span>
+          <span style="font-size: 11px; color: #857b8f; font-weight: 600;">Inter 600 · ink-soft</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span class="lbl">Micro 10.5 uppercase</span>
+          <span style="font-size: 11px; color: #857b8f; font-weight: 600;">Inter 800 · 0.07em</span>
+        </div>
+      </div>
+      <p style="margin: 15px 0 0; font-size: 12px; line-height: 1.5; color: #857b8f;">The gap the app was missing: everything sat between 12.8 and 16.8px, so nothing led. Display sizes are the fix.</p>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="card">
+      <div class="lbl">Controls</div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 13px;">
+        <div style="padding: 12px 22px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 14px; font-weight: 700; box-shadow: 0 6px 16px rgba(240,86,110,0.35);">Primary</div>
+        <div style="padding: 12px 22px; border-radius: 999px; background: #2b2233; color: #fff; font-size: 14px; font-weight: 700;">Dark</div>
+        <div style="padding: 12px 22px; border-radius: 999px; background: #fdf4ec; border: 1.5px solid rgba(43,34,51,0.09); font-size: 14px; font-weight: 700;">Soft</div>
+        <div style="padding: 12px 18px; border-radius: 999px; color: #857b8f; font-size: 14px; font-weight: 700;">Ghost</div>
+        <div style="padding: 12px 22px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 14px; font-weight: 700; opacity: 0.45;">Disabled</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px;">
+        <div style="padding: 9px 16px; border-radius: 999px; background: #fff; border: 1.5px solid rgba(43,34,51,0.09); color: #857b8f; font-size: 12.5px; font-weight: 700;">Chip</div>
+        <div style="padding: 9px 16px; border-radius: 999px; background: #12a594; color: #fff; font-size: 12.5px; font-weight: 700;">Chip on</div>
+        <div style="padding: 9px 16px; border-radius: 999px; background: #f0566e; color: #fff; font-size: 12.5px; font-weight: 700;">Chip primary</div>
+        <div style="display: flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 999px; background: #2b2233; color: #fff; font-size: 12.5px; font-weight: 700;">
+          Filters <span style="min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #f0566e; font-size: 10.5px; font-weight: 800; display: grid; place-items: center;">2</span>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px;">
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #e8f7f1; color: #1f9d6c; font-size: 11.5px; font-weight: 800;"><span style="width: 7px; height: 7px; border-radius: 999px; background: #1f9d6c;"></span>Open now</div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fdefdb; color: #a86717; font-size: 11.5px; font-weight: 800;">Held 6:41</div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fde8ec; color: #d63a55; font-size: 11.5px; font-weight: 800;">Confirmed</div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #ede8fd; color: #6b4fd6; font-size: 11.5px; font-weight: 800;">Regular</div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fdf4ec; color: #857b8f; font-size: 11.5px; font-weight: 800;">Closed</div>
+      </div>
+      <p style="margin: 15px 0 0; font-size: 12px; line-height: 1.5; color: #857b8f;">Every hit target is 44px or more on a phone. Radii: 12 / 16 / 22 / 28, pills at 999.</p>
+    </div>
+
+    <!-- ICONS -->
+    <div class="card">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="lbl" style="flex-grow: 1;">Icons — replacing emoji</span>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #fde8ec; color: #d63a55; font-size: 10.5px; font-weight: 800;">Fix</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 9px; margin-top: 13px;">
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4L8.5 15.5"></path><path d="M20 20L8.5 8.5"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.58 1.11 6.47L12 17.45l-5.81 3.05 1.11-6.47-4.7-4.58 6.5-.95z"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="2.6"></circle></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3.5 2"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13z"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M13.7 21a2 2 0 0 1-3.4 0"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.5-7-9.5A4 4 0 0 1 12 7a4 4 0 0 1 7 3.5C19 15.5 12 20 12 20z"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path><path d="M12 15V3"></path><path d="M8 7l4-4 4 4"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9.5" cy="7" r="4"></circle><path d="M22 20v-2a4 4 0 0 0-3-3.9"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2.2 2A17 17 0 0 1 3 6.2 2 2 0 0 1 5 4z"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"></path><path d="M6 7l1 13h10l1-13"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></div>
+        <div class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>
+      </div>
+      <p style="margin: 15px 0 0; font-size: 12px; line-height: 1.5; color: #857b8f;">The app currently uses emoji for icons — ⚡ 🕐 📍 🗣 ⭐ 🔄. They render differently on every platform, cannot take brand colour, and read as unfinished. This set is stroke-based on a 24px grid at 1.8, so it scales and recolours.</p>
+    </div>
+  </div>
+
+  <!-- WHAT CHANGED -->
+  <div class="card" style="margin-top: 18px;">
+    <div class="lbl">What this pass changes, and why</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 15px;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; font-size: 11px; font-weight: 800;">1</span>
+          <span style="font-size: 13.5px; font-weight: 700;">Emoji became icons</span>
+        </div>
+        <p style="margin: 7px 0 0; font-size: 12.5px; line-height: 1.55; color: #857b8f;">Every glyph in the product is now a stroke SVG that takes brand colour and renders the same on a Pixel and an iPhone.</p>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; font-size: 11px; font-weight: 800;">2</span>
+          <span style="font-size: 13.5px; font-weight: 700;">A type scale with a top</span>
+        </div>
+        <p style="margin: 7px 0 0; font-size: 12.5px; line-height: 1.55; color: #857b8f;">Nothing in the app was larger than 16.8px, so every screen read at one volume. Display sizes give each page one thing that leads.</p>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; font-size: 11px; font-weight: 800;">3</span>
+          <span style="font-size: 13.5px; font-weight: 700;">Price differences shown</span>
+        </div>
+        <p style="margin: 7px 0 0; font-size: 12.5px; line-height: 1.55; color: #857b8f;">Dynamic pricing already computes an off-peak discount. It was invisible. Now €52-against-€65 is on the card, the slot and the rail.</p>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; font-size: 11px; font-weight: 800;">4</span>
+          <span style="font-size: 13.5px; font-weight: 700;">Services stopped being a list</span>
+        </div>
+        <p style="margin: 7px 0 0; font-size: 12.5px; line-height: 1.55; color: #857b8f;">A €189 balayage and a €39 blow-dry were the same object. The signature service now gets a card; the rest stay compact rows.</p>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; font-size: 11px; font-weight: 800;">5</span>
+          <span style="font-size: 13.5px; font-weight: 700;">Empty time became a target</span>
+        </div>
+        <p style="margin: 7px 0 0; font-size: 12.5px; line-height: 1.55; color: #857b8f;">On the operator calendar every free half-hour is a dashed add-slot, so booking a walk-in never means hunting for a toolbar button.</p>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #fde8ec; color: #d63a55; display: grid; place-items: center; font-size: 11px; font-weight: 800;">6</span>
+          <span style="font-size: 13.5px; font-weight: 700;">Seven tabs became a spine</span>
+        </div>
+        <p style="margin: 7px 0 0; font-size: 12.5px; line-height: 1.55; color: #857b8f;">A top tab bar is a customer-app pattern. A tool open eight hours a day wants a persistent sidebar with room for live counts.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
