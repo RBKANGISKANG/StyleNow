@@ -2084,3 +2084,31 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .cal-legend .sw.walkin { background: repeating-linear-gradient(45deg, #cfc4d6, #cfc4d6 3px, #c2b6ca 3px, #c2b6ca 6px); }
 .cal-legend .sw.off { background: transparent; border: 1.5px dashed var(--line); }
 .stat-sub { font-size: 0.68rem; color: var(--ink-soft); margin-top: 3px; line-height: 1.35; }
+
+/* --- where the salon is ---------------------------------------------------- */
+.shop-map-frame { position: relative; height: 220px; background: var(--bg-soft); }
+.shop-map-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.shop-map-out {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  color: var(--ink-soft); text-align: center; padding: 0 24px;
+  font-size: 0.78rem; font-weight: 600; line-height: 1.45;
+}
+.shop-map-skeleton {
+  position: absolute; inset: 0;
+  background: linear-gradient(100deg, var(--bg-soft) 30%, var(--surface-2) 50%, var(--bg-soft) 70%);
+  background-size: 300% 100%;
+  animation: mapshine 1.4s ease-in-out infinite;
+}
+@keyframes mapshine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.shop-map-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; padding: 13px 16px;
+}
+.shop-map-addr {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.83rem; font-weight: 600; color: var(--ink);
+}
+.shop-map-links { display: inline-flex; align-items: center; gap: 12px; }
+.shop-map-osm { font-size: 0.75rem; font-weight: 700; color: var(--ink-soft); }
+.shop-map-osm:hover { color: var(--ink); }

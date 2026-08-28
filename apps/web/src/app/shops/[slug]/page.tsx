@@ -20,6 +20,8 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
     about: shop.about,
     address: shop.address,
     district: shop.district,
+    lat: shop.lat,
+    lng: shop.lng,
     gradient: shop.gradient,
     emoji: shop.emoji,
     languagesSpoken: shop.languagesSpoken,

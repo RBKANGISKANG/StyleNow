@@ -9,6 +9,7 @@ import { money } from '@/lib/format';
 import { apiShopReviews, apiShopLogo, apiShopServices } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
+import { ShopMap } from '@/components/ShopMap';
 import { useStudio } from '@/lib/design';
 import { useFavourites } from '@/lib/favs';
 
@@ -32,6 +33,8 @@ export interface ShopData {
   about: { en: string; de: string };
   address: string;
   district: string;
+  lat: number;
+  lng: number;
   gradient: [string, string];
   emoji: string;
   languagesSpoken: string[];
@@ -188,8 +191,13 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         <div className="panel">
           <p style={{ fontSize: '0.93rem' }}>{shop.about[lang]}</p>
           <p style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
-            <Glyph name="pin" emoji="📍" size={13} /> {shop.address} · {t('free_until', { h: shop.policy.freeUntilHours })}
+            <Glyph name="pin" emoji="📍" size={13} /> {t('free_until', { h: shop.policy.freeUntilHours })}
           </p>
+        </div>
+        {/* The address moves into the map, where it is next to the thing that
+            answers what an address is really for. */}
+        <div className="panel" style={{ padding: 0, overflow: 'hidden', marginTop: 14 }}>
+          <ShopMap name={shop.name} address={shop.address} lat={shop.lat} lng={shop.lng} />
         </div>
       </section>
 
