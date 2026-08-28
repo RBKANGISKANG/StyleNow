@@ -9,7 +9,7 @@
  * People are grouped by phone number when they gave one, because the same
  * person books from a laptop, then a phone, then gets booked at the counter.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf } from '@/lib/format';
 import {
@@ -39,6 +39,7 @@ function CustomersTab({ shopId }: { shopId: string }) {
   const [rows, setRows] = useState<CustomerRow[] | null>(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
+  const [open, setOpen] = useState<string | null>(null);
   const { setToast, toastEl } = useToast();
 
   const load = useCallback(() => {
@@ -145,80 +146,103 @@ function CustomersTab({ shopId }: { shopId: string }) {
               <p>{t('no_results')}</p>
             </div>
           ) : (
-            shown.map((c) => (
-              <div key={c.key} className="cus-card">
-                <div className="cus-head">
-                  <div className="avatar" style={{ background: 'var(--violet)', margin: 0, width: 40, height: 40, fontSize: '1rem' }}>
-                    {c.name[0]?.toUpperCase() ?? '?'}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 140 }}>
-                    <div style={{ fontWeight: 800 }}>
-                      {c.name}
-                      {c.visits >= 5 && <span className="cus-tag regular">★ {t('cus_regular')}</span>}
-                      {c.noShows > 0 && <span className="cus-tag risk">⚠ {c.noShows} {t('cus_noshow')}</span>}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--ink-soft)' }}>
-                      {c.phone ? (
-                        <a href={`tel:${c.phone.replace(/\s/g, '')}`} style={{ fontWeight: 600 }}>
-                          📞 {c.phone}
-                        </a>
-                      ) : (
-                        t('cus_no_phone')
+            <div className="dtable-wrap">
+              <table className="dtable">
+                <thead>
+                  <tr>
+                    <th>{t('cus_col_who')}</th>
+                    <th>{t('cus_col_contact')}</th>
+                    <th className="num">{t('cus_visits_k')}</th>
+                    <th className="num">{t('cus_spent')}</th>
+                    <th>{t('cus_last')}</th>
+                    <th>{t('cus_next')}</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((c) => (
+                    <Fragment key={c.key}>
+                      <tr className={open === c.key ? 'open' : undefined}>
+                        <td data-label={t('cus_col_who')}>
+                          <div className="dt-person">
+                            <span className="avatar" style={{ background: 'var(--violet)', margin: 0, width: 34, height: 34, fontSize: '0.85rem' }}>
+                              {c.name[0]?.toUpperCase() ?? '?'}
+                            </span>
+                            <span>
+                              <strong>{c.name}</strong>
+                              {c.visits >= 5 && <span className="cus-tag regular">★ {t('cus_regular')}</span>}
+                              {c.noShows > 0 && <span className="cus-tag risk">⚠ {c.noShows} {t('cus_noshow')}</span>}
+                              {c.favouriteService && (
+                                <span className="dt-sub">
+                                  {c.favouriteService.emoji} {c.favouriteService.name[lang]}
+                                  {c.averageRating !== null && ` · ★ ${c.averageRating}`}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td data-label={t('cus_col_contact')}>
+                          {c.phone ? (
+                            <a href={`tel:${c.phone.replace(/\s/g, '')}`} style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {c.phone}
+                            </a>
+                          ) : (
+                            <span className="dt-muted">{t('cus_no_phone')}</span>
+                          )}
+                        </td>
+                        <td data-label={t('cus_visits_k')} className="num"><strong>{c.visits}</strong></td>
+                        <td data-label={t('cus_spent')} className="num">{money(c.spentCents, lang)}</td>
+                        <td data-label={t('cus_last')}>{c.lastVisit ? day(c.lastVisit) : <span className="dt-muted">—</span>}</td>
+                        <td data-label={t('cus_next')}>
+                          {c.nextVisit ? (
+                            <strong style={{ color: 'var(--teal)' }}>{day(c.nextVisit)} · {timeOf(c.nextVisit, lang)}</strong>
+                          ) : (
+                            <span className="dt-muted">—</span>
+                          )}
+                        </td>
+                        <td className="dt-actions">
+                          <button className="btn btn-soft sm" onClick={() => setOpen(open === c.key ? null : c.key)}>
+                            {open === c.key ? t('cus_close') : t('cus_open')}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {open === c.key && (
+                        <tr className="dt-detail">
+                          <td colSpan={7}>
+                            {c.customerNotes.length > 0 && (
+                              <div className="cus-notes">
+                                <strong>💬 {t('cus_said')}</strong>
+                                {c.customerNotes.slice(0, 3).map((n, i) => (
+                                  <p key={i}>“{n}”</p>
+                                ))}
+                              </div>
+                            )}
+                            <label className="cus-note-edit">
+                              <span>🔒 {t('cus_private_note')}</span>
+                              <input
+                                className="input"
+                                defaultValue={c.shopNote}
+                                key={`${c.key}-${c.shopNote}`}
+                                placeholder={t('cus_private_ph')}
+                                maxLength={280}
+                                onBlur={(e) => {
+                                  if (e.target.value.trim() === c.shopNote) return;
+                                  void apiSetCustomerNote(shopId, c.key, e.target.value).then(() => {
+                                    setToast('💾 ' + t('team_saved'));
+                                    load();
+                                  });
+                                }}
+                              />
+                            </label>
+                          </td>
+                        </tr>
                       )}
-                      {c.favouriteService && ` · ${c.favouriteService.emoji} ${c.favouriteService.name[lang]}`}
-                      {c.averageRating !== null && ` · ★ ${c.averageRating}`}
-                    </div>
-                  </div>
-                  <div className="hr-kpis">
-                    <div className="hr-kpi">
-                      <span className="k">{t('cus_visits_k')}</span>
-                      <span className="v">{c.visits}</span>
-                    </div>
-                    <div className="hr-kpi">
-                      <span className="k">{t('cus_spent')}</span>
-                      <span className="v">{money(c.spentCents, lang)}</span>
-                    </div>
-                    <div className="hr-kpi">
-                      <span className="k">{t('cus_last')}</span>
-                      <span className="v">{c.lastVisit ? day(c.lastVisit) : '—'}</span>
-                    </div>
-                    <div className="hr-kpi">
-                      <span className="k">{t('cus_next')}</span>
-                      <span className="v">
-                        {c.nextVisit ? `${day(c.nextVisit)} · ${timeOf(c.nextVisit, lang)}` : '—'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {c.customerNotes.length > 0 && (
-                  <div className="cus-notes">
-                    <strong>💬 {t('cus_said')}</strong>
-                    {c.customerNotes.slice(0, 3).map((n, i) => (
-                      <p key={i}>“{n}”</p>
-                    ))}
-                  </div>
-                )}
-
-                <label className="cus-note-edit">
-                  <span>🔒 {t('cus_private_note')}</span>
-                  <input
-                    className="input"
-                    defaultValue={c.shopNote}
-                    key={`${c.key}-${c.shopNote}`}
-                    placeholder={t('cus_private_ph')}
-                    maxLength={280}
-                    onBlur={(e) => {
-                      if (e.target.value.trim() === c.shopNote) return;
-                      void apiSetCustomerNote(shopId, c.key, e.target.value).then(() => {
-                        setToast('💾 ' + t('team_saved'));
-                        load();
-                      });
-                    }}
-                  />
-                </label>
-              </div>
-            ))
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>💡 {t('cus_hint')}</p>
         </>

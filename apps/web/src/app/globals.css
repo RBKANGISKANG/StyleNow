@@ -1856,3 +1856,61 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   }
   [data-design="studio"][data-surface="operator"] .op-main { padding: 16px 18px 24px; }
 }
+
+/* --- data tables: the roster and the customer book ------------------------
+   Past a handful of rows a stack of cards is a scroll and a squint. A table
+   puts the same field in the same column for everyone, so rows can be compared
+   down the page instead of remembered across it. */
+.dtable-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.dtable-count { font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); }
+
+.dtable-wrap { overflow-x: auto; }
+.dtable { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.dtable th {
+  text-align: left; padding: 8px 10px;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-soft); white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.dtable th.num, .dtable td.num { text-align: right; }
+.dtable td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.dtable tbody tr:hover > td { background: var(--surface-2); }
+.dtable tbody tr.open > td { background: var(--primary-soft); }
+.dtable tr:last-child > td { border-bottom: none; }
+
+.dt-person { display: flex; align-items: center; gap: 10px; }
+.dt-sub { display: block; font-size: 0.74rem; font-weight: 500; color: var(--ink-soft); margin-top: 2px; }
+.dt-muted { color: var(--ink-soft); }
+.dt-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.dt-select {
+  padding: 6px 10px; border-radius: 999px;
+  border: 1.5px solid var(--line); background: var(--surface);
+  font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.dt-detail > td { background: var(--surface-2); }
+
+/* A seven-column table on a 400px screen is a horizontal scroll nobody wins.
+   Below the breakpoint each row folds into a labelled card — same data, same
+   order, and every field keeps the heading it belongs to. */
+@media (max-width: 900px) {
+  .dtable, .dtable tbody, .dtable tr, .dtable td { display: block; width: 100%; }
+  .dtable thead { display: none; }
+  .dtable tbody tr {
+    border: 1.5px solid var(--line); border-radius: var(--r-lg);
+    padding: 6px 4px; margin-bottom: 10px; background: var(--surface);
+  }
+  .dtable tbody tr:hover > td, .dtable tbody tr.open > td { background: none; }
+  .dtable tbody tr.open { border-color: var(--primary); }
+  .dtable td {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 7px 12px; border-bottom: none; text-align: left;
+  }
+  .dtable td.num { text-align: right; }
+  .dtable td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--ink-soft); flex-shrink: 0;
+  }
+  .dt-actions { justify-content: flex-start; padding-top: 4px; }
+  .dt-detail > td { background: none; }
+}
