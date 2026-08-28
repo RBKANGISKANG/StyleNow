@@ -28,6 +28,10 @@ import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar
 import { AppointmentDialog, type DialogBooking } from '@/components/AppointmentDialog';
 import { Modal } from '@/components/Modal';
 import { Briefing } from '@/components/Briefing';
+import { DayHeadline, NextUpCard } from '@/components/OperatorToday';
+import { CustomerPicker } from '@/components/CustomerPicker';
+import { Glyph } from '@/components/Icon';
+import { useStudio } from '@/lib/design';
 import { useToast } from './toast';
 import { OperatorShell, useOverview, type Overview } from './shell';
 import type { ShopRef } from '@/lib/owned-shops';
@@ -66,6 +70,7 @@ const SPAN_KEY = 'stylenow.today.span';
 
 function TodayTab({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
+  const studio = useStudio();
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
   // Day is the shift you are running; week and month are the diary you plan in.
   const [span, setSpan] = useState<'day' | 'week' | 'month'>('day');
@@ -142,6 +147,20 @@ function TodayTab({ shopId }: { shopId: string }) {
 
   return (
     <>
+      {studio && span === 'day' && (
+        <>
+          <DayHeadline shopId={shopId} date={date} data={data} onNew={() => setAddFor({ date, staffId: null })} />
+          <NextUpCard
+            shopId={shopId}
+            date={date}
+            data={data}
+            onOpen={() => {
+              setSpan('day');
+              setView('calendar');
+            }}
+          />
+        </>
+      )}
       <div className="today-bar">
         <div className="seg">
           {CALENDAR_SPANS.map((sp) => (
@@ -160,9 +179,11 @@ function TodayTab({ shopId }: { shopId: string }) {
             </button>
           </div>
         )}
-        <button className="btn btn-primary sm" onClick={() => setAddFor({ date, staffId: null })}>
-          {t('dash_new')}
-        </button>
+        {!(studio && span === 'day') && (
+          <button className="btn btn-primary sm" onClick={() => setAddFor({ date, staffId: null })}>
+            {t('dash_new')}
+          </button>
+        )}
         <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>
           {span === 'day' ? `🔒 ${t('own_scope')}` : `${range.from} → ${range.to}`}
         </span>
@@ -559,8 +580,9 @@ function NewBooking({
             style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 600 }}
           />
         </label>
+        {/* No glyph here: each option already carries the service's own emoji,
+            so a scissors on the label rendered "✂️ ✂️ Cut & Finish". */}
         <label className="chip">
-          ✂️
           <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
@@ -570,7 +592,7 @@ function NewBooking({
           </select>
         </label>
         <label className="chip">
-          👤
+          <Glyph name="user" emoji="👤" size={15} />
           <select value={staffId ?? ''} onChange={(e) => setStaffId(e.target.value || null)}>
             <option value="">{t('any_staff')}</option>
             {staff.map((s) => (
@@ -578,13 +600,13 @@ function NewBooking({
             ))}
           </select>
         </label>
-        <input
-          className="input"
-          style={{ flex: 1, minWidth: 180 }}
-          placeholder={`${t('dash_cust_name')} *`}
-          value={customer}
-          onChange={(e) => setCustomer(e.target.value)}
-          maxLength={60}
+        <CustomerPicker
+          shopId={shopId}
+          name={customer}
+          onPick={({ name, phone: p }) => {
+            setCustomer(name);
+            if (p !== undefined) setPhone(p);
+          }}
         />
         <input
           className="input"

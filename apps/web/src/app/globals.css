@@ -1914,3 +1914,98 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   .dt-actions { justify-content: flex-start; padding-top: 4px; }
   .dt-detail > td { background: none; }
 }
+
+/* --- studio Today: the day, then who is about to walk in ------------------ */
+.day-head {
+  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  margin: 4px 0 18px;
+}
+.day-head-txt { flex: 1; min-width: 220px; }
+.day-head h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 3vw, 1.9rem); font-weight: 700;
+  letter-spacing: -0.03em; line-height: 1.1;
+}
+.day-head p { margin-top: 5px; font-size: 0.85rem; color: var(--ink-soft); }
+
+/* The one card the desk reads first, so it gets the ink background and the
+   display-size clock. It is deliberately absent on a past or future date, and
+   once the last appointment has started — an empty "next up" is furniture. */
+.nextup-op {
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  padding: 20px 24px; margin-bottom: 18px;
+  background: var(--ink); color: #fff;
+  border-radius: var(--r-xl);
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.nextup-op:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.nu-when {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding-right: 22px; border-right: 1px solid rgba(255, 255, 255, 0.14);
+}
+.nu-when .k {
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.nu-time { font-family: var(--font-display); font-size: 2rem; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em; }
+.nu-in { font-size: 0.74rem; font-weight: 700; color: var(--teal-soft); }
+.nu-who { flex: 1; min-width: 200px; }
+.nu-who strong { font-family: var(--font-display); font-size: 1.18rem; font-weight: 700; letter-spacing: -0.02em; }
+.nu-svc { display: block; font-size: 0.8rem; color: rgba(255, 255, 255, 0.62); margin-top: 3px; }
+.nu-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.nu-tag {
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.7rem; font-weight: 700;
+}
+.nu-tag.warn { background: rgba(246, 165, 60, 0.22); color: var(--amber); }
+.nu-go {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.78rem; font-weight: 800; color: rgba(255, 255, 255, 0.72); white-space: nowrap;
+}
+@media (max-width: 620px) {
+  .nu-when { border-right: none; padding-right: 0; }
+  .nextup-op { gap: 14px; padding: 16px 18px; }
+}
+
+/* The briefing is a three-up row on a desk, one per line on a phone. */
+[data-design="studio"][data-surface="operator"] .bf-list {
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+}
+
+/* --- picking an existing customer on a new appointment -------------------- */
+.cpick { position: relative; flex: 1; min-width: 200px; }
+.cpick-field { position: relative; display: flex; align-items: center; }
+.cpick-field svg { position: absolute; left: 13px; color: var(--ink-soft); pointer-events: none; }
+.cpick-field .input { width: 100%; padding-left: 36px; }
+.cpick-list {
+  position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 5px);
+  max-height: 260px; overflow-y: auto;
+  background: var(--surface); border-radius: var(--r-md);
+  box-shadow: var(--shadow); border: 1.5px solid var(--line);
+  padding: 5px; list-style: none;
+}
+.cpick-hint {
+  padding: 6px 10px 4px;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.cpick-list button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; padding: 8px 10px; border-radius: var(--r-sm); text-align: left;
+}
+.cpick-list button:hover { background: var(--surface-2); }
+.cpick-name { font-size: 0.86rem; font-weight: 700; }
+.cpick-meta { font-size: 0.72rem; color: var(--ink-soft); }
+.cpick-flag {
+  margin-top: 3px; padding: 2px 8px; border-radius: 999px;
+  background: var(--amber-soft); color: #a86717; font-size: 0.66rem; font-weight: 800;
+}
+.cpick-known {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-top: 6px; padding: 7px 11px; border-radius: var(--r-sm);
+  background: var(--teal-soft); color: #0d7f72;
+  font-size: 0.74rem; font-weight: 700;
+}
+.cpick-known em { font-style: normal; font-weight: 500; color: var(--ink); }
