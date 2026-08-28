@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'missing_params' }, { status: 400 });
   }
   try {
-    return NextResponse.json(availability(shopId, serviceIds, date, deviceId, staffId));
+    const backfill = p.get('backfill') === '1';
+    return NextResponse.json(availability(shopId, serviceIds, date, deviceId, staffId, { backfill }));
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 404 });
   }

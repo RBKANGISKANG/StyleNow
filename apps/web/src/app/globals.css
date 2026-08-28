@@ -2009,3 +2009,13 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   font-size: 0.74rem; font-weight: 700;
 }
 .cpick-known em { font-style: normal; font-weight: 500; color: var(--ink); }
+
+/* Recording a day that has already gone is a different act from booking one
+   that has not, so it says so before you pick a time. */
+.backfill-note {
+  display: flex; gap: 9px;
+  padding: 11px 15px; margin: 10px 0 4px;
+  border-radius: var(--r-md);
+  background: var(--amber-soft); color: #7a4a10;
+  font-size: 0.78rem; line-height: 1.5; font-weight: 600;
+}

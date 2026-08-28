@@ -328,6 +328,183 @@ if (IS_BROWSER && state.bookings.size === 0) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// demo history
+//
+// A brand-new visitor used to land on a salon with a roster, a menu and no
+// past: no customers, no reviews, no revenue, an empty waiting list, and a
+// "next up" card with nobody in it. Every screen that summarises the business
+// had nothing to summarise, which reads as broken rather than new.
+//
+// So a first visit gets six weeks of trading written in. It is deterministic —
+// same seed, same salon, same history on every device — and it only ever runs
+// when there is genuinely nothing stored, so it can never overwrite a real
+// booking somebody made. Written straight into state rather than through
+// createHold: this is fixture data, not traffic, and it must not consume
+// idempotency keys or fight the seat contract for slots it is itself defining.
+// ---------------------------------------------------------------------------
+
+/**
+ * The handful of regulars a salon actually knows by name, with the private
+ * notes it keeps about them.
+ */
+const DEMO_REGULARS: Array<{ name: string; phone: string; note?: string }> = [
+  { name: 'Marie Hoffmann', phone: '+49 170 555 0142', note: 'Colour 7.1, no ammonia. Prefers the window chair.' },
+  { name: 'Sofia Brandt', phone: '+49 151 555 0198', note: 'Allergic to bleach — always patch test.' },
+  { name: 'Nele Braun', phone: '+49 176 555 0477', note: 'Books 6-weekly, likes the 18:00 slot.' },
+  { name: 'Amara Osei', phone: '+49 159 555 0844', note: 'Two no-shows — take a deposit.' },
+  { name: 'Jonas Feld', phone: '+49 160 555 0311' },
+  { name: 'Ida Roth', phone: '+49 152 555 0620' },
+];
+
+// Everyone else. Six weeks of trading is a few hundred visits, and most of them
+// are people who came once — drawing every booking from a short list instead
+// produced a customer book of ten people with twenty-six visits each, which is
+// not a salon, it is a subscription.
+const DEMO_FIRST = ['Lena', 'Tobias', 'Hanna', 'Ruben', 'Clara', 'Felix', 'Mila', 'Jonas', 'Emil', 'Greta',
+  'Paul', 'Ayse', 'Noah', 'Leonie', 'Milan', 'Frida', 'Anton', 'Yara', 'Theo', 'Juna'];
+const DEMO_LAST = ['Weber', 'Vogel', 'Kaiser', 'Lang', 'Schulz', 'Hartmann', 'Neumann', 'Beck', 'Sommer',
+  'Winkler', 'Krause', 'Adler', 'Fuchs', 'Brandt', 'Reuter', 'Engel'];
+
+const DEMO_REVIEWS: Array<{ rating: number; text: string }> = [
+  { rating: 5, text: 'Understood exactly what I wanted — best balayage I have ever had.' },
+  { rating: 5, text: 'Booked at 11:00, sat in the chair at 11:00. Great cut.' },
+  { rating: 4, text: 'Lovely space, fair prices, and they never rush you.' },
+  { rating: 5, text: 'Third time back. They remember how I like it, which saves the whole conversation.' },
+  { rating: 3, text: 'Fine cut but I waited twenty minutes past my slot.' },
+  { rating: 5, text: 'Walked out feeling like a different person. Worth every euro.' },
+];
+
+/** Fixture bookings for one shop, spread over the past twelve weeks and the next two. */
+function seedDemoHistory(shop: SeedShop): void {
+  const rand = mulberry32(hash(`demo:${shop.id}`));
+  // Built once per shop and reused, so the same person can walk in twice.
+  const pool = mulberry32(hash(`pool:${shop.id}`));
+  const demoPool: Array<{ name: string; phone: string }> = Array.from({ length: 400 }, (_, i) => {
+    const f = DEMO_FIRST[Math.floor(pool() * DEMO_FIRST.length)];
+    const l = DEMO_LAST[Math.floor(pool() * DEMO_LAST.length)];
+    const n = 1000 + Math.floor(pool() * 8999);
+    return { name: `${f} ${l}`, phone: `+49 1${50 + (i % 40)} 555 ${n}` };
+  });
+  const team = effectiveStaff(shop.id);
+  if (team.length === 0 || shop.services.length === 0) return;
+  const today = todayIso();
+
+  for (let d = -84; d <= 14; d++) {
+    const iso = addDays(today, d);
+    if (isShopClosed(shop.id, iso)) continue;
+    const dow = isoDow(dayStart(iso));
+
+    for (const staff of team) {
+      const shifts = staff.shifts[dow] ?? [];
+      if (shifts.length === 0) continue;
+      // Busier as the day gets closer to today, thinner in the future — which
+      // is what a real book looks like, and what makes "tomorrow is quiet"
+      // mean something.
+      const density = d < 0 ? 0.55 : d === 0 ? 0.5 : Math.max(0.32 - d * 0.02, 0.08);
+
+      for (const w of shifts) {
+        for (let min = w.startMin; min + 60 <= w.endMin; min += 90) {
+          if (rand() > density) continue;
+          const svc = shop.services[Math.floor(rand() * shop.services.length)];
+          // Six in a hundred visits are one of the named regulars — enough for
+          // them to come back every couple of weeks, not so many that the book
+          // reads like a subscription. Everyone else is drawn from a fixed pool,
+          // so repeat visits happen by coincidence the way they really do.
+          const person = rand() < 0.06
+            ? DEMO_REGULARS[Math.floor(rand() * DEMO_REGULARS.length)]
+            : demoPool[Math.floor(rand() * demoPool.length)];
+          const startsAt = dayStart(iso) + min * MIN;
+          const durMs = (svc.durationMin + svc.processingGapMin + svc.finishMin) * MIN;
+          const price = svc.basePriceCents;
+
+          // Past days are settled: mostly completed, occasionally a no-show or
+          // a cancellation, because a book with no friction in it is a fiction.
+          const roll = rand();
+          const status: BookingStatus =
+            d >= 0 ? 'confirmed' : roll < 0.06 ? 'no_show' : roll < 0.11 ? 'cancelled_by_customer' : 'completed';
+          if (status === 'cancelled_by_customer' && rand() < 0.5) continue;
+
+          const id = `demo-${shop.id}-${iso}-${staff.id}-${min}`;
+          const b: Booking = {
+            id,
+            reference: `DM-${(hash(id) % 90000 + 10000).toString(36).toUpperCase()}`,
+            deviceId: `demo:${shop.id}`,
+            shopId: shop.id,
+            serviceIds: [svc.id],
+            staffId: staff.id,
+            startsAt,
+            endsAt: startsAt + durMs,
+            staffRanges: [{ start: startsAt, end: startsAt + durMs }],
+            status,
+            holdExpiresAt: null,
+            quote: {
+              subtotalCents: price,
+              travelFeeCents: 0,
+              discountCents: 0,
+              vatCents: Math.round(price * 0.19),
+              totalCents: price,
+              depositCents: Math.round((price * shop.depositPercent) / 100),
+              breakdown: [{ label: svc.name.en, cents: price }],
+            },
+            paidCents: status === 'completed' ? price : Math.round((price * shop.depositPercent) / 100),
+            guestName: person.name,
+            guestPhone: person.phone,
+            policySnapshot: shop.policy,
+            createdAt: startsAt - 3 * 24 * 60 * MIN,
+          };
+
+          // Roughly one completed visit in four leaves a review, which is about
+          // what a salon really gets — enough to rate by, few enough that
+          // "unanswered reviews" stays a short list worth acting on.
+          if (status === 'completed' && rand() < 0.09) {
+            const r = DEMO_REVIEWS[Math.floor(rand() * DEMO_REVIEWS.length)];
+            b.review = { rating: r.rating, text: r.text, date: iso };
+            if (rand() < 0.72) {
+              b.reviewReply = { text: 'Thank you — see you next time.', at: addDays(iso, 1) };
+            }
+          }
+          if (status === 'completed' && rand() < 0.3) b.tipCents = 200 + Math.floor(rand() * 6) * 100;
+
+          state.bookings.set(id, b);
+        }
+      }
+    }
+  }
+
+  // A few people waiting, so the briefing and the waiting list have something
+  // real behind them.
+  for (const [i, offset] of [1, 2, 4].entries()) {
+    const svc = shop.services[i % shop.services.length];
+    const id = `demo-wl-${shop.id}-${i}`;
+    state.waitlist.set(id, {
+      id,
+      shopId: shop.id,
+      serviceIds: [svc.id],
+      isoDate: addDays(today, offset),
+      deviceId: `demo:${shop.id}:${i}`,
+      createdAt: Date.now() - (i + 1) * 24 * 60 * 60 * 1000,
+    });
+  }
+
+  // And the private notes a shop builds up about its regulars.
+  for (const person of DEMO_REGULARS) {
+    if (!person.note) continue;
+    state.customerNotes.set(`${shop.id}:p:${person.phone.replace(/[^0-9]/g, '').slice(-8)}`, person.note);
+  }
+}
+
+/**
+ * Only on a genuinely empty first visit. A returning visitor, a restored
+ * snapshot, or a synced project all skip this — the demo history must never
+ * appear on top of somebody's real book.
+ */
+export function seedDemoIfEmpty(): void {
+  if (state.bookings.size > 0) return;
+  for (const shop of SHOPS) seedDemoHistory(shop);
+  persist();
+}
+
 /** Replace live state from an external source of truth (Supabase sync). */
 // ---------------------------------------------------------------------------
 // shop configuration as a syncable document
@@ -1173,6 +1350,7 @@ export function availability(
   isoDate: string,
   deviceId: string,
   staffId?: string | null,
+  opts: { backfill?: boolean } = {},
 ): { slots: ApiSlot[]; timing: ServiceTiming } {
   const shop = shopById(shopId);
   if (!shop) throw new Error('shop_not_found');
@@ -1182,6 +1360,18 @@ export function availability(
   if (services.length === 0) throw new Error('service_not_found');
 
   const now = Date.now();
+  /**
+   * Slot projection refuses anything before `now + lead`, which is right for a
+   * customer — you cannot book the past — and wrong for the shop. A salon has
+   * to record the walk-in who came in at eleven this morning, and to backfill
+   * yesterday when the till was too busy. Backfill therefore projects the day
+   * as if the clock stood at its opening minute, which reopens that day's
+   * rostered times. Everything protective is untouched: `staffDayOf` still runs
+   * on the real clock, so live holds expire correctly, and the busy-overlap
+   * check still refuses a time somebody already occupies. Backfilling cannot
+   * double-book.
+   */
+  const projectFrom = opts.backfill ? Math.min(now, dayStart(isoDate)) : now;
   const timing = aggregate(services);
   const team = effectiveStaff(shopId);
   const staffPool = staffId ? team.filter((s) => s.id === staffId) : team;
@@ -1190,7 +1380,7 @@ export function availability(
   const perStaff = staffPool.flatMap((st) => {
     const day = staffDayOf(shop, st.id, isoDate, now);
     loadByStaff[st.id] = day.busy.length;
-    return slotsForStaff(day, timing, shop.rules, now);
+    return slotsForStaff(day, timing, shop.rules, projectFrom);
   });
 
   const slots = aggregateSlots(perStaff, loadByStaff).map((s) => {
@@ -1471,11 +1661,15 @@ export function createHold(input: HoldInput): HoldResult {
   const now = Date.now();
   const isoDate = isoDateOf(input.startsAt);
   const timing = aggregate(services);
+  // A start in the past can only come from the shop recording something after
+  // the fact; project the day the same way here, or resolving the stylist and
+  // listing alternatives both come back empty.
+  const past = { backfill: input.startsAt < now };
 
   // Resolve staff: requested, or the least-loaded member free at this time.
   let staffId = input.staffId ?? null;
   if (!staffId) {
-    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId);
+    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
     staffId = slots.find((s) => s.start === input.startsAt)?.suggestedStaffId ?? null;
   }
 
@@ -1490,7 +1684,7 @@ export function createHold(input: HoldInput): HoldResult {
 
   // The EXCLUDE-constraint stand-in: overlapping seat → 409 with alternatives.
   if (!staffId || conflict(staffId)) {
-    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId);
+    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
     const alternatives = slots
       .filter((s) => s.start !== input.startsAt)
       .sort((a, b) => Math.abs(a.start - input.startsAt) - Math.abs(b.start - input.startsAt))
@@ -1697,6 +1891,9 @@ export function createShopBooking(
   });
   const b = confirmBooking(hold.bookingId);
   b.paidCents = 0; // settled at the shop
+  // Something recorded after the fact already happened; leaving it "confirmed"
+  // would put a past appointment back on the list of things still to come.
+  if (startsAt < Date.now()) b.status = 'completed';
   persist();
   return b;
 }
@@ -2654,3 +2851,9 @@ export function waitlistForDevice(deviceId: string): WaitlistView[] {
       };
     });
 }
+
+// The demo history has to be written after the module has finished defining
+// itself: it reads `effectiveStaff`, which is a const and would still be in its
+// temporal dead zone if this ran up beside the localStorage restore. Guarded
+// inside, so a restored snapshot carrying real bookings is never overwritten.
+if (IS_BROWSER) seedDemoIfEmpty();

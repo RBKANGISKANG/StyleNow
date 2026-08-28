@@ -139,15 +139,19 @@ export async function apiAvailability(
   serviceIds: string[],
   date: string,
   staffId: string | null,
+  /** Shop-side only: also project times that have already passed, so a walk-in
+   *  can be recorded after the fact. Never set from the customer flow. */
+  backfill = false,
 ): Promise<ApiSlot[]> {
   if (backendMode() === 'server') {
     const params = new URLSearchParams({ shopId, serviceIds: serviceIds.join(','), date, deviceId: deviceId() });
     if (staffId) params.set('staffId', staffId);
+    if (backfill) params.set('backfill', '1');
     const res = await fetch(`/api/availability?${params}`);
     return (await res.json()).slots ?? [];
   }
   await readyForRead();
-  return store.availability(shopId, serviceIds, date, deviceId(), staffId).slots;
+  return store.availability(shopId, serviceIds, date, deviceId(), staffId, { backfill }).slots;
 }
 
 // ---- a shop's own page ----------------------------------------------------

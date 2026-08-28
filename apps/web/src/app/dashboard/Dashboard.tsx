@@ -514,6 +514,9 @@ function NewBooking({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
+  // A day already gone is a recording, not a booking — the dialog offers that
+  // day's rostered times instead of nothing, and says which it is doing.
+  const isPast = date < todayIso();
 
   useEffect(() => {
     setServiceId((cur) => (services.some((s) => s.id === cur) ? cur : services[0]?.id ?? ''));
@@ -529,7 +532,7 @@ function NewBooking({
     if (!open || !serviceId) return;
     setSlots(null);
     setStartsAt(null);
-    void apiAvailability(shopId, [serviceId], date, staffId).then((s) => {
+    void apiAvailability(shopId, [serviceId], date, staffId, isPast).then((s) => {
       const mapped = s.map((x) => ({ start: x.start, priceCents: x.priceCents }));
       setSlots(mapped);
       if (prefill?.minute !== undefined && mapped.length > 0) {
@@ -554,7 +557,7 @@ function NewBooking({
     if (!r.ok) {
       setConflict(true);
       setStartsAt(null);
-      void apiAvailability(shopId, [serviceId], date, staffId).then((s) =>
+      void apiAvailability(shopId, [serviceId], date, staffId, isPast).then((s) =>
         setSlots(s.map((x) => ({ start: x.start, priceCents: x.priceCents }))),
       );
       return;
@@ -626,6 +629,11 @@ function NewBooking({
           maxLength={280}
         />
       </div>
+      {isPast && (
+        <div className="backfill-note">
+          {t('bf_past_note')}
+        </div>
+      )}
       {slots === null ? (
         <div className="spinner" />
       ) : slots.length === 0 ? (

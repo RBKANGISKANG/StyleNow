@@ -105,7 +105,7 @@ export function Briefing({ shopId }: { shopId: string }) {
           key: 'lapsed',
           icon: '💬',
           drawn: 'message',
-          text: t('bf_lapsed', { n: String(lapsed.length) }),
+          text: lapsed.length === 1 ? t('bf_lapsed_one') : t('bf_lapsed', { n: String(lapsed.length) }),
           href: '/dashboard/customers',
           cta: t('bf_see'),
           tone: 'normal',
