@@ -37,6 +37,8 @@
   --r-lg: 22px;
   --r-xl: 28px;
   --nav-h: 66px;
+  /* Measured height of the sticky top bar; the operator spine hangs off it. */
+  --topbar-h: 69px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1806,4 +1808,51 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   aspect-ratio: 1; border-radius: var(--r-sm);
   background: var(--surface-2); border: 1.5px solid var(--line);
   display: grid; place-items: center; color: var(--ink);
+}
+
+/* --- studio + back office: out of the reading column, onto the screen ------
+   Everything else in the app is content, so it lives in a 1080px column. The
+   back office is a tool: its calendar, roster and revenue table all want the
+   width of the machine, which is how the design board draws them. This is the
+   one surface allowed to break out, and only in studio. */
+[data-design="studio"][data-surface="operator"] .shell {
+  max-width: none;
+  padding: 0 0 24px;
+}
+[data-design="studio"][data-surface="operator"] .op-shell {
+  margin-top: 0;
+  gap: 0;
+  grid-template-columns: 250px minmax(0, 1fr);
+  min-height: calc(100vh - var(--topbar-h));
+}
+[data-design="studio"][data-surface="operator"] .op-side {
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
+  padding: 20px 14px;
+  border-radius: 0;
+  border-right: 1px solid var(--line);
+}
+[data-design="studio"][data-surface="operator"] .op-main { padding: 24px 30px 40px; min-width: 0; }
+
+/* The bar has to span what it sits above: centring it at 1080px over a
+   full-bleed body left the logo at x=200 with the spine starting at x=0.
+   Its links stay — the spine covers the back office, but Explore and Account
+   are the way back out of it. */
+[data-design="studio"][data-surface="operator"] .topbar-inner { max-width: none; }
+
+@media (max-width: 780px) {
+  [data-design="studio"][data-surface="operator"] .shell { padding: 0 0 110px; }
+  /* The collapse rule above is one selector less specific than the full-bleed
+     one, and a media query adds no specificity — so the 250px column survived
+     down to phone width and left 150px for the work. Restated here to win. */
+  [data-design="studio"][data-surface="operator"] .op-shell {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  [data-design="studio"][data-surface="operator"] .op-side {
+    height: auto; top: var(--topbar-h);
+    padding: 10px 14px; border-right: none; border-bottom: 1px solid var(--line);
+    position: sticky; z-index: 20; background: var(--bg-soft);
+  }
+  [data-design="studio"][data-surface="operator"] .op-main { padding: 16px 18px 24px; }
 }

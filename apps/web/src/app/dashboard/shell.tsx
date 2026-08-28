@@ -132,6 +132,20 @@ export function OperatorShell({
   const { t } = useI18n();
   const studio = useStudio();
   const pathname = usePathname();
+
+  /**
+   * Tell the document it is showing the back office, so the stylesheet can let
+   * this one surface out of the 1080px reading column. A tool is not an
+   * article: the calendar, the roster and the revenue table all want the width
+   * of the screen, and the design board draws them edge to edge. Cleared on
+   * unmount so navigating back to a customer page re-centres it.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.surface = 'operator';
+    return () => {
+      delete document.documentElement.dataset.surface;
+    };
+  }, []);
   const { ownerKey, ownedIds, myShops, shopId, setShopId, refresh } = useOwnedShops(shops);
 
   if (ownedIds === null) return <div className="spinner" />;
