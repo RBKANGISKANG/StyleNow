@@ -309,6 +309,15 @@ function ProfileView() {
         </button>
       </div>
 
+      {/* The design switch lives in the header for quick comparison; this is
+          where you go to see what it actually changes. */}
+      <div className="panel" style={{ marginTop: 14 }}>
+        <Link className="btn btn-soft" href="/design">
+          {t('ds_title')} →
+        </Link>
+        <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('ds_lead')}</p>
+      </div>
+
       <div className="panel" style={{ marginTop: 14 }}>
         <a className="btn btn-soft" href={exportData()} download="stylenow-my-data.json">
           📦 {t('acc_export')}

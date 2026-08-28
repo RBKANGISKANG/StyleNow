@@ -1730,3 +1730,80 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 [data-design="studio"] .chip { border-radius: 999px; font-size: 0.82rem; }
 [data-design="studio"] .team-card { border-radius: var(--r-lg); }
 [data-design="studio"] .team-card .avatar { width: 54px; height: 54px; font-size: 1.25rem; }
+
+/* --- studio: the back office as a spine, not a tab bar -------------------- */
+[data-design="studio"] .op-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+  margin-top: 18px;
+}
+[data-design="studio"] .op-side {
+  position: sticky;
+  top: calc(var(--nav-h) + 8px);
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px 12px;
+  background: var(--bg-soft);
+  border-radius: var(--r-xl);
+}
+[data-design="studio"] .op-shop {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+[data-design="studio"] .op-shop-mark { font-size: 1.2rem; line-height: 1; }
+[data-design="studio"] .op-shop-name { font-size: 0.84rem; font-weight: 700; line-height: 1.25; }
+[data-design="studio"] .op-nav { display: flex; flex-direction: column; gap: 3px; }
+[data-design="studio"] .op-nav a {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 13px;
+  border-radius: var(--r-sm);
+  font-size: 0.86rem; font-weight: 600;
+  color: var(--ink-soft);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+[data-design="studio"] .op-nav a:hover { background: var(--surface); color: var(--ink); }
+[data-design="studio"] .op-nav a.on { background: var(--ink); color: #fff; font-weight: 700; }
+[data-design="studio"] .op-nav .ico { display: inline-flex; }
+
+/* A 232px column on a phone leaves nothing for the work. Below the tablet
+   breakpoint the spine lies back down as a scrolling row. */
+@media (max-width: 780px) {
+  [data-design="studio"] .op-shell { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  [data-design="studio"] .op-side {
+    position: static; flex-direction: row; align-items: center; gap: 8px;
+    padding: 10px; border-radius: var(--r-lg);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  [data-design="studio"] .op-side::-webkit-scrollbar { display: none; }
+  [data-design="studio"] .op-shop { flex-shrink: 0; }
+  [data-design="studio"] .op-nav { flex-direction: row; gap: 5px; }
+  [data-design="studio"] .op-nav a { white-space: nowrap; padding: 9px 13px; border-radius: 999px; }
+}
+
+/* --- the in-app design vocabulary page ------------------------------------ */
+.ds-lead { max-width: 620px; font-size: 0.88rem; color: var(--ink-soft); margin-bottom: 4px; }
+.ds-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 9px; }
+.ds-swatches.sm { margin-top: 9px; }
+.ds-sw {
+  border-radius: var(--r-md); padding: 12px 13px 11px; min-height: 76px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+.ds-sw.pale { border: 1.5px solid var(--line); min-height: 60px; color: var(--ink); }
+.ds-sw b { font-size: 0.76rem; font-weight: 800; }
+.ds-sw span { font-size: 0.66rem; font-weight: 600; opacity: 0.78; font-variant-numeric: tabular-nums; }
+.ds-note { margin-top: 13px; font-size: 0.78rem; line-height: 1.55; color: var(--ink-soft); }
+.ds-type { display: flex; flex-direction: column; gap: 12px; }
+.ds-type > div { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.ds-type em { font-style: normal; font-size: 0.72rem; font-weight: 600; color: var(--ink-soft); }
+.ds-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 12px; }
+.ds-row:last-of-type { margin-bottom: 0; }
+.ds-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 9px; }
+.ds-ico {
+  aspect-ratio: 1; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1.5px solid var(--line);
+  display: grid; place-items: center; color: var(--ink);
+}

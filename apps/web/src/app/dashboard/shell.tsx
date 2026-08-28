@@ -11,6 +11,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
+import { useStudio } from '@/lib/design';
+import { Icon, type IconName } from '@/components/Icon';
 import { apiClaimShop, apiOverview } from '@/lib/api';
 import { useOwnedShops, type ShopRef } from '@/lib/owned-shops';
 import { todayIso } from '@/core/time';
@@ -75,14 +77,14 @@ export interface Overview {
 }
 
 export const OPERATOR_TABS = [
-  { href: '/dashboard', key: 'tab_today', ico: '📅' },
-  { href: '/dashboard/revenue', key: 'tab_revenue', ico: '📈' },
-  { href: '/dashboard/customers', key: 'tab_customers', ico: '👤' },
-  { href: '/dashboard/services', key: 'tab_services', ico: '✂️' },
-  { href: '/dashboard/team', key: 'tab_team', ico: '👥' },
-  { href: '/dashboard/hr', key: 'tab_hr', ico: '🧾' },
-  { href: '/dashboard/shop', key: 'tab_shop', ico: '⚙️' },
-] as const satisfies ReadonlyArray<{ href: string; key: MsgKey; ico: string }>;
+  { href: '/dashboard', key: 'tab_today', ico: '📅', icon: 'sun' },
+  { href: '/dashboard/revenue', key: 'tab_revenue', ico: '📈', icon: 'trend' },
+  { href: '/dashboard/customers', key: 'tab_customers', ico: '👤', icon: 'users' },
+  { href: '/dashboard/services', key: 'tab_services', ico: '✂️', icon: 'scissors' },
+  { href: '/dashboard/team', key: 'tab_team', ico: '👥', icon: 'user' },
+  { href: '/dashboard/hr', key: 'tab_hr', ico: '🧾', icon: 'briefcase' },
+  { href: '/dashboard/shop', key: 'tab_shop', ico: '⚙️', icon: 'pin' },
+] as const satisfies ReadonlyArray<{ href: string; key: MsgKey; ico: string; icon: IconName }>;
 
 /** Load one shop-day. Every tab needs it; only Today varies the date. */
 export function useOverview(shopId: string, date: string = todayIso()) {
@@ -128,6 +130,7 @@ export function OperatorShell({
   children: (ctx: OperatorCtx) => ReactNode;
 }) {
   const { t } = useI18n();
+  const studio = useStudio();
   const pathname = usePathname();
   const { ownerKey, ownedIds, myShops, shopId, setShopId, refresh } = useOwnedShops(shops);
 
@@ -173,37 +176,63 @@ export function OperatorShell({
 
   const current = myShops.find((s) => s.id === shopId);
 
+  const picker =
+    myShops.length > 1 ? (
+      <label className="chip">
+        {t('dash_pick')}
+        <select value={shopId} onChange={(e) => setShopId(e.target.value)}>
+          {myShops.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.emoji} {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+    ) : null;
+
+  const nav = OPERATOR_TABS.map((tab) => {
+    // `active` decides, not the URL: /dashboard prefixes every tab.
+    const on = tab.href === active || (active === '' && pathname === tab.href);
+    return (
+      <Link key={tab.href} href={tab.href} className={on ? 'on' : ''} aria-current={on ? 'page' : undefined}>
+        <span className="ico">{studio ? <Icon name={tab.icon} size={18} strokeWidth={1.9} /> : tab.ico}</span>
+        {t(tab.key)}
+      </Link>
+    );
+  });
+
+  /**
+   * Studio puts the seven sections in a spine down the side instead of a tab
+   * bar across the top. A tab bar is a customer-app pattern — fine for five
+   * things you visit occasionally. This is a tool somebody has open all day,
+   * and a persistent column keeps every section one click away with room for
+   * counts beside each.
+   */
+  if (studio) {
+    return (
+      <div className="op-shell">
+        <aside className="op-side" aria-label={t('dash_title')}>
+          <div className="op-shop">
+            <span className="op-shop-mark">{current?.emoji ?? '💼'}</span>
+            <span className="op-shop-name">{current?.name ?? t('dash_title')}</span>
+          </div>
+          {picker}
+          <nav className="op-nav">{nav}</nav>
+        </aside>
+        <div className="op-main">{children({ shopId, ownerKey, myShops, refresh })}</div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-title">
-        <h1>
-          {current ? `${current.emoji} ${current.name}` : `💼 ${t('dash_title')}`}
-        </h1>
-        {myShops.length > 1 && (
-          <label className="chip">
-            {t('dash_pick')}
-            <select value={shopId} onChange={(e) => setShopId(e.target.value)}>
-              {myShops.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.emoji} {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <h1>{current ? `${current.emoji} ${current.name}` : `💼 ${t('dash_title')}`}</h1>
+        {picker}
       </div>
 
       <nav className="op-tabs" aria-label={t('dash_title')}>
-        {OPERATOR_TABS.map((tab) => {
-          // `active` decides, not the URL: /dashboard prefixes every tab.
-          const on = tab.href === active || (active === '' && pathname === tab.href);
-          return (
-            <Link key={tab.href} href={tab.href} className={on ? 'on' : ''} aria-current={on ? 'page' : undefined}>
-              <span className="ico">{tab.ico}</span>
-              {t(tab.key)}
-            </Link>
-          );
-        })}
+        {nav}
       </nav>
 
       {children({ shopId, ownerKey, myShops, refresh })}
