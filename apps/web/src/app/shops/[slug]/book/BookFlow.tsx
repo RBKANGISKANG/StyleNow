@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { icsHref } from '@/lib/ics';
 import { useI18n } from '@/lib/i18n';
+import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices } from '@/lib/api';
 import { validateVoucher } from '@/core/store';
@@ -465,27 +466,48 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 )}
               </div>
             ) : (
-              <div className="slot-grid">
-                {slots.map((s, i) => {
-                  const delta = s.priceCents - s.basePriceCents;
-                  return (
-                    <button
-                      key={s.start}
-                      className={`slot-chip ${slot?.start === s.start ? 'sel' : ''}`}
-                      style={{ animationDelay: `${Math.min(i * 0.015, 0.3)}s` }}
-                      onClick={() => {
-                        setSlot(s);
-                        setStep(2);
-                      }}
-                    >
-                      <div className="t">{timeOf(s.start, lang)}</div>
-                      <div className={`p ${delta < 0 ? 'deal' : delta > 0 ? 'surge' : ''}`}>
-                        {money(s.priceCents, lang)}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                {slots.some((s) => slotTone(s) !== 'base') && (
+                  <p className="slot-legend">
+                    <span className="tone-dot prime" /> {t('prime_legend')}
+                    <span className="tone-dot saver" /> {t('saver_legend')}
+                  </p>
+                )}
+                <div className="slot-grid">
+                  {slots.map((s, i) => {
+                    const tone = slotTone(s);
+                    const delta = slotDelta(s);
+                    return (
+                      <button
+                        key={s.start}
+                        className={`slot-chip ${tone} ${slot?.start === s.start ? 'sel' : ''}`}
+                        style={{ animationDelay: `${Math.min(i * 0.015, 0.3)}s` }}
+                        title={slotReason(s) ?? undefined}
+                        onClick={() => {
+                          setSlot(s);
+                          setStep(2);
+                        }}
+                      >
+                        {tone === 'prime' && <span className="slot-tag prime">{t('prime')}</span>}
+                        {tone === 'saver' && <span className="slot-tag saver">{t('saver')}</span>}
+                        <div className="t">{timeOf(s.start, lang)}</div>
+                        <div className={`p ${tone === 'saver' ? 'deal' : tone === 'prime' ? 'surge' : ''}`}>
+                          {money(s.priceCents, lang)}
+                        </div>
+                        {/* The listed price stays visible beside the prime one:
+                            an uplift you cannot see the baseline for is just a
+                            higher number. */}
+                        {tone !== 'base' && (
+                          <div className="slot-base">
+                            {money(s.basePriceCents, lang)}
+                            <span> {delta > 0 ? '+' : '−'}{money(Math.abs(delta), lang)}</span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
           <button className="btn btn-ghost" onClick={() => setStep(0)}>

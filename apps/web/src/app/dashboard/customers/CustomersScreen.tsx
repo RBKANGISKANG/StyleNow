@@ -10,6 +10,7 @@
  * person books from a laptop, then a phone, then gets booked at the counter.
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { usePaged, Pager } from '@/components/Pager';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf } from '@/lib/format';
 import {
@@ -40,6 +41,7 @@ function CustomersTab({ shopId }: { shopId: string }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
   const [open, setOpen] = useState<string | null>(null);
+  const PER_PAGE = 25;
   const { setToast, toastEl } = useToast();
 
   const load = useCallback(() => {
@@ -70,6 +72,10 @@ function CustomersTab({ shopId }: { shopId: string }) {
     return by;
   }, [rows, q, sort, lang]);
 
+
+  // Search and sort narrow first, paging second — the other order would page
+  // through rows that no longer match.
+  const paged = usePaged(shown, PER_PAGE, `${q}|${sort}`);
   const totals = useMemo(() => {
     if (!rows) return null;
     const returning = rows.filter((r) => r.visits > 1).length;
@@ -160,7 +166,7 @@ function CustomersTab({ shopId }: { shopId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {shown.map((c) => (
+                  {paged.page.map((c) => (
                     <Fragment key={c.key}>
                       <tr className={open === c.key ? 'open' : undefined}>
                         <td data-label={t('cus_col_who')}>
@@ -242,6 +248,7 @@ function CustomersTab({ shopId }: { shopId: string }) {
                   ))}
                 </tbody>
               </table>
+              <Pager paged={paged} perPage={PER_PAGE} />
             </div>
           )}
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>💡 {t('cus_hint')}</p>

@@ -7,6 +7,7 @@
 import { Fragment, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { Glyph } from '@/components/Icon';
+import { usePaged, Pager } from '@/components/Pager';
 import { apiAddStaff, apiPatchStaff, apiArchiveStaff } from '@/lib/api';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from '../toast';
@@ -79,6 +80,9 @@ function TeamManager({
   const shown = needle
     ? rows.filter((r) => `${r.name} ${r.role[lang]}`.toLowerCase().includes(needle))
     : rows;
+  // A three-person salon never sees this; a chain with forty stylists does.
+  const PER_PAGE = 15;
+  const paged = usePaged(shown, PER_PAGE, q);
 
   /** Contracted minutes a week — the number a rota conversation actually turns on. */
   const weekMinutes = (r: Overview['staffRows'][number]) =>
@@ -122,7 +126,7 @@ function TeamManager({
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => {
+              {paged.page.map((r) => {
                 const mins = weekMinutes(r);
                 return (
                   <Fragment key={r.staffId}>
@@ -277,6 +281,7 @@ function TeamManager({
               })}
             </tbody>
           </table>
+          <Pager paged={paged} perPage={PER_PAGE} />
         </div>
       )}
 

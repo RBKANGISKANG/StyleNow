@@ -145,6 +145,10 @@ export const SHOPS: SeedShop[] = [
     pricingRules: [
       { id: 'pr-cm-happy', kind: 'time_of_day', name: 'Morning happy hour −15 %', dows: [2, 3], minuteOfDayFrom: h(9), minuteOfDayTo: h(12), adjustKind: 'percent', adjustValue: -15, priority: 10, stackable: false },
       { id: 'pr-cm-sat', kind: 'day_of_week', name: 'Saturday peak +10 %', dows: [6], minuteOfDayFrom: h(11), minuteOfDayTo: h(16), adjustKind: 'percent', adjustValue: 10, priority: 8, stackable: false },
+      // The chair everyone wants: straight after work, midweek. Peak pricing
+      // only existed on Saturday lunchtime before, which made the prime tier
+      // something most customers would never meet.
+      { id: 'pr-cm-eve', kind: 'time_of_day', name: 'After-work prime +12 %', dows: [2, 3, 4, 5], minuteOfDayFrom: h(17), minuteOfDayTo: h(20), adjustKind: 'percent', adjustValue: 12, priority: 8, stackable: false },
       { id: 'pr-cm-lastmin', kind: 'last_minute', name: 'Last-minute −20 %', leadHoursMax: 3, adjustKind: 'percent', adjustValue: -20, priority: 12, stackable: false },
     ],
     reviews: [

@@ -2019,3 +2019,55 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   background: var(--amber-soft); color: #7a4a10;
   font-size: 0.78rem; line-height: 1.5; font-weight: 600;
 }
+
+/* --- table paging ---------------------------------------------------------- */
+.pager {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+  margin-top: 14px; padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.pager-count { font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.pager-btns { display: flex; align-items: center; gap: 4px; }
+.pager-btn {
+  min-width: 32px; height: 32px; padding: 0 9px;
+  border-radius: var(--r-sm);
+  border: 1.5px solid var(--line); background: var(--surface);
+  font-size: 0.8rem; font-weight: 700; color: var(--ink-soft);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+.pager-btn:hover:not([disabled]) { border-color: var(--ink-soft); color: var(--ink); }
+.pager-btn.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.pager-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.pager-gap { padding: 0 2px; color: var(--ink-soft); font-weight: 700; }
+
+/* --- prime and saver times ------------------------------------------------
+   Both tiers are labelled, not just the dear ones: marking only the uplift
+   would make the badge a sales tactic rather than an explanation. */
+.slot-legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px;
+  margin: 0 0 12px; font-size: 0.74rem; font-weight: 600; color: var(--ink-soft);
+}
+.tone-dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.tone-dot.prime { background: var(--violet); }
+.tone-dot.saver { background: var(--teal); }
+
+.slot-chip { position: relative; }
+.slot-chip.prime { border-color: var(--violet); background: var(--violet-soft); }
+.slot-chip.saver { border-color: var(--teal); background: var(--teal-soft); }
+.slot-tag {
+  position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: #fff; white-space: nowrap;
+}
+.slot-tag.prime { background: var(--violet); }
+.slot-tag.saver { background: var(--teal); }
+.slot-base {
+  margin-top: 2px; font-size: 0.64rem; font-weight: 600; color: var(--ink-soft);
+  text-decoration: line-through; text-decoration-thickness: 1px;
+}
+.slot-base span { text-decoration: none; font-weight: 800; margin-left: 3px; }
+.slot-chip.prime .slot-base span { color: var(--violet); }
+.slot-chip.saver .slot-base span { color: var(--teal); }
