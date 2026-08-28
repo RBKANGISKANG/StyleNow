@@ -276,6 +276,7 @@ function TodayTab({ shopId }: { shopId: string }) {
             <div className="cal-legend">
               <span><i className="sw booked" />{t('lg_booked')}</span>
               <span><i className="sw held" />{t('lg_held')}</span>
+              <span><i className="sw prime" />{t('lg_prime')}</span>
               <span><i className="sw walkin" />{t('lg_walkin')}</span>
               <span><i className="sw off" />{t('lg_off')}</span>
             </div>
@@ -307,7 +308,7 @@ function TodayTab({ shopId }: { shopId: string }) {
                           key={i}
                           className={`cal-block ${
                             b.kind === 'walk_in' ? 'walk' : b.status === 'pending_payment' ? 'pending' : 'booking'
-                          }`}
+                          }${b.prime ? ' prime' : ''}`}
                           style={{ left, width: `calc(${right} - ${left})`, cursor: b.kind === 'booking' ? 'pointer' : 'default' }}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -321,7 +322,7 @@ function TodayTab({ shopId }: { shopId: string }) {
                               : `${b.guestName} · ${b.serviceNames?.join(', ')} · ${timeOf(b.start, lang)}`
                           }
                         >
-                          {b.kind === 'booking' ? `${b.guestName}` : ''}
+                          {b.kind === 'booking' ? (b.prime ? `★ ${b.guestName}` : b.guestName) : ''}
                         </div>
                       );
                     })}

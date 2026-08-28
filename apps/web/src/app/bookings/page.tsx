@@ -27,6 +27,7 @@ interface Bk {
   depositCents: number;
   cancellation: { feeCents: number; refundCents: number; reason: string } | null;
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
+  isPrime: boolean;
   shop: { id: string; slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
   services: Array<{ name: { en: string; de: string }; emoji: string }>;
   serviceIds: string[];
@@ -139,6 +140,7 @@ export default function BookingsPage() {
               <div className="bk-info">
                 <div className="shop">
                   {b.shop?.emoji} {b.shop?.name ?? '—'}
+                  {b.isPrime && <span className="prime-flag">★ {t('prime_flag')}</span>}
                 </div>
                 <div className="svc">
                   {b.services.map((s) => `${s.emoji} ${s.name[lang]}`).join(' · ')}

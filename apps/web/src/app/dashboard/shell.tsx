@@ -54,6 +54,7 @@ export interface Overview {
       guestName?: string;
       serviceNames?: string[];
       status?: string;
+      prime?: boolean;
       start: number;
       end: number;
     }>;

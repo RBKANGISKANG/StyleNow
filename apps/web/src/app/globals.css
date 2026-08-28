@@ -2454,3 +2454,41 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   .thread-back { display: inline-flex; }
   .thread-body { max-height: none; min-height: 46vh; }
 }
+
+/* --- Prime flexible appointments ------------------------------------------- */
+.prime-panel { padding: 0; overflow: hidden; }
+.prime-panel.open { padding-bottom: 16px; }
+.prime-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  padding: 15px 16px;
+}
+.prime-star {
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%;
+  display: grid; place-items: center; font-size: 1rem;
+  background: var(--amber-soft); color: var(--amber);
+}
+.prime-txt { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.prime-txt strong { font-size: 0.92rem; color: var(--ink); }
+.prime-txt span { font-size: 0.75rem; color: var(--ink-soft); font-weight: 600; }
+.prime-chev { font-size: 1.15rem; font-weight: 700; color: var(--ink-soft); }
+.prime-body {
+  margin: 0 16px 12px; font-size: 0.78rem; color: var(--ink-soft); line-height: 1.55;
+}
+.prime-panel .slot-grid { padding: 0 16px; }
+.slot-chip.prime-flex { border-color: var(--amber); }
+.slot-chip.prime-flex .p { color: var(--amber); }
+.slot-chip.prime-flex.sel { background: var(--amber-soft); }
+.prime-flag {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+  background: var(--amber-soft); color: #b57414;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+}
+/* On the operator calendar a Prime booking is the one that was squeezed in on
+   top — amber, so it never reads as a normal teal seat. */
+/* Violet, not amber: amber already means "held" in the legend, and a legend
+   that names the wrong colour is worse than no legend. */
+.cal-block.prime { background: var(--violet); }
+.cal-block.prime.pending { background: repeating-linear-gradient(45deg, var(--violet), var(--violet) 4px, #7a5ce0 4px, #7a5ce0 8px); }
+.cal-legend .sw.prime { background: var(--violet); }

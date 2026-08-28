@@ -12,8 +12,8 @@ import { icsHref } from '@/lib/ics';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices } from '@/lib/api';
-import { validateVoucher } from '@/core/store';
+import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows } from '@/lib/api';
+import { validateVoucher, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays } from '@/core/time';
 import { useAuth } from '@/lib/auth';
@@ -105,6 +105,22 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [date, setDate] = useState(initialDate && days.includes(initialDate) ? initialDate : days[0]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
+  // Prime: an extra appointment on top of the grid, any time the doors are
+  // open, at a premium. Chosen instead of a slot, never alongside one.
+  const [prime, setPrime] = useState(false);
+  const [primeOpen, setPrimeOpen] = useState(false);
+  const [primeWindows, setPrimeWindows] = useState<Array<{ startMin: number; endMin: number }> | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setPrimeWindows(null);
+    void apiPrimeWindows(shop.id, date).then((w) => {
+      if (alive) setPrimeWindows(w);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [shop.id, date]);
   const [name, setName] = useState('');
   // Optional, but the shop needs a way to reach you if something changes —
   // and a note is where "I'm allergic to bleach" belongs, not a phone call.
@@ -215,6 +231,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       guestNote: note.trim() || undefined,
       voucherCode: voucher?.code,
       pointsToSpend: usePoints ? points : undefined,
+      prime,
     });
     setHolding(false);
     if (!outcome.ok) {
@@ -397,6 +414,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     className="slot-chip"
                     onClick={() => {
                       setSlot(a);
+                      setPrime(false);
                       setAlternatives(null);
                       setStep(2);
                     }}
@@ -485,6 +503,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                         title={slotReason(s) ?? undefined}
                         onClick={() => {
                           setSlot(s);
+                          setPrime(false);
                           setStep(2);
                         }}
                       >
@@ -510,6 +529,70 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               </>
             )}
           </div>
+
+          {/* Prime: for the customer whose day does not bend to the grid. Any
+              time inside opening hours, at a premium, as *extra* capacity —
+              the times below are the doors, not the free seats, which is why
+              this list can be full when the grid above is empty and vice
+              versa. Collapsed by default: the grid should stay the normal way
+              to book, and Prime the deliberate exception. */}
+          {primeWindows !== null && primeWindows.length > 0 && (() => {
+            const durMin = selected.reduce((n, x) => n + x.durationMin, 0);
+            const baseCents = selected.reduce((n, x) => n + x.basePriceCents, 0);
+            const estCents = baseCents + primeSurcharge(baseCents);
+            const now = Date.now();
+            const dayMs = new Date(`${date}T00:00:00+02:00`).getTime();
+            const steps: number[] = [];
+            for (const w of primeWindows) {
+              for (let m = Math.ceil(w.startMin / 15) * 15; m + durMin <= w.endMin; m += 15) {
+                const at = dayMs + m * 60_000;
+                if (at > now) steps.push(at);
+              }
+            }
+            if (steps.length === 0) return null;
+            return (
+              <div className={`panel prime-panel${primeOpen ? ' open' : ''}`}>
+                <button className="prime-head" onClick={() => setPrimeOpen(!primeOpen)} aria-expanded={primeOpen}>
+                  <span className="prime-star">★</span>
+                  <span className="prime-txt">
+                    <strong>{t('prime_flex_title')}</strong>
+                    <span>{t('prime_flex_sub', { price: money(estCents, lang) })}</span>
+                  </span>
+                  <span className="prime-chev">{primeOpen ? '−' : '+'}</span>
+                </button>
+                {primeOpen && (
+                  <>
+                    <p className="prime-body">{t('prime_flex_body', { pct: String(PRIME_PERCENT), min: money(PRIME_MIN_CENTS, lang) })}</p>
+                    <div className="slot-grid">
+                      {steps.map((at) => (
+                        <button
+                          key={at}
+                          className={`slot-chip prime-flex ${prime && slot?.start === at ? 'sel' : ''}`}
+                          onClick={() => {
+                            setSlot({
+                              start: at,
+                              end: at + durMin * 60_000,
+                              staffIds: [],
+                              suggestedStaffId: '',
+                              priceCents: estCents,
+                              basePriceCents: baseCents,
+                              appliedNames: ['Prime flexible'],
+                            });
+                            setPrime(true);
+                            setStep(2);
+                          }}
+                        >
+                          <div className="t">{timeOf(at, lang)}</div>
+                          <div className="p surge">{money(estCents, lang)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           <button className="btn btn-ghost" onClick={() => setStep(0)}>
             ← {t('back')}
           </button>
@@ -531,13 +614,17 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           <div className="panel">
             <h3>{t('summary')}</h3>
             <div className="quote-line">
-              <span>📅 {dateOf(slot.start, lang)}</span>
+              <span>
+                📅 {dateOf(slot.start, lang)}
+                {prime && <span className="prime-flag">★ {t('prime_flag')}</span>}
+              </span>
               <span style={{ fontWeight: 700 }}>{timeOf(slot.start, lang)}</span>
             </div>
             <div className="quote-line muted">
               <span>
-                {selected.map((s) => s.name[lang]).join(' + ')} ·{' '}
-                {shop.staff.find((st) => st.id === (staffId ?? slot.suggestedStaffId))?.name ?? t('any_staff')}
+                {selected.map((s) => s.name[lang]).join(' + ')}
+                {/* Prime is assigned by the shop, so no stylist promise here. */}
+                {!prime && <> · {shop.staff.find((st) => st.id === (staffId ?? slot.suggestedStaffId))?.name ?? t('any_staff')}</>}
               </span>
             </div>
             {hold ? (

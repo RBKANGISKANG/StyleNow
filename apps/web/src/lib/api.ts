@@ -191,6 +191,20 @@ export async function apiNextOpenings(shopId: string, serviceIds: string[], limi
   return store.nextOpenings(shopId, serviceIds, deviceId(), { limit });
 }
 
+/**
+ * When Prime can be booked on a date — the opening windows, which the booking
+ * flow turns into quarter-hour steps. Prime is extra capacity, so this is the
+ * only availability question it ever asks.
+ */
+export async function apiPrimeWindows(shopId: string, iso: string): Promise<{ startMin: number; endMin: number }[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shops/${shopId}/hours?prime=${iso}`);
+    return res.ok ? ((await res.json()).primeWindows ?? []) : [];
+  }
+  await readyForRead();
+  return store.primeWindowsFor(shopId, iso);
+}
+
 // ---- booking loop --------------------------------------------------------
 
 export type HoldOutcome =

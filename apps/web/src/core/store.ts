@@ -93,6 +93,9 @@ export interface Booking {
   tipCents?: number;
   pointsSpent?: number;
   voucherCode?: string;
+  /** A Prime flexible appointment: extra capacity the shop sells at a premium,
+   *  at any time inside opening hours — it never occupies a seat in the grid. */
+  isPrime?: boolean;
   createdAt: number;
 }
 
@@ -1019,6 +1022,40 @@ export function openingHours(shopId: string): OpeningDay[] {
   return [1, 2, 3, 4, 5, 6, 7].map((dow) => ({ dow, windows: mergeWindows(byDow.get(dow) ?? []) }));
 }
 
+// --- Prime flexible appointments -------------------------------------------
+
+/**
+ * Prime is a product, not a price tag: an *extra* appointment sold on top of
+ * the calendar, at any time inside opening hours, for the customer who will
+ * pay more to be fitted in. It never occupies a seat — the grid stays exactly
+ * as bookable as before, and the shop absorbs the squeeze (that is what the
+ * premium buys). Which is also why it carries no staff conflict check: there
+ * is nothing to conflict with, because it holds no seat.
+ */
+export const PRIME_PERCENT = 30;
+export const PRIME_MIN_CENTS = 1500;
+
+export class PrimeUnavailable extends Error {
+  constructor(reason: 'closed' | 'past') {
+    super(reason);
+    this.name = 'PrimeUnavailable';
+  }
+}
+
+/**
+ * When Prime can be booked on a date: the shop's opening windows, empty when a
+ * closure shuts the whole day. The UI turns these into 15-minute steps.
+ */
+export function primeWindowsFor(shopId: string, iso: string): OpeningWindow[] {
+  if (isShopClosed(shopId, iso)) return [];
+  return openingHours(shopId).find((h) => h.dow === isoDow(dayStart(iso)))?.windows ?? [];
+}
+
+/** The premium on a basket subtotal, in cents. */
+export function primeSurcharge(subtotalCents: number): number {
+  return Math.max(Math.round((subtotalCents * PRIME_PERCENT) / 100), PRIME_MIN_CENTS);
+}
+
 export interface ShopStatus {
   open: boolean;
   /** Minute of day the doors shut — only when open right now. */
@@ -1773,6 +1810,8 @@ export interface HoldInput {
   guestNote?: string;
   voucherCode?: string;
   pointsToSpend?: number;
+  /** Book as a Prime flexible appointment — see primeWindowsFor(). */
+  prime?: boolean;
   idempotencyKey: string;
 }
 
@@ -1805,34 +1844,61 @@ export function createHold(input: HoldInput): HoldResult {
 
   // Resolve staff: requested, or the least-loaded member free at this time.
   let staffId = input.staffId ?? null;
-  if (!staffId) {
-    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
-    staffId = slots.find((s) => s.start === input.startsAt)?.suggestedStaffId ?? null;
-  }
 
-  const conflict = (id: string): boolean => {
-    const day = staffDayOf(shop, id, isoDate, now);
-    const held = occupancyForBasket(input.startsAt, services, shop.rules);
-    const inWindow = day.working.some(
-      (w) => input.startsAt >= w.start && input.startsAt + timing.durationMin * MIN <= w.end,
+  if (input.prime) {
+    // Prime skips the seat check entirely — it is extra capacity, not a slot.
+    // What it must NOT skip: the doors. A Prime booking outside opening hours
+    // would be selling flexibility the shop does not have.
+    if (input.startsAt <= now) throw new PrimeUnavailable('past');
+    const startMin = minuteOfDay(input.startsAt);
+    const endMin = startMin + timing.durationMin;
+    const inHours = primeWindowsFor(input.shopId, isoDate).some(
+      (w) => startMin >= w.startMin && endMin <= w.endMin,
     );
-    return !inWindow || held.some((h) => day.busy.some((b) => overlaps(h, b)));
-  };
+    if (!inHours) throw new PrimeUnavailable('closed');
+    // Whoever carries the day gets the squeeze: the rostered member with the
+    // fewest bookings, or the customer's preferred stylist if they named one.
+    if (!staffId) {
+      const dow = isoDow(dayStart(isoDate));
+      const rostered = effectiveStaff(input.shopId).filter((st) => (st.shifts[dow] ?? []).length > 0);
+      const load = (id: string): number =>
+        [...state.bookings.values()].filter(
+          (b) => b.staffId === id && isoDateOf(b.startsAt) === isoDate && bookingBlocks(b, now),
+        ).length;
+      staffId = rostered.sort((a, b) => load(a.id) - load(b.id))[0]?.id ?? null;
+      if (!staffId) throw new PrimeUnavailable('closed');
+    }
+  } else {
+    if (!staffId) {
+      const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
+      staffId = slots.find((s) => s.start === input.startsAt)?.suggestedStaffId ?? null;
+    }
 
-  // The EXCLUDE-constraint stand-in: overlapping seat → 409 with alternatives.
-  if (!staffId || conflict(staffId)) {
-    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
-    const alternatives = slots
-      .filter((s) => s.start !== input.startsAt)
-      .sort((a, b) => Math.abs(a.start - input.startsAt) - Math.abs(b.start - input.startsAt))
-      .slice(0, 6)
-      .sort((a, b) => a.start - b.start);
-    throw new SlotTaken(alternatives);
+    const conflict = (id: string): boolean => {
+      const day = staffDayOf(shop, id, isoDate, now);
+      const held = occupancyForBasket(input.startsAt, services, shop.rules);
+      const inWindow = day.working.some(
+        (w) => input.startsAt >= w.start && input.startsAt + timing.durationMin * MIN <= w.end,
+      );
+      return !inWindow || held.some((h) => day.busy.some((b) => overlaps(h, b)));
+    };
+
+    // The EXCLUDE-constraint stand-in: overlapping seat → 409 with alternatives.
+    if (!staffId || conflict(staffId)) {
+      const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
+      const alternatives = slots
+        .filter((s) => s.start !== input.startsAt)
+        .sort((a, b) => Math.abs(a.start - input.startsAt) - Math.abs(b.start - input.startsAt))
+        .slice(0, 6)
+        .sort((a, b) => a.start - b.start);
+      throw new SlotTaken(alternatives);
+    }
   }
 
   const tier = effectiveStaff(input.shopId).find((s) => s.id === staffId)?.tier ?? 'stylist';
   const q = priceBasket(shop, services, input.startsAt, now, input.deviceId, tier);
   const travelFeeCents = shop.isMobile ? 1500 : 0;
+  const primeCents = input.prime ? primeSurcharge(q.subtotalCents) : 0;
 
   // Discounts: voucher first, then loyalty points on the remainder.
   let discountCents = 0;
@@ -1859,10 +1925,12 @@ export function createHold(input: HoldInput): HoldResult {
     }
   }
 
-  const totalCents = Math.max(q.subtotalCents + travelFeeCents - discountCents, 0);
+  const totalCents = Math.max(q.subtotalCents + primeCents + travelFeeCents - discountCents, 0);
   const vatCents = services.reduce((sum, s) => {
     const share = q.subtotalCents === 0 ? 0 : s.basePriceCents / q.baseCents;
-    const line = Math.round(q.subtotalCents * share);
+    // The Prime premium is part of the service's consideration, so it carries
+    // the same VAT as the services it rides on.
+    const line = Math.round((q.subtotalCents + primeCents) * share);
     return sum + Math.round((line * s.vatRateBps) / (10_000 + s.vatRateBps));
   }, 0);
   const depositCents = Math.round((totalCents * shop.depositPercent) / 100);
@@ -1872,6 +1940,7 @@ export function createHold(input: HoldInput): HoldResult {
     cents: s.basePriceCents,
   }));
   for (const a of q.applied) if (a.deltaCents !== 0) breakdown.push({ label: a.name, cents: a.deltaCents });
+  if (primeCents) breakdown.push({ label: `Prime flexible +${PRIME_PERCENT}%`, cents: primeCents });
   if (travelFeeCents) breakdown.push({ label: 'Travel fee', cents: travelFeeCents });
   breakdown.push(...discountLines);
 
@@ -1886,7 +1955,9 @@ export function createHold(input: HoldInput): HoldResult {
     staffId,
     startsAt: input.startsAt,
     endsAt: input.startsAt + timing.durationMin * MIN + timing.processingGapMin * MIN + timing.finishMin * MIN,
-    staffRanges: occupancyForBasket(input.startsAt, services, shop.rules),
+    // Prime holds no seat — an empty range list keeps it invisible to the
+    // availability projection, which is the entire point of the product.
+    staffRanges: input.prime ? [] : occupancyForBasket(input.startsAt, services, shop.rules),
     status: 'pending_payment',
     holdExpiresAt: now + HOLD_TTL_SECONDS * 1000,
     quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown },
@@ -1896,6 +1967,7 @@ export function createHold(input: HoldInput): HoldResult {
     guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
     voucherCode: input.voucherCode || undefined,
+    isPrime: input.prime || undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -1984,20 +2056,30 @@ export function rescheduleBooking(
   const now = Date.now();
   const isoDate = isoDateOf(newStartsAt);
 
-  const day = staffDayOf(shop, staffId, isoDate, now, b.id);
-  const held = occupancyForBasket(newStartsAt, services, shop.rules);
-  const inWindow = day.working.some(
-    (w) => newStartsAt >= w.start && newStartsAt + timing.durationMin * MIN <= w.end,
-  );
-  if (!inWindow || held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
-    const { slots } = availability(shopId, b.serviceIds, isoDate, b.deviceId, newStaffId ?? null);
-    throw new SlotTaken(slots.slice(0, 6));
+  // A Prime booking holds no seat, so moving it needs no seat either — only
+  // the doors matter, same rule as when it was sold.
+  if (b.isPrime) {
+    const startMin = minuteOfDay(newStartsAt);
+    const okHours = primeWindowsFor(shopId, isoDate).some(
+      (w) => startMin >= w.startMin && startMin + timing.durationMin <= w.endMin,
+    );
+    if (!okHours) throw new PrimeUnavailable('closed');
+  } else {
+    const day = staffDayOf(shop, staffId, isoDate, now, b.id);
+    const held = occupancyForBasket(newStartsAt, services, shop.rules);
+    const inWindow = day.working.some(
+      (w) => newStartsAt >= w.start && newStartsAt + timing.durationMin * MIN <= w.end,
+    );
+    if (!inWindow || held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
+      const { slots } = availability(shopId, b.serviceIds, isoDate, b.deviceId, newStaffId ?? null);
+      throw new SlotTaken(slots.slice(0, 6));
+    }
+    b.staffRanges = held;
   }
 
   b.staffId = staffId;
   b.startsAt = newStartsAt;
   b.endsAt = newStartsAt + (timing.durationMin + timing.processingGapMin + timing.finishMin) * MIN;
-  b.staffRanges = held;
   persist();
   return b;
 }
@@ -2057,6 +2139,8 @@ export interface CalendarBlock {
   serviceNames?: string[];
   status?: BookingStatus;
   totalCents?: number;
+  /** Sold as Prime flexible — an extra squeezed in on top of the grid. */
+  prime?: boolean;
   start: number;
   end: number;
 }
@@ -2087,6 +2171,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
         serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
         status: b.status,
         totalCents: b.quote.totalCents,
+        prime: b.isPrime || undefined,
         start: b.startsAt,
         end: b.endsAt,
       });
@@ -2219,6 +2304,7 @@ export interface BookingView {
   staffName: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
+  isPrime: boolean;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -2247,6 +2333,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       staffName: shop ? effectiveStaff(shop.id).find((s) => s.id === b.staffId)?.name ?? null : null,
       review: b.review ?? null,
       tipCents: b.tipCents ?? 0,
+      isPrime: b.isPrime ?? false,
     };
   });
 }

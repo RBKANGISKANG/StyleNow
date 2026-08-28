@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       guestNote: body.guestNote || undefined,
       voucherCode: body.voucherCode || undefined,
       pointsToSpend: typeof body.pointsToSpend === 'number' ? body.pointsToSpend : undefined,
+      prime: body.prime === true,
       idempotencyKey,
     });
     return NextResponse.json(result, { status: 201 });
