@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
+import { StaffWeekGrid } from '@/components/StaffWeekGrid';
 import { apiOverview, apiHrOverview, apiSetStatus, apiSetCustomerNote, type HrRow } from '@/lib/api';
 import { todayIso, addDays } from '@/core/time';
 import type { Overview } from '../dashboard/shell';
@@ -263,6 +264,15 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
                   </div>
                 )}
               </section>
+
+              {staffId && (
+                <section className="section">
+                  <h2>{t('sw_my_title')}</h2>
+                  <div className="panel" style={{ padding: 14 }}>
+                    <StaffWeekGrid shopId={shopId} staffId={staffId} />
+                  </div>
+                </section>
+              )}
 
               {hr && (
                 <section className="section">

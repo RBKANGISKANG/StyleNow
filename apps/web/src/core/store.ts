@@ -2117,6 +2117,73 @@ export function createShopBooking(
   return b;
 }
 
+// --- one stylist's week -----------------------------------------------------
+
+export interface StaffWeekDayView {
+  iso: string;
+  /** rostered windows that day, epoch ms */
+  working: Interval[];
+  blocks: CalendarBlock[];
+  rosteredMin: number;
+  /** minutes actually sold — bookings and walk-ins, clipped to the roster */
+  soldMin: number;
+}
+
+/**
+ * Seven days of one person's chair: what is rostered, what is sold, and where
+ * the holes are. The day view answers "who is next"; this answers "how is my
+ * week going" for a stylist and "which day is nobody buying" for the owner —
+ * the same axis as the day calendar so the two read as one instrument.
+ */
+export function staffWeek(shopId: string, staffId: string, fromIso: string): StaffWeekDayView[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const now = Date.now();
+
+  return Array.from({ length: 7 }, (_, i) => addDays(fromIso, i)).map((iso) => {
+    const dStart = dayStart(iso);
+    const day: Interval = { start: dStart, end: dStart + 24 * 60 * MIN };
+    const working = staffWindows(shop, staffId, iso);
+    const blocks: CalendarBlock[] = seedBusy(staffId, iso, working).map((b) => ({
+      kind: 'walk_in',
+      start: b.start,
+      end: b.end,
+    }));
+    for (const b of state.bookings.values()) {
+      if (b.staffId !== staffId || b.shopId !== shopId || !bookingBlocks(b, now)) continue;
+      if (!overlaps({ start: b.startsAt, end: b.endsAt }, day)) continue;
+      blocks.push({
+        kind: 'booking',
+        bookingId: b.id,
+        reference: b.reference,
+        guestName: b.guestName,
+        serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id),
+        status: b.status,
+        totalCents: b.quote.totalCents,
+        prime: b.isPrime || undefined,
+        start: b.startsAt,
+        end: b.endsAt,
+      });
+    }
+    blocks.sort((a, b) => a.start - b.start);
+
+    const rosteredMin = working.reduce((n, w) => n + (w.end - w.start) / MIN, 0);
+    // Sold time is counted inside the roster only: a Prime squeeze at 19:45
+    // on a shift that ends at 20:00 sells 15 rostered minutes, not its whole
+    // duration — utilisation above 100% would be a lie about the roster.
+    const soldMin = blocks.reduce((n, b) => {
+      for (const w of working) {
+        const s = Math.max(b.start, w.start);
+        const e = Math.min(b.end, w.end);
+        if (e > s) n += (e - s) / MIN;
+      }
+      return n;
+    }, 0);
+
+    return { iso, working, blocks, rosteredMin, soldMin: Math.min(soldMin, rosteredMin) };
+  });
+}
+
 export function getBooking(id: string): Booking | undefined {
   return state.bookings.get(id);
 }

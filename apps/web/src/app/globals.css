@@ -2492,3 +2492,48 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .cal-block.prime { background: var(--violet); }
 .cal-block.prime.pending { background: repeating-linear-gradient(45deg, var(--violet), var(--violet) 4px, #7a5ce0 4px, #7a5ce0 8px); }
 .cal-legend .sw.prime { background: var(--violet); }
+
+/* --- one stylist's week ----------------------------------------------------- */
+.sweek { display: flex; flex-direction: column; gap: 10px; }
+.sweek-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.sweek-range { font-size: 0.88rem; }
+.sweek-head { margin-left: auto; font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); }
+.sweek-dead {
+  margin: 0; padding: 9px 13px; border-radius: var(--r-sm);
+  background: var(--amber-soft); color: #8a5a10;
+  font-size: 0.78rem; font-weight: 600; line-height: 1.45;
+}
+.sweek-grid { display: flex; flex-direction: column; gap: 4px; }
+.sweek-ruler, .sweek-row {
+  display: grid; grid-template-columns: 52px 1fr 76px; gap: 10px; align-items: center;
+}
+.sweek-ruler .marks {
+  display: flex; justify-content: space-between;
+  font-size: 0.62rem; font-weight: 700; color: var(--ink-soft); padding: 0 2px;
+}
+.sweek-day { display: flex; flex-direction: column; line-height: 1.15; }
+.sweek-day .dw { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); }
+.sweek-day .dn { font-size: 0.95rem; font-weight: 800; }
+.sweek-row.today .sweek-day .dn { color: var(--primary-deep); }
+.sweek-lane {
+  position: relative; height: 30px; border-radius: 8px;
+  background: var(--surface-2); overflow: hidden;
+}
+.sweek-row.today .sweek-lane { box-shadow: inset 0 0 0 1.5px var(--primary-soft); }
+.sweek-off {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg, rgba(43, 34, 51, 0.05) 0 5px, transparent 5px 10px);
+}
+.sweek-shift { position: absolute; top: 0; bottom: 0; background: var(--surface); border: 1px dashed var(--line); border-radius: 7px; }
+.sweek-block { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; min-width: 4px; }
+/* Same fills as the day calendar's legend — one instrument, one colour code. */
+.sweek-block.booking { background: var(--teal); }
+.sweek-block.pending { background: var(--amber); }
+.sweek-block.prime { background: var(--violet); }
+.sweek-block.walk { background: repeating-linear-gradient(45deg, #cfc4d6, #cfc4d6 3px, #c2b6ca 3px, #c2b6ca 6px); }
+.sweek-sum { font-size: 0.76rem; font-weight: 800; text-align: right; white-space: nowrap; }
+.sweek-sum em { font-style: normal; color: var(--ink-soft); font-weight: 600; }
+.sweek-sum .off { color: var(--ink-soft); font-weight: 700; }
+@media (max-width: 600px) {
+  .sweek-ruler, .sweek-row { grid-template-columns: 40px 1fr 62px; gap: 7px; }
+}

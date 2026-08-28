@@ -41,6 +41,7 @@ import type {
   ShopPhoto,
   Message,
   ThreadSummary,
+  StaffWeekDayView,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -656,6 +657,17 @@ export async function apiCaptionShopPhoto(shopId: string, photoId: string, capti
   syncConfig(shopId);
 }
 
+// ---- one stylist's week ----------------------------------------------------
+
+export async function apiStaffWeek(shopId: string, staffId: string, fromIso: string): Promise<StaffWeekDayView[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/staff-week?staffId=${encodeURIComponent(staffId)}&from=${fromIso}`);
+    return res.ok ? (await res.json()).days : [];
+  }
+  await readyForRead();
+  return store.staffWeek(shopId, staffId, fromIso);
+}
+
 // ---- messages -------------------------------------------------------------
 
 /**
@@ -1205,4 +1217,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary };
+export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView };

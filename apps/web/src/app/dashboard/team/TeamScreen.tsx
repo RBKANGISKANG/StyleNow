@@ -4,7 +4,7 @@
  * set here are the first input to availability: everything else (absences,
  * bookings, buffers) only ever subtracts from them.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { Glyph } from '@/components/Icon';
 import { usePaged, Pager } from '@/components/Pager';
@@ -12,6 +12,7 @@ import { apiAddStaff, apiPatchStaff, apiArchiveStaff } from '@/lib/api';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
+import { StaffWeekGrid } from '@/components/StaffWeekGrid';
 import type { ShopRef } from '@/lib/owned-shops';
 
 export function TeamScreen({ shops }: { shops: ShopRef[] }) {
@@ -26,8 +27,13 @@ function TeamTab({ shopId }: { shopId: string }) {
   const { t } = useI18n();
   const { data, reload } = useOverview(shopId);
   const { setToast, toastEl } = useToast();
+  const [weekFor, setWeekFor] = useState<string | null>(null);
+
+  // The picker follows the roster: when the shop changes, so does the team.
+  useEffect(() => setWeekFor(null), [shopId]);
 
   if (data === null) return <div className="spinner" />;
+  const chosen = weekFor ?? data.staffRows[0]?.staffId ?? null;
 
   return (
     <>
@@ -45,6 +51,28 @@ function TeamTab({ shopId }: { shopId: string }) {
           }}
         />
       </section>
+
+      {/* One person's week, sold against rostered — the roster above says who
+          is meant to be in; this says whether anybody is buying that time. */}
+      {chosen && (
+        <section className="section">
+          <h2>{t('sw_title')}</h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            {data.staffRows.map((r) => (
+              <button
+                key={r.staffId}
+                className={`chip ${chosen === r.staffId ? 'on-primary' : ''}`}
+                onClick={() => setWeekFor(r.staffId)}
+              >
+                {r.name}
+              </button>
+            ))}
+          </div>
+          <div className="panel" style={{ padding: 14 }}>
+            <StaffWeekGrid shopId={shopId} staffId={chosen} />
+          </div>
+        </section>
+      )}
       {toastEl}
     </>
   );
