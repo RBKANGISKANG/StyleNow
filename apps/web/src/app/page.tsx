@@ -6,6 +6,7 @@ import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
 import { apiMatch } from '@/lib/api';
 import { GetApp } from '@/components/GetApp';
+import { FeedMap } from '@/components/FeedMap';
 import { Heart } from '@/components/Heart';
 import { useFavourites } from '@/lib/favs';
 import { resolveLocation } from '@/core/geo';
@@ -26,6 +27,8 @@ interface Card {
   name: string;
   category: string;
   district: string;
+  lat: number;
+  lng: number;
   emoji: string;
   gradient: [string, string];
   tagline: { en: string; de: string };
@@ -41,6 +44,9 @@ interface Card {
 }
 
 const VIEW_KEY = 'stylenow.feed.view';
+
+type View = 'grid' | 'list' | 'map';
+const VIEWS: View[] = ['grid', 'list', 'map'];
 
 export default function Explore() {
   const { t, lang } = useI18n();
@@ -58,22 +64,22 @@ export default function Explore() {
   const [radius, setRadius] = useState<number | null>(null);
   const [topRated, setTopRated] = useState(false);
   const [sortBy, setSortBy] = useState<'match' | 'distance' | 'price' | 'rating'>('match');
-  // Grid or list is a taste thing, so it is remembered rather than guessed.
-  const [view, setView] = useState<'grid' | 'list'>('grid');
+  // Grid, list or map is a taste thing, so it is remembered rather than guessed.
+  const [view, setView] = useState<View>('grid');
   // On a phone the filters live in a sheet instead of eating the first screen.
   const [sheetOpen, setSheetOpen] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(VIEW_KEY);
-      if (saved === 'grid' || saved === 'list') setView(saved);
+      const saved = window.localStorage.getItem(VIEW_KEY) as View | null;
+      if (saved && VIEWS.includes(saved)) setView(saved);
     } catch {
       // private mode — grid it is
     }
   }, []);
 
-  const chooseView = (next: 'grid' | 'list') => {
+  const chooseView = (next: View) => {
     setView(next);
     try {
       window.localStorage.setItem(VIEW_KEY, next);
@@ -298,6 +304,9 @@ export default function Explore() {
           <button className={view === 'list' ? 'on' : ''} onClick={() => chooseView('list')} aria-label={t('view_list_feed')} title={t('view_list_feed')}>
             <ListIcon />
           </button>
+          <button className={view === 'map' ? 'on' : ''} onClick={() => chooseView('map')} aria-label={t('view_map')} title={t('view_map')}>
+            <MapIcon />
+          </button>
         </div>
       </div>
 
@@ -323,6 +332,8 @@ export default function Explore() {
             <div className="big">🪞</div>
             {t('no_results')}
           </div>
+        ) : view === 'map' ? (
+          <FeedMap pins={visible} />
         ) : (
           <div className={view === 'list' ? 'feed-list' : 'feed-grid'}>
             {visible.map((c) => (
@@ -358,6 +369,15 @@ function ListIcon() {
       <rect x="0" y="1" width="16" height="3" rx="1.5" />
       <rect x="0" y="6.5" width="16" height="3" rx="1.5" />
       <rect x="0" y="12" width="16" height="3" rx="1.5" />
+    </svg>
+  );
+}
+
+function MapIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden>
+      <path d="M8 14.5s4.6-4.3 4.6-7.6A4.6 4.6 0 0 0 8 2.4a4.6 4.6 0 0 0-4.6 4.5c0 3.3 4.6 7.6 4.6 7.6Z" strokeLinejoin="round" />
+      <circle cx="8" cy="6.9" r="1.8" />
     </svg>
   );
 }

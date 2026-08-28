@@ -1503,6 +1503,9 @@ export interface FeedCard {
   name: string;
   category: string;
   district: string;
+  /** Where it is — the map view places pins from these. */
+  lat: number;
+  lng: number;
   emoji: string;
   gradient: [string, string];
   tagline: { en: string; de: string };
@@ -1581,6 +1584,8 @@ export function feed(q: FeedQuery): FeedCard[] {
       name: s.name,
       category: s.category,
       district: s.district,
+      lat: s.lat,
+      lng: s.lng,
       emoji: s.emoji,
       gradient: s.gradient,
       tagline: s.tagline,
