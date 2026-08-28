@@ -166,3 +166,38 @@ export function NextUpCard({
     </section>
   );
 }
+
+/**
+ * People who came back.
+ *
+ * Occupancy and takings say how the day went; neither says whether the salon is
+ * building anything. A second visit inside six weeks is the earliest honest
+ * sign that somebody is becoming a regular, which is the number a shop grows on.
+ */
+export function NewRegulars({ shopId }: { shopId: string }) {
+  const { t } = useI18n();
+  const [n, setN] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void apiShopCustomers(shopId).then((rows) => {
+      if (!alive) return;
+      // Second visit, and it happened this week — "new regulars" is a claim
+      // about the last seven days, not about everyone who ever came twice.
+      const week = 7 * 864e5;
+      setN(rows.filter((r) => r.visits === 2 && r.lastVisit !== null && Date.now() - r.lastVisit < week).length);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [shopId]);
+
+  if (n === null) return null;
+  return (
+    <div className="stat-tile">
+      <div className="lbl">{t('sr_new_regulars')}</div>
+      <div className="val">{n}</div>
+      <div className="stat-sub">{t('sr_second_visit')}</div>
+    </div>
+  );
+}

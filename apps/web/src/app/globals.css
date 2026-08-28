@@ -2071,3 +2071,16 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .slot-base span { text-decoration: none; font-weight: 800; margin-left: 3px; }
 .slot-chip.prime .slot-base span { color: var(--violet); }
 .slot-chip.saver .slot-base span { color: var(--teal); }
+
+/* --- calendar legend + stat sublines -------------------------------------- */
+.cal-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cal-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-left: auto; }
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--ink-soft); }
+.cal-legend .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+/* These must be the fills .cal-block actually paints, not the palette they
+   ought to use — a key that names the wrong colour is worse than no key. */
+.cal-legend .sw.booked { background: var(--teal); }
+.cal-legend .sw.held { background: var(--amber); }
+.cal-legend .sw.walkin { background: repeating-linear-gradient(45deg, #cfc4d6, #cfc4d6 3px, #c2b6ca 3px, #c2b6ca 6px); }
+.cal-legend .sw.off { background: transparent; border: 1.5px dashed var(--line); }
+.stat-sub { font-size: 0.68rem; color: var(--ink-soft); margin-top: 3px; line-height: 1.35; }

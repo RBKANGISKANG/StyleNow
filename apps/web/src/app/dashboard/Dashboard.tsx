@@ -28,7 +28,8 @@ import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar
 import { AppointmentDialog, type DialogBooking } from '@/components/AppointmentDialog';
 import { Modal } from '@/components/Modal';
 import { Briefing } from '@/components/Briefing';
-import { DayHeadline, NextUpCard } from '@/components/OperatorToday';
+import { apiRevenueReport } from '@/lib/api';
+import { DayHeadline, NextUpCard, NewRegulars } from '@/components/OperatorToday';
 import { CustomerPicker } from '@/components/CustomerPicker';
 import { Glyph } from '@/components/Icon';
 import { useStudio } from '@/lib/design';
@@ -145,6 +146,19 @@ function TodayTab({ shopId }: { shopId: string }) {
 
   const avgTicket = data && data.bookingCount > 0 ? Math.round(data.revenueCents / data.bookingCount) : 0;
 
+  // The busiest day of the last four weeks, so today's revenue bar is measured
+  // against something real rather than an invented target.
+  const [best, setBest] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void apiRevenueReport(shopId, addDays(todayIso(), -27), todayIso()).then((r) => {
+      if (alive && r) setBest(r.bestDay?.revenueCents ?? 0);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [shopId]);
+
   return (
     <>
       {studio && span === 'day' && (
@@ -235,6 +249,13 @@ function TodayTab({ shopId }: { shopId: string }) {
           <div className="stat-tile">
             <div className="lbl">{t('revenue_today')}</div>
             <div className="val">{money(data.revenueCents, lang)}</div>
+            {/* Against the best day of the last four weeks — a bar with no
+                scale behind it is decoration. */}
+            {best > 0 && (
+              <div className="bar">
+                <div style={{ width: `${Math.min(100, Math.round((data.revenueCents / best) * 100))}%`, background: 'var(--teal)' }} />
+              </div>
+            )}
           </div>
           <div className="stat-tile">
             <div className="lbl">{t('bookings_today')}</div>
@@ -244,10 +265,21 @@ function TodayTab({ shopId }: { shopId: string }) {
             <div className="lbl">{t('avg_ticket')}</div>
             <div className="val">{avgTicket ? money(avgTicket, lang) : '—'}</div>
           </div>
+          <NewRegulars shopId={shopId} />
         </div>
 
         <section className="section" style={{ display: view === 'calendar' ? undefined : 'none' }}>
-          <h2>{t('calendar')}</h2>
+          <div className="cal-head">
+            <h2>{t('calendar')}</h2>
+            {/* Four fills, no key: the hatching and the colours meant nothing
+                unless you already knew what they meant. */}
+            <div className="cal-legend">
+              <span><i className="sw booked" />{t('lg_booked')}</span>
+              <span><i className="sw held" />{t('lg_held')}</span>
+              <span><i className="sw walkin" />{t('lg_walkin')}</span>
+              <span><i className="sw off" />{t('lg_off')}</span>
+            </div>
+          </div>
           <p style={{ fontSize: '0.76rem', color: 'var(--ink-soft)', margin: '4px 0 10px' }}>💡 {t('dash_cal_hint')}</p>
           <div className="cal-wrap">
             <div className="cal">
