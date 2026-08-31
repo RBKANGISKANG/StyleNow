@@ -15,6 +15,7 @@ import { todayIso, addDays } from '@/core/time';
 import {
   apiHrOverview,
   apiAddAbsence,
+  apiApproveAbsence,
   apiDeleteAbsence,
   apiPatchStaff,
   type HrRow,
@@ -221,12 +222,30 @@ export function HrPanel({
                 <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0' }}>{t('hr_none')}</p>
               ) : (
                 r.absences.map((a) => (
-                  <div key={a.id} className="hr-abs">
+                  <div key={a.id} className={`hr-abs${a.status === 'pending' ? ' pending' : ''}`}>
                     <span className={`st-badge ${a.kind === 'sick' ? 'st-no_show' : 'st-completed'}`}>{kindLabel(a.kind)}</span>
                     <span style={{ fontSize: '0.82rem' }}>
                       {a.from} → {a.to}
                       {a.note ? ` · ${a.note}` : ''}
                     </span>
+                    {/* An employee asked from My Day; nothing is blocked until
+                        somebody here says yes. Decline is the ✕ next door. */}
+                    {a.status === 'pending' && (
+                      <>
+                        <span className="st-badge st-pending_payment">{t('hr_requested')}</span>
+                        <button
+                          className="btn btn-primary sm"
+                          onClick={() =>
+                            void apiApproveAbsence(shopId, r.staffId, a.id).then(() => {
+                              load();
+                              onChanged('✅ ' + t('hr_approved'));
+                            })
+                          }
+                        >
+                          {t('hr_approve')}
+                        </button>
+                      </>
+                    )}
                     <button
                       className="btn btn-ghost sm"
                       style={{ color: 'var(--danger)', marginLeft: 'auto' }}

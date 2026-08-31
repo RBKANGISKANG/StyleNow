@@ -14,6 +14,7 @@ import {
   apiMyUnread,
 } from '@/lib/api';
 import { icsHref } from '@/lib/ics';
+import { MoveBooking } from '@/components/MoveBooking';
 
 interface Bk {
   id: string;
@@ -31,6 +32,7 @@ interface Bk {
   shop: { id: string; slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
   services: Array<{ name: { en: string; de: string }; emoji: string }>;
   serviceIds: string[];
+  staffId: string;
   staffName: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
@@ -50,6 +52,7 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<Bk[] | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [cancelFor, setCancelFor] = useState<{ id: string; feeCents: number; refundCents: number; reason: string } | null>(null);
+  const [moveFor, setMoveFor] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [points, setPoints] = useState(0);
   const [waitlist, setWaitlist] = useState<Wl[]>([]);
@@ -178,9 +181,25 @@ export default function BookingsPage() {
                   </span>
                 )}
                 {tab === 'upcoming' && b.status === 'confirmed' && (
-                  <button className="btn btn-soft sm" onClick={() => void previewCancel(b.id)}>
-                    {t('cancel_booking')}
-                  </button>
+                  <>
+                    {/* Moving is only offered while cancelling would still be
+                        free — later than that it would be fee-dodging, and the
+                        message thread is the honest door. */}
+                    {Date.now() <= b.startsAt - b.policy.freeUntilHours * 36e5 && (
+                      <button
+                        className="btn btn-soft sm"
+                        onClick={() => {
+                          setMoveFor(moveFor === b.id ? null : b.id);
+                          setCancelFor(null);
+                        }}
+                      >
+                        ⇄ {t('mv_open')}
+                      </button>
+                    )}
+                    <button className="btn btn-soft sm" onClick={() => { setMoveFor(null); void previewCancel(b.id); }}>
+                      {t('cancel_booking')}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -212,6 +231,23 @@ export default function BookingsPage() {
             )}
             {b.status === 'completed' && b.shop && (
               <CompletedExtras booking={b} onChanged={() => { setToast('✅'); void load(); }} />
+            )}
+            {moveFor === b.id && b.shop && (
+              <div style={{ padding: '0 18px 16px' }}>
+                <MoveBooking
+                  shopId={b.shop.id}
+                  bookingId={b.id}
+                  serviceIds={b.serviceIds}
+                  staffId={b.staffId}
+                  currentStartsAt={b.startsAt}
+                  onDone={(msg) => {
+                    setMoveFor(null);
+                    setToast('✅ ' + msg);
+                    void load();
+                  }}
+                  onClose={() => setMoveFor(null)}
+                />
+              </div>
             )}
             {cancelFor?.id === b.id && (
               <div style={{ padding: '0 18px 16px' }}>

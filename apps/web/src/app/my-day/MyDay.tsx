@@ -17,6 +17,7 @@ import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import { StaffWeekGrid } from '@/components/StaffWeekGrid';
 import { apiOverview, apiHrOverview, apiSetStatus, apiSetCustomerNote, type HrRow } from '@/lib/api';
+import { apiStaffAbsences, apiRequestAbsence, type Absence, type AbsenceKind } from '@/lib/api';
 import { todayIso, addDays } from '@/core/time';
 import type { Overview } from '../dashboard/shell';
 
@@ -295,20 +296,7 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
                       <span className="v">{hr.absentDays}</span>
                     </div>
                   </div>
-                  {hr.absences.length > 0 && (
-                    <div className="panel" style={{ marginTop: 12 }}>
-                      <strong style={{ fontSize: '0.82rem' }}>🌴 {t('hr_absences')}</strong>
-                      {hr.absences.map((a) => (
-                        <div key={a.id} className="hr-abs">
-                          <span className="st-badge st-completed">{t(`hr_${a.kind}` as MsgKey)}</span>
-                          <span style={{ fontSize: '0.82rem' }}>
-                            {a.from} → {a.to}
-                            {a.note ? ` · ${a.note}` : ''}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <TimeOff shopId={shopId} staffId={staffId} />
                   <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 10 }}>
                     💡 {t('md_hint')} <Link href="/dashboard/hr" style={{ fontWeight: 700 }}>{t('tab_hr')} →</Link>
                   </p>
@@ -318,6 +306,94 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Time off, from the person it belongs to.
+ *
+ * Until now absences only existed if the boss typed them in; the employee's
+ * own view could not even ask. This is the other door onto the same list:
+ * a request lands as *pending* — visible here with its status, visible to the
+ * shop as a notice and an Approve button in HR — and blocks nothing until it
+ * is approved, because a question must not empty the calendar.
+ */
+function TimeOff({ shopId, staffId }: { shopId: string; staffId: string }) {
+  const { t } = useI18n();
+  const [rows, setRows] = useState<Absence[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<{ from: string; to: string; kind: AbsenceKind; note: string }>({
+    from: todayIso(),
+    to: todayIso(),
+    kind: 'vacation',
+    note: '',
+  });
+
+  const load = useCallback(() => {
+    void apiStaffAbsences(shopId, staffId).then(setRows);
+  }, [shopId, staffId]);
+
+  useEffect(load, [load]);
+
+  const upcoming = (rows ?? []).filter((a) => a.to >= todayIso());
+
+  return (
+    <div className="panel" style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: '0.82rem' }}>🌴 {t('hr_absences')}</strong>
+        <button className="btn btn-soft sm" onClick={() => setOpen(!open)}>
+          {open ? t('to_cancel') : `+ ${t('to_request')}`}
+        </button>
+      </div>
+
+      {upcoming.length === 0 && !open && (
+        <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '6px 0 0' }}>{t('to_none')}</p>
+      )}
+      {upcoming.map((a) => (
+        <div key={a.id} className="hr-abs">
+          <span className={`st-badge ${a.kind === 'sick' ? 'st-no_show' : 'st-completed'}`}>{t(`hr_${a.kind}` as MsgKey)}</span>
+          <span style={{ fontSize: '0.82rem' }}>
+            {a.from} → {a.to}
+            {a.note ? ` · ${a.note}` : ''}
+          </span>
+          <span className={`st-badge ${a.status === 'pending' ? 'st-pending_payment' : 'st-confirmed'}`} style={{ marginLeft: 'auto' }}>
+            {a.status === 'pending' ? t('to_pending') : t('to_approved')}
+          </span>
+        </div>
+      ))}
+
+      {open && (
+        <div className="hr-abs-form">
+          <label className="chip">
+            {t('hr_kind')}
+            <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as AbsenceKind })}>
+              {(['vacation', 'sick', 'training', 'other'] as AbsenceKind[]).map((k) => (
+                <option key={k} value={k}>{t(`hr_${k}` as MsgKey)}</option>
+              ))}
+            </select>
+          </label>
+          <input type="date" className="input" value={draft.from} min={todayIso()}
+            onChange={(e) => setDraft({ ...draft, from: e.target.value, to: e.target.value > draft.to ? e.target.value : draft.to })} />
+          <input type="date" className="input" value={draft.to} min={draft.from}
+            onChange={(e) => setDraft({ ...draft, to: e.target.value })} />
+          <input className="input" placeholder={t('to_note_ph')} value={draft.note} maxLength={120}
+            onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
+          <button
+            className="btn btn-primary sm"
+            disabled={!draft.from || !draft.to || draft.to < draft.from}
+            onClick={() => {
+              void apiRequestAbsence(shopId, staffId, { from: draft.from, to: draft.to, kind: draft.kind, note: draft.note || undefined }).then(() => {
+                setOpen(false);
+                load();
+              });
+            }}
+          >
+            {t('to_send')}
+          </button>
+        </div>
+      )}
+      <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 8 }}>{t('to_hint')}</p>
     </div>
   );
 }

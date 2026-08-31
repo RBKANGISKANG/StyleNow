@@ -554,6 +554,46 @@ export async function apiRescheduleBooking(
   }
 }
 
+/**
+ * The customer moves their own appointment. Same seat machinery the front desk
+ * uses, plus two rules the desk is not bound by: it must be this device's
+ * booking, and it must still be inside the free-cancellation window — later
+ * than that, moving would just be fee-dodging with extra steps.
+ */
+export async function apiMoveMyBooking(
+  shopId: string,
+  bookingId: string,
+  startsAt: number,
+): Promise<ShopBookingOutcome | { ok: false; code: 'too_late' }> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch(`/api/bookings/${bookingId}/move`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ shopId, startsAt, deviceId: deviceId() }),
+    });
+    if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
+    if (res.status === 403) return { ok: false, code: 'too_late' };
+    if (!res.ok) return { ok: false, code: 'error' };
+    announceMessages();
+    return { ok: true, reference: bookingId };
+  }
+  await ready();
+  try {
+    if (backendMode() === 'supabase') {
+      await sb.rescheduleBooking(shopId, bookingId, startsAt, null, { byDevice: deviceId() });
+    } else {
+      store.rescheduleBooking(shopId, bookingId, startsAt, null, { byDevice: deviceId() });
+    }
+    announceMessages();
+    return { ok: true, reference: bookingId };
+  } catch (e) {
+    if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    if (e instanceof Error && e.message === 'too_late') return { ok: false, code: 'too_late' };
+    return { ok: false, code: 'error' };
+  }
+}
+
 // ---- shop logo ------------------------------------------------------------
 
 export async function apiShopLogo(shopId: string): Promise<string | null> {
@@ -1256,6 +1296,51 @@ export async function apiAddAbsence(
   syncConfig(shopId);
 }
 
+export async function apiRequestAbsence(
+  shopId: string,
+  staffId: string,
+  input: { from: string; to: string; kind: AbsenceKind; note?: string },
+): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/staff/${staffId}/absences`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...input, asRequest: true }),
+    });
+    announceMessages();
+    return;
+  }
+  await localWrite();
+  store.requestAbsence(staffId, input);
+  syncConfig(shopId);
+  announceMessages();
+}
+
+export async function apiApproveAbsence(shopId: string, staffId: string, absenceId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/staff/${staffId}/absences`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ absenceId }),
+    });
+    announceMessages();
+    return;
+  }
+  await localWrite();
+  store.approveAbsence(staffId, absenceId);
+  syncConfig(shopId);
+  announceMessages();
+}
+
+export async function apiStaffAbsences(shopId: string, staffId: string): Promise<Absence[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/staff/${staffId}/absences`);
+    return res.ok ? (await res.json()).absences : [];
+  }
+  await readyForRead();
+  return store.absencesFor(staffId);
+}
+
 export async function apiDeleteAbsence(shopId: string, staffId: string, absenceId: string): Promise<void> {
   if (backendMode() === 'server') {
     await fetch(`/api/shop/${shopId}/staff/${staffId}/absences/${absenceId}`, { method: 'DELETE' });
@@ -1266,4 +1351,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice };
+export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice };

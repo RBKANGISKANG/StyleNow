@@ -2623,3 +2623,20 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
      to the viewport it is simply a sheet under the top bar. */
   .bell-panel { position: fixed; left: 14px; right: 14px; top: 74px; width: auto; }
 }
+
+/* --- moving your own appointment ------------------------------------------- */
+.mv-panel {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 14px; background: var(--surface-2);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.mv-head { display: flex; flex-direction: column; gap: 2px; }
+.mv-head strong { font-size: 0.92rem; }
+.mv-head span { font-size: 0.76rem; color: var(--ink-soft); font-weight: 600; }
+.mv-days { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; align-items: center; }
+.mv-none { margin: 0; font-size: 0.82rem; color: var(--ink-soft); }
+.mv-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mv-price-note { font-size: 0.72rem; font-weight: 600; color: var(--ink-soft); }
+
+/* --- a pending time-off request -------------------------------------------- */
+.hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }

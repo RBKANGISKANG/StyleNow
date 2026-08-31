@@ -245,9 +245,10 @@ export async function rescheduleBooking(
   bookingId: string,
   newStartsAt: number,
   newStaffId?: string | null,
+  opts: { byDevice?: string } = {},
 ): Promise<Booking> {
   await ensureSynced();
-  const b = store.rescheduleBooking(shopId, bookingId, newStartsAt, newStaffId);
+  const b = store.rescheduleBooking(shopId, bookingId, newStartsAt, newStaffId, opts);
   const db = await sb();
   const { data, error } = await deadline(db.rpc('reschedule_booking', {
     p_id: b.id,

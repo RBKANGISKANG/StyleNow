@@ -96,6 +96,9 @@ export interface Booking {
   /** A Prime flexible appointment: extra capacity the shop sells at a premium,
    *  at any time inside opening hours — it never occupies a seat in the grid. */
   isPrime?: boolean;
+  /** Set when the customer moved it themselves — the shop's bell tells them. */
+  movedAt?: number;
+  movedFromStartsAt?: number;
   createdAt: number;
 }
 
@@ -144,6 +147,10 @@ export interface Absence {
   to: string;   // YYYY-MM-DD inclusive
   kind: AbsenceKind;
   note?: string;
+  /** Absent = approved: entries the shop typed in predate requests and stand. */
+  status?: 'pending' | 'approved';
+  /** When the employee asked — set on requests, drives the shop's notice. */
+  requestedAt?: number;
 }
 
 /** A day the whole shop is shut — public holiday, renovation, team offsite. */
@@ -941,7 +948,11 @@ export function absencesFor(staffId: string): Absence[] {
 }
 
 export function isAbsent(staffId: string, isoDate: string): boolean {
-  return (state.absences.get(staffId) ?? []).some((a) => isoDate >= a.from && isoDate <= a.to);
+  // A pending request is a question, not a fact: the roster keeps selling the
+  // day until somebody who runs the shop says yes.
+  return (state.absences.get(staffId) ?? []).some(
+    (a) => a.status !== 'pending' && isoDate >= a.from && isoDate <= a.to,
+  );
 }
 
 export function addAbsence(staffId: string, input: Omit<Absence, 'id' | 'staffId'>): Absence {
@@ -949,6 +960,32 @@ export function addAbsence(staffId: string, input: Omit<Absence, 'id' | 'staffId
   state.absences.set(staffId, [...(state.absences.get(staffId) ?? []), absence]);
   persist();
   return absence;
+}
+
+/**
+ * An employee asks for days off from their own view. It lands as a pending
+ * entry on the same absence list the shop already manages — one list, two
+ * doors — and blocks nothing until it is approved.
+ */
+export function requestAbsence(staffId: string, input: Omit<Absence, 'id' | 'staffId' | 'status' | 'requestedAt'>): Absence {
+  const absence: Absence = {
+    ...input,
+    id: `abs-${state.seq++}-${Date.now().toString(36)}`,
+    staffId,
+    status: 'pending',
+    requestedAt: Date.now(),
+  };
+  state.absences.set(staffId, [...(state.absences.get(staffId) ?? []), absence]);
+  persist();
+  return absence;
+}
+
+export function approveAbsence(staffId: string, absenceId: string): void {
+  state.absences.set(
+    staffId,
+    (state.absences.get(staffId) ?? []).map((a) => (a.id === absenceId ? { ...a, status: 'approved' as const } : a)),
+  );
+  persist();
 }
 
 /** Shop-wide closures: one entry shuts every stylist for those dates. */
@@ -2044,10 +2081,22 @@ export function rescheduleBooking(
   bookingId: string,
   newStartsAt: number,
   newStaffId?: string | null,
+  /**
+   * Set when the *customer* is doing the moving. Two extra rules apply that
+   * the front desk is not bound by: it must be their own booking, and it must
+   * still be inside the free-cancellation window — otherwise moving would be
+   * a way to dodge the late fee the policy exists to charge.
+   */
+  opts: { byDevice?: string } = {},
 ): Booking {
   const b = state.bookings.get(bookingId);
   if (!b || b.shopId !== shopId) throw new Error('not_found');
   if (!['confirmed', 'pending_payment'].includes(b.status)) throw new Error('not_movable');
+  if (opts.byDevice) {
+    if (b.deviceId !== opts.byDevice) throw new Error('not_yours');
+    if (Date.now() > b.startsAt - b.policySnapshot.freeUntilHours * 36e5) throw new Error('too_late');
+  }
+  const movedFrom = b.startsAt;
   const shop = shopById(shopId);
   if (!shop) throw new Error('shop_not_found');
   const services = b.serviceIds
@@ -2082,6 +2131,10 @@ export function rescheduleBooking(
   b.staffId = staffId;
   b.startsAt = newStartsAt;
   b.endsAt = newStartsAt + (timing.durationMin + timing.processingGapMin + timing.finishMin) * MIN;
+  if (opts.byDevice) {
+    b.movedAt = Date.now();
+    b.movedFromStartsAt = movedFrom;
+  }
   persist();
   return b;
 }
@@ -2370,6 +2423,7 @@ export interface BookingView {
   shop: { id: string; slug: string; name: string; emoji: string; district: string; gradient: [string, string] } | null;
   services: Array<{ name: { en: string; de: string }; emoji: string }>;
   serviceIds: string[];
+  staffId: string;
   staffName: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
@@ -2399,6 +2453,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
         return s ? { name: s.name, emoji: s.emoji } : { name: { en: id, de: id }, emoji: '✨' };
       }),
       serviceIds: b.serviceIds,
+      staffId: b.staffId,
       staffName: shop ? effectiveStaff(shop.id).find((s) => s.id === b.staffId)?.name ?? null : null,
       review: b.review ?? null,
       tipCents: b.tipCents ?? 0,
@@ -2898,7 +2953,7 @@ export function unreadForDevice(deviceId: string): number {
 export interface AppNotice {
   /** stable across recomputations, so the client can tell old from new */
   id: string;
-  kind: 'appt_soon' | 'appt_tomorrow' | 'message' | 'offer' | 'booking_new';
+  kind: 'appt_soon' | 'appt_tomorrow' | 'message' | 'offer' | 'booking_new' | 'booking_moved' | 'timeoff';
   /** when this became worth showing — the badge counts notices after the watermark */
   at: number;
   /** where tapping it goes */
@@ -3041,6 +3096,48 @@ export function noticesForShop(shopId: string): AppNotice[] {
       preview: '',
       count: 0,
     });
+  }
+
+  // Customers who moved their own appointment — the calendar already shows the
+  // new time; this says it changed, which the calendar cannot.
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !b.movedAt || b.movedAt < cutoff) continue;
+    out.push({
+      id: `bkmv-${b.id}-${b.movedAt}`,
+      kind: 'booking_moved',
+      at: b.movedAt,
+      href: '/dashboard',
+      shopId,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: b.guestName || '',
+      startsAt: b.startsAt,
+      serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+      // the time it used to be, so the desk knows what just freed up
+      preview: b.movedFromStartsAt ? String(b.movedFromStartsAt) : '',
+      count: 0,
+    });
+  }
+
+  // Time off somebody on the team is waiting to hear about.
+  for (const st of effectiveStaff(shopId)) {
+    for (const a of state.absences.get(st.id) ?? []) {
+      if (a.status !== 'pending' || !a.requestedAt) continue;
+      out.push({
+        id: `toff-${a.id}`,
+        kind: 'timeoff',
+        at: a.requestedAt,
+        href: '/dashboard/team',
+        shopId,
+        shopName: shop.name,
+        shopEmoji: shop.emoji,
+        who: st.name,
+        startsAt: null,
+        serviceNames: [],
+        preview: `${a.from}→${a.to}`,
+        count: 0,
+      });
+    }
   }
 
   return out.sort(bySoonest);
@@ -3334,7 +3431,11 @@ export function rosterCalendar(shopId: string, fromIso: string, toIso: string): 
         bookingCount += 1;
       }
 
-      const absence = (state.absences.get(st.id) ?? []).find((a) => iso >= a.from && iso <= a.to);
+      // Pending requests are questions, not absences: the calendar must agree
+      // with availability, which keeps selling these days until approval.
+      const absence = (state.absences.get(st.id) ?? []).find(
+        (a) => a.status !== 'pending' && iso >= a.from && iso <= a.to,
+      );
       let stateOfDay: RosterState;
       if (isShopClosed(shopId, iso)) stateOfDay = 'closed';
       else if (absence) stateOfDay = 'absent';
