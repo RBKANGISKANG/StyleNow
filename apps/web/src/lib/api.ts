@@ -42,6 +42,7 @@ import type {
   Message,
   ThreadSummary,
   StaffWeekDayView,
+  AppNotice,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -800,6 +801,30 @@ export async function apiMyThreads(): Promise<ThreadSummary[]> {
   return store.threadsForDevice(deviceId());
 }
 
+// ---- notifications --------------------------------------------------------
+
+/**
+ * Everything worth a glance, both hats at once.
+ *
+ * The demo deliberately lets one browser be customer and operator, so the bell
+ * merges the two sides: your own upcoming appointments and replies, plus — if
+ * this account runs shops — what customers just did there. Each notice carries
+ * its shop, so the panel can say which hat it belongs to.
+ */
+export async function apiMyNotices(ownerKey: string | null): Promise<AppNotice[]> {
+  if (backendMode() === 'server') {
+    const params = new URLSearchParams({ deviceId: deviceId() });
+    if (ownerKey) params.set('owner', ownerKey);
+    const res = await fetch(`/api/notices?${params}`);
+    return res.ok ? (await res.json()).notices : [];
+  }
+  await readyForRead();
+  const own = store.noticesForDevice(deviceId());
+  const shopIds = ownerKey ? store.shopsForOwner(ownerKey) : [];
+  const forShops = shopIds.flatMap((id) => store.noticesForShop(id));
+  return [...own, ...forShops].sort((a, b) => b.at - a.at);
+}
+
 // ---- custom categories ----------------------------------------------------
 
 export async function apiCustomCategories(): Promise<Array<{ id: string; label: string }>> {
@@ -1107,6 +1132,7 @@ export async function apiWaitlistOffer(
   await localWrite();
   try {
     store.offerWaitlistSlot(shopId, entryId, startsAt);
+    announceMessages();
     return { ok: true };
   } catch (e) {
     return { ok: false, code: e instanceof Error && e.message === 'slot_gone' ? 'slot_gone' : undefined };
@@ -1240,4 +1266,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView };
+export type { HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice };

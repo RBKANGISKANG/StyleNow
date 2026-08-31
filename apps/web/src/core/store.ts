@@ -2878,6 +2878,174 @@ export function unreadForDevice(deviceId: string): number {
   return threadsForDevice(deviceId).reduce((sum, t) => sum + t.unread, 0);
 }
 
+// --- notifications ---------------------------------------------------------
+
+/**
+ * Something the person should glance at: an appointment coming up, a message
+ * waiting, an offer about to lapse, a booking that just arrived.
+ *
+ * Notices are *derived*, not stored. Every one of them is a restatement of
+ * state that already exists — a booking, a thread, an offer — so storing them
+ * as rows would create a second copy that could disagree with the first
+ * ("notification says 14:00, booking was moved to 15:00"). Deriving them means
+ * a moved booking moves its reminder and a read thread retracts its notice,
+ * with no cleanup code. What IS per-device is the "seen up to" watermark, and
+ * that lives in the client's own storage, not here.
+ *
+ * The payload is structured rather than pre-written text so the client renders
+ * it in the viewer's language.
+ */
+export interface AppNotice {
+  /** stable across recomputations, so the client can tell old from new */
+  id: string;
+  kind: 'appt_soon' | 'appt_tomorrow' | 'message' | 'offer' | 'booking_new';
+  /** when this became worth showing — the badge counts notices after the watermark */
+  at: number;
+  /** where tapping it goes */
+  href: string;
+  shopId: string;
+  shopName: string;
+  shopEmoji: string;
+  /** counterpart's name — the customer for a shop notice, empty otherwise */
+  who: string;
+  /** appointment start / offered start, when the notice is about a time */
+  startsAt: number | null;
+  serviceNames: Array<{ en: string; de: string }>;
+  /** first line of the message, for message notices */
+  preview: string;
+  /** unread count, for message notices */
+  count: number;
+}
+
+const bySoonest = (a: AppNotice, b: AppNotice) => b.at - a.at;
+
+/** The customer's side: their own appointments, messages, offers. */
+export function noticesForDevice(deviceId: string): AppNotice[] {
+  const now = Date.now();
+  const out: AppNotice[] = [];
+
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId) continue;
+    if (!['confirmed', 'pending_payment'].includes(b.status)) continue;
+    if (b.startsAt <= now) continue;
+    const shop = shopById(b.shopId);
+    if (!shop) continue;
+    const base = {
+      href: '/bookings',
+      shopId: shop.id,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: '',
+      startsAt: b.startsAt,
+      serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+      preview: '',
+      count: 0,
+    };
+    // Two reminders, the way a person actually wants them: one the day
+    // before to plan around it, one shortly before to leave on time.
+    const hoursAway = (b.startsAt - now) / 36e5;
+    if (hoursAway <= 3) {
+      out.push({ ...base, id: `soon-${b.id}`, kind: 'appt_soon', at: b.startsAt - 3 * 36e5 });
+    } else if (hoursAway <= 26) {
+      out.push({ ...base, id: `tmrw-${b.id}`, kind: 'appt_tomorrow', at: b.startsAt - 26 * 36e5 });
+    }
+  }
+
+  for (const t of threadsForDevice(deviceId)) {
+    if (t.unread === 0 || !t.lastMessage) continue;
+    out.push({
+      id: `msg-${t.shopId}-${t.lastMessage.id}`,
+      kind: 'message',
+      at: t.lastMessage.at,
+      href: `/messages?shop=${t.shopId}`,
+      shopId: t.shopId,
+      shopName: t.shopName,
+      shopEmoji: t.shopEmoji,
+      who: '',
+      startsAt: null,
+      serviceNames: [],
+      preview: t.lastMessage.text,
+      count: t.unread,
+    });
+  }
+
+  for (const w of state.waitlist.values()) {
+    if (w.deviceId !== deviceId) continue;
+    const offer = liveOffer(w);
+    if (!offer) continue;
+    const shop = shopById(w.shopId);
+    if (!shop) continue;
+    out.push({
+      id: `offer-${w.id}-${offer.startsAt}`,
+      kind: 'offer',
+      at: w.offer!.offeredAt,
+      href: '/bookings',
+      shopId: shop.id,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: '',
+      startsAt: offer.startsAt,
+      serviceNames: w.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+      preview: '',
+      count: 0,
+    });
+  }
+
+  return out.sort(bySoonest);
+}
+
+/** The salon's side: messages from customers, bookings that just arrived. */
+export function noticesForShop(shopId: string): AppNotice[] {
+  const now = Date.now();
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const out: AppNotice[] = [];
+
+  for (const t of shopThreads(shopId)) {
+    if (t.unread === 0 || !t.lastMessage) continue;
+    out.push({
+      id: `smsg-${shopId}-${t.customerKey}-${t.lastMessage.id}`,
+      kind: 'message',
+      at: t.lastMessage.at,
+      href: `/dashboard/messages?customer=${encodeURIComponent(t.customerKey)}`,
+      shopId,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: t.customerName,
+      startsAt: null,
+      serviceNames: [],
+      preview: t.lastMessage.text,
+      count: t.unread,
+    });
+  }
+
+  // Bookings customers made themselves in the last two days — the front desk
+  // recorded its own walk-ins, it does not need telling about them.
+  const cutoff = now - 2 * 864e5;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId) continue;
+    if (b.createdAt < cutoff) continue;
+    if (b.deviceId.startsWith('shop:') || b.deviceId.startsWith('demo:')) continue;
+    if (!['confirmed', 'pending_payment'].includes(b.status)) continue;
+    out.push({
+      id: `bknew-${b.id}`,
+      kind: 'booking_new',
+      at: b.createdAt,
+      href: '/dashboard',
+      shopId,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: b.guestName || '',
+      startsAt: b.startsAt,
+      serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+      preview: '',
+      count: 0,
+    });
+  }
+
+  return out.sort(bySoonest);
+}
+
 export function setCustomerNote(shopId: string, key: string, note: string): void {
   const id = `${shopId}:${key}`;
   if (note.trim()) state.customerNotes.set(id, note.trim());

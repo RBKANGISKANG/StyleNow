@@ -155,6 +155,9 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 @media (max-width: 680px) {
   .top-nav { display: none; }
   .bottom-nav { display: flex; }
+  /* The bell joined the row; tighter gaps keep five controls inside 390px. */
+  .topbar-inner { gap: 8px; padding: 12px 14px; }
+  .topbar-inner .logo { margin-right: auto; }
 }
 
 /* ---------------- hero ---------------- */
@@ -2559,3 +2562,64 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 }
 .wl-offer-banner em { font-style: normal; font-weight: 600; color: var(--ink-soft); }
 .bk-card.wl-has-offer { box-shadow: 0 0 0 2px var(--primary-soft); }
+
+/* --- the bell --------------------------------------------------------------- */
+.bell-wrap { position: relative; }
+.bell-btn {
+  position: relative;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink); cursor: pointer;
+  display: grid; place-items: center;
+}
+.bell-btn:hover { border-color: var(--primary); color: var(--primary-deep); }
+.bell-badge {
+  position: absolute; top: -4px; right: -5px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 999px; background: var(--primary); color: #fff;
+  font-size: 0.62rem; font-weight: 800; font-style: normal;
+  display: grid; place-items: center;
+  border: 2px solid var(--surface);
+}
+.bell-panel {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 60;
+  width: min(360px, calc(100vw - 28px));
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: 0 14px 40px rgba(43, 34, 51, 0.16);
+  overflow: hidden;
+}
+.bell-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 13px 15px 11px; border-bottom: 1px solid var(--line);
+}
+.bell-head strong { font-size: 0.92rem; }
+.bell-push {
+  border: 0; background: none; cursor: pointer; padding: 0;
+  font-size: 0.72rem; font-weight: 700; color: var(--primary-deep);
+}
+.bell-push:hover { text-decoration: underline; }
+.bell-push.on { color: var(--success); cursor: default; }
+.bell-push.on:hover { text-decoration: none; }
+.bell-empty { margin: 0; padding: 22px 18px; font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5; }
+.bell-list { list-style: none; margin: 0; padding: 5px; max-height: min(420px, 60vh); overflow-y: auto; }
+.bell-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 10px; border-radius: var(--r-sm);
+  color: var(--ink);
+}
+.bell-row:hover { background: var(--surface-2); }
+.bell-row.fresh { background: var(--primary-soft); }
+.bell-row.fresh:hover { background: var(--primary-soft); }
+.bell-ico { font-size: 1rem; line-height: 1.35; }
+.bell-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.bell-title { font-size: 0.8rem; font-weight: 700; line-height: 1.35; }
+.bell-sub {
+  font-size: 0.73rem; color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bell-when { font-size: 0.68rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; margin-top: 2px; }
+@media (max-width: 680px) {
+  /* Anchored to the bell it would hang off the left edge of a phone; pinned
+     to the viewport it is simply a sheet under the top bar. */
+  .bell-panel { position: fixed; left: 14px; right: 14px; top: 74px; width: auto; }
+}

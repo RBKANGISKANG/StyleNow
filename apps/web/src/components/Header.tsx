@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
 import { useDesign } from '@/lib/design';
 import { Icon, type IconName } from '@/components/Icon';
+import { NotificationBell } from '@/components/NotificationBell';
 
 const TABS = [
   { href: '/', key: 'nav_explore', ico: '🔍', icon: 'search' },
@@ -62,6 +63,7 @@ export function Header() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           <DesignToggle />
         </div>
+        <NotificationBell />
         <button
           className="lang-btn"
           onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
