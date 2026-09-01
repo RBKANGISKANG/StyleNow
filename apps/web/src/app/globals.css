@@ -2762,3 +2762,17 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
    workshop is furniture in the way. */
 [data-design="studio"][data-surface="operator"] .site-footer { display: none; }
 @media print { .site-footer { display: none; } }
+
+/* --- E-Rechnung inside the Beleg -------------------------------------------- */
+.rc-erech { margin-top: 14px; border-top: 1px dashed #eee6ef; padding-top: 10px; }
+.rc-erech-toggle {
+  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  background: none; border: 0; cursor: pointer; padding: 4px 0;
+  font-size: 0.82rem; font-weight: 800; color: #221a29; text-align: left;
+}
+.rc-erech-toggle span { color: var(--primary-deep); font-size: 1rem; }
+.rc-erech-body { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; align-items: flex-start; }
+.rc-erech-form { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.rc-erech-row { display: flex; gap: 8px; }
+.rc-erech-row .input { flex: 1; }
+@media print { .rc-erech { display: none; } }

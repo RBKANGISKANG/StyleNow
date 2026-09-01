@@ -28,6 +28,7 @@ import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { money, dateOf, fullDateOf } from '@/lib/format';
 import { apiBillingProfile, type BillingProfile } from '@/lib/api';
+import { buildXRechnung } from '@/lib/xrechnung';
 
 export interface ReceiptData {
   reference: string;
@@ -189,6 +190,8 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
 
         <p className="rc-note">{t('rc_keep_note')}</p>
 
+        <ERechnung data={data} billing={billing} />
+
         <footer className="rc-actions">
           <button className="btn btn-primary" onClick={() => window.print()}>
             🖨 {t('rc_print')}
@@ -201,6 +204,76 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
           </button>
         </footer>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The B2B door: a structured E-Rechnung (XRechnung UBL) for customers who
+ * booked as a business.
+ *
+ * It lives inside the receipt rather than beside it because that is where the
+ * question comes up — you are looking at the Beleg and your bookkeeping wants
+ * "the XML" instead. The explainer says in one breath what nobody explains:
+ * private customers do not need this file, businesses may, and the printable
+ * Beleg above stays valid either way. The buyer block asks for exactly what a
+ * business invoice must add over a consumer receipt — who the invoice is
+ * addressed to — and nothing else.
+ */
+function ERechnung({ data, billing }: { data: ReceiptData; billing: BillingProfile | null }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [buyer, setBuyer] = useState({ name: '', street: '', zip: '', city: '' });
+
+  if (!billing) return null;
+
+  const download = () => {
+    const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const xml = buildXRechnung({
+      reference: data.reference,
+      issueDate: iso(Date.now()),
+      serviceDate: iso(data.startsAt),
+      seller: { ...billing, address: data.shopAddress },
+      buyer,
+      breakdown: data.breakdown,
+      totalCents: data.totalCents,
+      vatCents: data.vatCents,
+      paidCents: data.paidCents,
+    });
+    const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xrechnung-${data.reference}.xml`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="rc-erech">
+      <button className="rc-erech-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+        📄 {t('xr_toggle')} <span>{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div className="rc-erech-body">
+          <p className="info-fine">{t('xr_explain')}</p>
+          <div className="rc-erech-form">
+            <input className="input" placeholder={t('xr_company')} value={buyer.name} maxLength={120}
+              onChange={(e) => setBuyer({ ...buyer, name: e.target.value })} />
+            <input className="input" placeholder={t('xr_street')} value={buyer.street} maxLength={120}
+              onChange={(e) => setBuyer({ ...buyer, street: e.target.value })} />
+            <div className="rc-erech-row">
+              <input className="input" placeholder={t('xr_zip')} value={buyer.zip} maxLength={5} style={{ maxWidth: 110 }}
+                onChange={(e) => setBuyer({ ...buyer, zip: e.target.value.replace(/\D/g, '') })} />
+              <input className="input" placeholder={t('xr_city')} value={buyer.city} maxLength={80}
+                onChange={(e) => setBuyer({ ...buyer, city: e.target.value })} />
+            </div>
+          </div>
+          <button className="btn btn-soft sm" disabled={!buyer.name.trim()} onClick={download}>
+            ⬇️ {t('xr_download')}
+          </button>
+          <p className="info-fine">{t('xr_note')}</p>
+        </div>
+      )}
     </div>
   );
 }

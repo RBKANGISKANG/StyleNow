@@ -25,6 +25,7 @@ const C: Record<'en' | 'de', { title: string; lead: string; cus: string; biz: st
       { q: 'What is a Prime booking?', a: 'Extra capacity at a premium: any time inside opening hours, even when the grid is full, with the surcharge shown openly.' },
       { q: 'How do I talk to my salon?', a: 'Every salon you have booked with has a message thread — times, questions, running late.', href: '/messages', cta: 'Messages' },
       { q: 'Where is my receipt?', a: 'On every confirmed or completed booking — print it, save it as PDF, or email it to yourself.', href: '/bookings', cta: 'My bookings' },
+      { q: 'Can I get an E-Rechnung (e-invoice)?', a: 'Yes. If you booked as a business, open the receipt and expand "E-Rechnung for businesses" — it downloads the same invoice as structured XRechnung XML that bookkeeping software can ingest. Private customers don’t need it; the normal receipt is the valid document. (The 2025 German e-invoicing mandate covers B2B, not consumer receipts.)', href: '/bookings', cta: 'My bookings' },
       { q: 'My data?', a: 'Export or delete everything yourself in Account. The privacy page explains what is stored and where.', href: '/privacy', cta: 'Privacy' },
     ],
     bqs: [
@@ -46,6 +47,7 @@ const C: Record<'en' | 'de', { title: string; lead: string; cus: string; biz: st
       { q: 'Was ist eine Prime-Buchung?', a: 'Zusatzkapazität mit Aufschlag: jede Zeit innerhalb der Öffnungszeiten, auch wenn das Raster voll ist — der Aufpreis steht offen dabei.' },
       { q: 'Wie erreiche ich meinen Salon?', a: 'Jeder Salon, bei dem du gebucht hast, hat einen Nachrichten-Verlauf — Zeiten, Fragen, Verspätung.', href: '/messages', cta: 'Nachrichten' },
       { q: 'Wo ist mein Beleg?', a: 'An jeder bestätigten oder abgeschlossenen Buchung — drucken, als PDF sichern oder dir selbst mailen.', href: '/bookings', cta: 'Meine Buchungen' },
+      { q: 'Bekomme ich eine E-Rechnung?', a: 'Ja. Wenn du als Unternehmen gebucht hast, öffne den Beleg und klappe „E-Rechnung für Unternehmen" auf — dieselbe Rechnung als strukturiertes XRechnung-XML, das Buchhaltungssoftware verarbeiten kann. Privat brauchst du das nicht; der normale Beleg ist das gültige Dokument. (Die E-Rechnungspflicht seit 2025 gilt für B2B, nicht für Verbraucherbelege.)', href: '/bookings', cta: 'Meine Buchungen' },
       { q: 'Meine Daten?', a: 'Exportiere oder lösche alles selbst im Konto-Bereich. Die Datenschutzseite erklärt, was wo liegt.', href: '/privacy', cta: 'Datenschutz' },
     ],
     bqs: [
