@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { icsHref } from '@/lib/ics';
 import { BookSeries } from '@/components/BookSeries';
+import { SlotList, SlotViewToggle, useSlotView } from '@/components/SlotPicker';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
@@ -106,6 +107,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [date, setDate] = useState(initialDate && days.includes(initialDate) ? initialDate : days[0]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
+  // Grid on a laptop, day-part list on a phone — remembered either way.
+  const [slotView, setSlotView] = useSlotView();
   // Prime: an extra appointment on top of the grid, any time the doors are
   // open, at a premium. Chosen instead of a slot, never alongside one.
   const [prime, setPrime] = useState(false);
@@ -491,12 +494,28 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               </div>
             ) : (
               <>
-                {slots.some((s) => slotTone(s) !== 'base') && (
-                  <p className="slot-legend">
-                    <span className="tone-dot prime" /> {t('prime_legend')}
-                    <span className="tone-dot saver" /> {t('saver_legend')}
-                  </p>
-                )}
+                <div className="slot-tools">
+                  {slots.some((s) => slotTone(s) !== 'base') ? (
+                    <p className="slot-legend">
+                      <span className="tone-dot prime" /> {t('prime_legend')}
+                      <span className="tone-dot saver" /> {t('saver_legend')}
+                    </p>
+                  ) : (
+                    <span />
+                  )}
+                  <SlotViewToggle view={slotView} onChange={setSlotView} />
+                </div>
+                {slotView === 'list' ? (
+                  <SlotList
+                    slots={slots}
+                    selectedStart={slot?.start ?? null}
+                    onPick={(s) => {
+                      setSlot(s as Slot);
+                      setPrime(false);
+                      setStep(2);
+                    }}
+                  />
+                ) : (
                 <div className="slot-grid">
                   {slots.map((s, i) => {
                     const tone = slotTone(s);
@@ -532,6 +551,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     );
                   })}
                 </div>
+                )}
               </>
             )}
           </div>
