@@ -223,7 +223,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
 function ERechnung({ data, billing }: { data: ReceiptData; billing: BillingProfile | null }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [buyer, setBuyer] = useState({ name: '', street: '', zip: '', city: '' });
+  const [buyer, setBuyer] = useState({ name: '', street: '', zip: '', city: '', email: '' });
 
   if (!billing) return null;
 
@@ -259,6 +259,8 @@ function ERechnung({ data, billing }: { data: ReceiptData; billing: BillingProfi
           <div className="rc-erech-form">
             <input className="input" placeholder={t('xr_company')} value={buyer.name} maxLength={120}
               onChange={(e) => setBuyer({ ...buyer, name: e.target.value })} />
+            <input className="input" type="email" placeholder={t('xr_email')} value={buyer.email} maxLength={120}
+              onChange={(e) => setBuyer({ ...buyer, email: e.target.value })} />
             <input className="input" placeholder={t('xr_street')} value={buyer.street} maxLength={120}
               onChange={(e) => setBuyer({ ...buyer, street: e.target.value })} />
             <div className="rc-erech-row">
@@ -268,7 +270,7 @@ function ERechnung({ data, billing }: { data: ReceiptData; billing: BillingProfi
                 onChange={(e) => setBuyer({ ...buyer, city: e.target.value })} />
             </div>
           </div>
-          <button className="btn btn-soft sm" disabled={!buyer.name.trim()} onClick={download}>
+          <button className="btn btn-soft sm" disabled={!buyer.name.trim() || !buyer.email.trim()} onClick={download}>
             ⬇️ {t('xr_download')}
           </button>
           <p className="info-fine">{t('xr_note')}</p>

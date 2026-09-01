@@ -25,6 +25,17 @@
  *    exemption sentence and zero VAT — the same rule the visual Beleg obeys.
  *  - Deposits already paid surface as BT-113 (prepaid), so the payable
  *    amount is what is actually still owed.
+ *
+ * Validated: both variants (19 % standard, Kleinunternehmer) pass the official
+ * KoSIT validator 1.5.0 with zero errors and zero warnings, using UBL 2.1 XSD,
+ * the CEN EN 16931 UBL rules (1.3.13) and the XRechnung 3.0.2 schematron
+ * (2.5.0). To reproduce: fetch the standalone validator from Maven Central
+ * (de.kosit:validationtool:1.5.0), the UBL 2.1 zip from OASIS, the CEN rules
+ * release zip, and the xrechnung-3.0.2-schematron package from
+ * projekte.kosit.org; wire the compiled XSLTs into a scenarios.xml and run
+ * java -jar validationtool -r repo -s scenarios.xml invoice.xml. The BR-DE
+ * rules are why the seller carries a contact block and both parties an
+ * electronic address — those are validator requirements, not decoration.
  */
 import type { BillingProfile } from '@/core/store';
 
@@ -33,7 +44,7 @@ export interface XRechnungInput {
   issueDate: string; // YYYY-MM-DD
   serviceDate: string; // YYYY-MM-DD
   seller: BillingProfile & { address: string };
-  buyer: { name: string; street: string; zip: string; city: string };
+  buyer: { name: string; street: string; zip: string; city: string; email: string };
   /** gross lines as the engine stores them; negatives are discounts */
   breakdown: Array<{ label: string; cents: number }>;
   totalCents: number;
@@ -141,6 +152,7 @@ export function buildXRechnung(input: XRechnungInput): string {
   <cbc:BuyerReference>${esc(input.reference)}</cbc:BuyerReference>
   <cac:AccountingSupplierParty>
     <cac:Party>
+      <cbc:EndpointID schemeID="EM">${esc(input.seller.email)}</cbc:EndpointID>
       <cac:PostalAddress>
         <cbc:StreetName>${esc(seller.street)}</cbc:StreetName>
         <cbc:CityName>${esc(seller.city)}</cbc:CityName>
@@ -151,11 +163,20 @@ export function buildXRechnung(input: XRechnungInput): string {
         <cbc:CompanyID>${esc(input.seller.taxId)}</cbc:CompanyID>
         <cac:TaxScheme><cbc:ID>${input.seller.taxId.startsWith('DE') ? 'VAT' : 'FC'}</cbc:ID></cac:TaxScheme>
       </cac:PartyTaxScheme>
-      <cac:PartyLegalEntity><cbc:RegistrationName>${esc(input.seller.legalName)}</cbc:RegistrationName></cac:PartyLegalEntity>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${esc(input.seller.legalName)}</cbc:RegistrationName>
+        <cbc:CompanyID>${esc(input.seller.taxId)}</cbc:CompanyID>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:Name>${esc(input.seller.legalName)}</cbc:Name>
+        <cbc:Telephone>${esc(input.seller.phone)}</cbc:Telephone>
+        <cbc:ElectronicMail>${esc(input.seller.email)}</cbc:ElectronicMail>
+      </cac:Contact>
     </cac:Party>
   </cac:AccountingSupplierParty>
   <cac:AccountingCustomerParty>
     <cac:Party>
+      <cbc:EndpointID schemeID="EM">${esc(input.buyer.email)}</cbc:EndpointID>
       <cac:PostalAddress>
         <cbc:StreetName>${esc(input.buyer.street || 'n/a')}</cbc:StreetName>
         <cbc:CityName>${esc(input.buyer.city || 'n/a')}</cbc:CityName>
@@ -166,6 +187,12 @@ export function buildXRechnung(input: XRechnungInput): string {
     </cac:Party>
   </cac:AccountingCustomerParty>
   <cac:Delivery><cbc:ActualDeliveryDate>${input.serviceDate}</cbc:ActualDeliveryDate></cac:Delivery>
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode>68</cbc:PaymentMeansCode>
+  </cac:PaymentMeans>
+  <cac:PaymentTerms>
+    <cbc:Note>Zahlbar sofort ohne Abzug.</cbc:Note>
+  </cac:PaymentTerms>
 ${allowanceXml}
   <cac:TaxTotal>
     <cbc:TaxAmount currencyID="EUR">${eur(small ? 0 : input.vatCents)}</cbc:TaxAmount>
@@ -173,9 +200,9 @@ ${taxSubtotal}
   </cac:TaxTotal>
   <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount currencyID="EUR">${eur(lineSum)}</cbc:LineExtensionAmount>
-    <cbc:AllowanceTotalAmount currencyID="EUR">${eur(allowanceSum)}</cbc:AllowanceTotalAmount>
     <cbc:TaxExclusiveAmount currencyID="EUR">${eur(netTotal)}</cbc:TaxExclusiveAmount>
     <cbc:TaxInclusiveAmount currencyID="EUR">${eur(input.totalCents)}</cbc:TaxInclusiveAmount>
+    <cbc:AllowanceTotalAmount currencyID="EUR">${eur(allowanceSum)}</cbc:AllowanceTotalAmount>
     <cbc:PrepaidAmount currencyID="EUR">${eur(prepaid)}</cbc:PrepaidAmount>
     <cbc:PayableAmount currencyID="EUR">${eur(input.totalCents - prepaid)}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>

@@ -2971,6 +2971,10 @@ export interface BillingProfile {
   taxId: string;
   /** §19 UStG Kleinunternehmer: no VAT shown, exemption sentence instead */
   smallBusiness: boolean;
+  /** how the salon is reached for invoice questions — the E-Rechnung rules
+   *  (BR-DE-2, PEPPOL) require a seller contact and electronic address */
+  email: string;
+  phone: string;
 }
 
 export function billingProfile(shopId: string): BillingProfile {
@@ -2985,6 +2989,8 @@ export function billingProfile(shopId: string): BillingProfile {
     legalName: shop?.name ?? '',
     taxId: `30/${(h % 900) + 100}/${(h % 90000) + 10000}`,
     smallBusiness: false,
+    email: `${shop?.slug ?? shopId}@stylenow.example`,
+    phone: `+49 30 ${(h % 900000) + 100000}`,
   };
 }
 
@@ -2993,6 +2999,8 @@ export function setBillingProfile(shopId: string, profile: BillingProfile): void
     legalName: profile.legalName.trim().slice(0, 120),
     taxId: profile.taxId.trim().slice(0, 40),
     smallBusiness: Boolean(profile.smallBusiness),
+    email: profile.email.trim().slice(0, 120),
+    phone: profile.phone.trim().slice(0, 40),
   });
   persist();
 }

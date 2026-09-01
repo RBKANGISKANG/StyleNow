@@ -63,6 +63,36 @@ export function BillingSettings({ shopId, onToast }: { shopId: string; onToast: 
           />
         </label>
       </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+        <label style={{ flex: 1, minWidth: 200, display: 'grid', gap: 4, fontSize: '0.75rem', fontWeight: 700 }}>
+          {t('bl_email')}
+          <input
+            className="input"
+            type="email"
+            defaultValue={profile.email}
+            key={`e-${shopId}-${profile.email}`}
+            maxLength={120}
+            onBlur={(e) => {
+              if (e.target.value.trim() && e.target.value.trim() !== profile.email)
+                save({ ...profile, email: e.target.value.trim() });
+            }}
+          />
+        </label>
+        <label style={{ flex: 1, minWidth: 160, display: 'grid', gap: 4, fontSize: '0.75rem', fontWeight: 700 }}>
+          {t('bl_phone')}
+          <input
+            className="input"
+            type="tel"
+            defaultValue={profile.phone}
+            key={`p-${shopId}-${profile.phone}`}
+            maxLength={40}
+            onBlur={(e) => {
+              if (e.target.value.trim() && e.target.value.trim() !== profile.phone)
+                save({ ...profile, phone: e.target.value.trim() });
+            }}
+          />
+        </label>
+      </div>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginTop: 12, fontSize: '0.8rem', cursor: 'pointer' }}>
         <input
           type="checkbox"
