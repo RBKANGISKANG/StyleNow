@@ -43,6 +43,7 @@ import type {
   ThreadSummary,
   StaffWeekDayView,
   AppNotice,
+  BillingProfile,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -841,6 +842,32 @@ export async function apiMyThreads(): Promise<ThreadSummary[]> {
   return store.threadsForDevice(deviceId());
 }
 
+// ---- billing / receipts ---------------------------------------------------
+
+export async function apiBillingProfile(shopId: string): Promise<BillingProfile> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/billing`);
+    if (res.ok) return (await res.json()).billing;
+  } else {
+    await readyForRead();
+  }
+  return store.billingProfile(shopId);
+}
+
+export async function apiSetBillingProfile(shopId: string, profile: BillingProfile): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/billing`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(profile),
+    });
+    return;
+  }
+  await localWrite();
+  store.setBillingProfile(shopId, profile);
+  syncConfig(shopId);
+}
+
 // ---- notifications --------------------------------------------------------
 
 /**
@@ -1351,4 +1378,4 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice };
+export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile };

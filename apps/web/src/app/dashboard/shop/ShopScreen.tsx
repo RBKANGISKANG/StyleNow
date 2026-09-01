@@ -21,6 +21,7 @@ import {
 } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
+import { BillingSettings } from '@/components/BillingSettings';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
@@ -130,6 +131,11 @@ function ShopTab({
       <section className="section">
         <h2>{t('ph_title')}</h2>
         <PhotoManager shopId={shopId} onToast={setToast} />
+      </section>
+
+      <section className="section">
+        <h2>🧾 {t('bl_title')}</h2>
+        <BillingSettings shopId={shopId} onToast={setToast} />
       </section>
 
       {locationsSection}

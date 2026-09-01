@@ -2640,3 +2640,53 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 
 /* --- a pending time-off request -------------------------------------------- */
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
+
+/* --- the Beleg --------------------------------------------------------------- */
+.rc-backdrop {
+  position: fixed; inset: 0; z-index: 95;
+  background: rgba(24, 16, 28, 0.55);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 4vh 16px; overflow-y: auto;
+}
+.rc-sheet {
+  background: #fff; color: #221a29;
+  width: min(560px, 100%);
+  border-radius: var(--r-lg);
+  padding: 26px 28px 22px;
+  box-shadow: 0 24px 60px rgba(24, 16, 28, 0.3);
+}
+.rc-head { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.rc-head h2 { font-size: 1.25rem; margin: 0 0 2px; }
+.rc-ref { font-size: 0.78rem; font-weight: 700; color: #6d6377; }
+.rc-issuer { display: flex; flex-direction: column; gap: 1px; text-align: right; font-size: 0.78rem; }
+.rc-issuer strong { font-size: 0.88rem; }
+.rc-issuer span { color: #6d6377; }
+.rc-meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px 16px; margin: 18px 0;
+  padding: 12px 14px; background: #faf6f1; border-radius: var(--r-sm);
+}
+.rc-meta > div { display: grid; gap: 1px; font-size: 0.82rem; }
+.rc-meta .k { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: #6d6377; }
+.rc-lines { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+.rc-lines td { padding: 7px 0; border-bottom: 1px solid #eee6ef; }
+.rc-lines .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rc-lines .rc-total td { font-weight: 800; font-size: 0.95rem; border-bottom: none; padding-top: 12px; }
+.rc-lines .rc-sub td { border-bottom: none; padding: 2px 0; font-size: 0.78rem; color: #6d6377; }
+.rc-lines .rc-refund td { color: var(--teal); font-weight: 700; }
+.rc-kleinunternehmer { font-style: italic; }
+.rc-note { margin: 16px 0 0; font-size: 0.72rem; color: #6d6377; line-height: 1.5; }
+.rc-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 18px; }
+
+/* Printing: only the sheet, on paper-white, no chrome. The fixed positioning
+   is what actually isolates it — visibility alone leaves blank first pages. */
+@media print {
+  body * { visibility: hidden; }
+  .rc-backdrop { position: static; padding: 0; background: none; overflow: visible; }
+  .rc-sheet, .rc-sheet * { visibility: visible; }
+  .rc-sheet {
+    position: fixed; inset: 0; width: auto;
+    box-shadow: none; border-radius: 0; padding: 24px;
+  }
+  .rc-actions { display: none; }
+}

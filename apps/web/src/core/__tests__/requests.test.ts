@@ -12,7 +12,7 @@ import {
   allShops, availability, requestAbsence, approveAbsence, isAbsent,
   createShopBooking, rescheduleBooking, setLocalPersistence, effectiveStaff,
 } from '../store';
-import { todayIso, addDays, isoDow } from '../time';
+import { todayIso, addDays, isoDow, dayStart } from '../time';
 
 setLocalPersistence(false);
 const [shop] = allShops();
@@ -21,7 +21,7 @@ const svc = shop.services[0];
 
 // A weekday far enough out that slots exist and the free window is open.
 let iso = addDays(todayIso(), 7);
-while (![1, 2, 3, 4, 5].includes(isoDow(iso))) iso = addDays(iso, 1);
+while (![1, 2, 3, 4, 5].includes(isoDow(dayStart(iso)))) iso = addDays(iso, 1);
 
 // --- time off: pending is a question, approved is a fact --------------------
 
@@ -49,7 +49,7 @@ console.log(`time off: ${before} slots → pending ${before} → approved 0`);
 
 // Book on a different open day so the approved holiday above stays clean.
 let iso2 = addDays(iso, 1);
-while (![1, 2, 3, 4, 5].includes(isoDow(iso2))) iso2 = addDays(iso2, 1);
+while (![1, 2, 3, 4, 5].includes(isoDow(dayStart(iso2)))) iso2 = addDays(iso2, 1);
 const slots = availability(shop.id, [svc.id], iso2, 'dev-cust', staff.id).slots;
 assert.ok(slots.length >= 2, 'fixture needs at least two free slots');
 

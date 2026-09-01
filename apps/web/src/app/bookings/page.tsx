@@ -15,6 +15,7 @@ import {
 } from '@/lib/api';
 import { icsHref } from '@/lib/ics';
 import { MoveBooking } from '@/components/MoveBooking';
+import { Receipt, type ReceiptData } from '@/components/Receipt';
 
 interface Bk {
   id: string;
@@ -34,6 +35,10 @@ interface Bk {
   serviceIds: string[];
   staffId: string;
   staffName: string | null;
+  vatCents: number;
+  breakdown: Array<{ label: string; cents: number }>;
+  shopAddress: string;
+  guestName: string;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
 }
@@ -53,6 +58,7 @@ export default function BookingsPage() {
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [cancelFor, setCancelFor] = useState<{ id: string; feeCents: number; refundCents: number; reason: string } | null>(null);
   const [moveFor, setMoveFor] = useState<string | null>(null);
+  const [receiptFor, setReceiptFor] = useState<ReceiptData | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [points, setPoints] = useState(0);
   const [waitlist, setWaitlist] = useState<Wl[]>([]);
@@ -179,6 +185,30 @@ export default function BookingsPage() {
                   <span style={{ fontSize: '0.72rem', color: 'var(--teal)', fontWeight: 700 }}>
                     ↩ {money(b.refundedCents, lang)} {t('refunded')}
                   </span>
+                )}
+                {['confirmed', 'completed'].includes(b.status) && b.shop && (
+                  <button
+                    className="btn btn-ghost sm"
+                    onClick={() =>
+                      setReceiptFor({
+                        reference: b.reference,
+                        startsAt: b.startsAt,
+                        shopId: b.shop!.id,
+                        shopName: b.shop!.name,
+                        shopAddress: b.shopAddress,
+                        guestName: b.guestName || undefined,
+                        breakdown: b.breakdown,
+                        totalCents: b.totalCents,
+                        vatCents: b.vatCents,
+                        paidCents: b.paidCents,
+                        refundedCents: b.refundedCents,
+                        tipCents: b.tipCents,
+                        staffName: b.staffName,
+                      })
+                    }
+                  >
+                    🧾 {t('rc_open')}
+                  </button>
                 )}
                 {tab === 'upcoming' && b.status === 'confirmed' && (
                   <>
@@ -319,6 +349,7 @@ export default function BookingsPage() {
           ))}
         </section>
       )}
+      {receiptFor && <Receipt data={receiptFor} onClose={() => setReceiptFor(null)} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

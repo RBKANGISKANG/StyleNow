@@ -193,6 +193,7 @@ interface State {
   closures: Map<string, ShopClosure[]>; // shopId → days the whole shop is shut
   customerNotes: Map<string, string>; // `${shopId}:${customerKey}` → private note
   messages: Map<string, Message[]>; // `${shopId}:${customerKey}` → the conversation
+  billing: Map<string, BillingProfile>; // shopId → what its receipts must say
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
 }
@@ -248,6 +249,7 @@ const state: State =
     closures: new Map(),
     customerNotes: new Map(),
     messages: new Map(),
+    billing: new Map(),
     exitFeedback: [],
     seq: 1,
   });
@@ -308,6 +310,7 @@ function persist(): boolean {
         closures: [...state.closures.entries()],
         customerNotes: [...state.customerNotes.entries()],
         messages: [...state.messages.entries()],
+        billing: [...state.billing.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
       }),
@@ -345,6 +348,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         closures?: Array<[string, ShopClosure[]]>;
         customerNotes?: Array<[string, string]>;
         messages?: Array<[string, Message[]]>;
+        billing?: Array<[string, BillingProfile]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
       };
@@ -369,6 +373,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.closures = new Map(d.closures ?? []);
       state.customerNotes = new Map(d.customerNotes ?? []);
       state.messages = new Map(d.messages ?? []);
+      state.billing = new Map(d.billing ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
     }
@@ -582,6 +587,7 @@ export interface ShopConfig {
   customerNotes?: Array<[string, string]>;
   photos?: ShopPhoto[];
   messages?: Array<[string, Message[]]>;
+  billing?: BillingProfile;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -626,6 +632,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     customerNotes: [...state.customerNotes.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     photos: state.shopPhotos.get(shopId) ?? [],
     messages: [...state.messages.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
+    billing: state.billing.get(shopId),
   };
 }
 
@@ -648,6 +655,7 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.services) state.customServices.set(shopId, doc.services);
   if (doc.rules) state.customRules.set(shopId, doc.rules);
   if (doc.photos) state.shopPhotos.set(shopId, doc.photos);
+  if (doc.billing) state.billing.set(shopId, doc.billing);
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
   // stylist created on another device is recognised as ours.
@@ -2428,6 +2436,12 @@ export interface BookingView {
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   isPrime: boolean;
+  /** what the receipt needs: the priced lines and the VAT inside the total */
+  vatCents: number;
+  breakdown: Array<{ label: string; cents: number }>;
+  /** the shop's street address at the time of viewing — a Beleg must carry it */
+  shopAddress: string;
+  guestName: string;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -2457,6 +2471,10 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       staffName: shop ? effectiveStaff(shop.id).find((s) => s.id === b.staffId)?.name ?? null : null,
       review: b.review ?? null,
       tipCents: b.tipCents ?? 0,
+      vatCents: b.quote.vatCents,
+      breakdown: b.quote.breakdown,
+      shopAddress: shop?.address ?? '',
+      guestName: b.guestName,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -2931,6 +2949,52 @@ export function unreadForShop(shopId: string): number {
 
 export function unreadForDevice(deviceId: string): number {
   return threadsForDevice(deviceId).reduce((sum, t) => sum + t.unread, 0);
+}
+
+// --- billing: what a shop's receipts must say ------------------------------
+
+/**
+ * The legal identity a German Beleg carries.
+ *
+ * Three fields and a flag, because that is genuinely all a B2C service receipt
+ * needs beyond what the booking already knows (research: §14/§33 UStG via the
+ * IHK guides; the 2025 E-Rechnung mandate is B2B-only, so a structured XML
+ * invoice is deliberately out of scope here). The flag matters most:
+ * a Kleinunternehmer under §19 UStG must NOT show VAT — showing it anyway
+ * would make the salon owe the stated tax — so the receipt renderer switches
+ * to the exemption sentence instead of the VAT block.
+ */
+export interface BillingProfile {
+  /** the legal name receipts are issued under — often not the salon's brand */
+  legalName: string;
+  /** Steuernummer or USt-IdNr. — one of them belongs on a full Rechnung */
+  taxId: string;
+  /** §19 UStG Kleinunternehmer: no VAT shown, exemption sentence instead */
+  smallBusiness: boolean;
+}
+
+export function billingProfile(shopId: string): BillingProfile {
+  const stored = state.billing.get(shopId);
+  if (stored) return stored;
+  // A workable default for shops that never opened the settings: the brand
+  // name as legal name, and a deterministic demo Steuernummer in the Berlin
+  // format — obviously replaced by the real one the moment the owner types it.
+  const shop = shopById(shopId);
+  const h = shopId.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 100000, 7);
+  return {
+    legalName: shop?.name ?? '',
+    taxId: `30/${(h % 900) + 100}/${(h % 90000) + 10000}`,
+    smallBusiness: false,
+  };
+}
+
+export function setBillingProfile(shopId: string, profile: BillingProfile): void {
+  state.billing.set(shopId, {
+    legalName: profile.legalName.trim().slice(0, 120),
+    taxId: profile.taxId.trim().slice(0, 40),
+    smallBusiness: Boolean(profile.smallBusiness),
+  });
+  persist();
 }
 
 // --- notifications ---------------------------------------------------------
