@@ -2690,3 +2690,75 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   }
   .rc-actions { display: none; }
 }
+
+/* --- info pages (about, contact, legal) ------------------------------------- */
+.info-page { max-width: 720px; margin: 0 auto; padding: 10px 0 30px; }
+.info-head { margin: 14px 0 6px; }
+.info-head h1 { font-size: 1.7rem; margin-bottom: 8px; }
+.info-lead { font-size: 0.95rem; color: var(--ink-soft); line-height: 1.6; max-width: 58ch; }
+.info-section { margin-top: 26px; }
+.info-section h2 { font-size: 1.05rem; margin-bottom: 8px; }
+.info-section p { font-size: 0.9rem; line-height: 1.65; color: var(--ink); max-width: 66ch; }
+.info-address { font-style: normal; font-size: 0.9rem; line-height: 1.65; }
+.info-fine { font-size: 0.73rem; color: var(--ink-soft); line-height: 1.5; }
+.contact-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.contact-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 18px;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+}
+.contact-card h3 { font-size: 0.95rem; }
+.contact-card p { font-size: 0.83rem; color: var(--ink-soft); line-height: 1.5; }
+.contact-form { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; max-width: 520px; }
+.contact-form .input { width: 100%; }
+.contact-form textarea.input { resize: vertical; font: inherit; }
+.contact-form .btn.disabled { opacity: 0.5; pointer-events: none; }
+.faq-list { display: flex; flex-direction: column; gap: 8px; }
+.faq-item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.faq-item.open { border-color: var(--primary); }
+.faq-q {
+  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  padding: 13px 16px; font-size: 0.9rem; font-weight: 700; color: var(--ink);
+}
+.faq-chev { color: var(--primary-deep); font-weight: 800; font-size: 1rem; }
+.faq-a { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.faq-a p { margin: 0; font-size: 0.85rem; line-height: 1.6; color: var(--ink-soft); }
+
+/* --- footer ------------------------------------------------------------------ */
+.site-footer {
+  margin-top: 46px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  /* the phone bottom nav floats over the page; leave it room */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px));
+}
+.footer-inner {
+  max-width: 1080px; margin: 0 auto;
+  padding: 34px 20px 26px;
+  display: flex; gap: 40px; flex-wrap: wrap;
+}
+.footer-brand { max-width: 260px; }
+.footer-logo { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; }
+.footer-logo em { font-style: normal; color: var(--primary); }
+.footer-brand p { margin-top: 8px; font-size: 0.8rem; color: var(--ink-soft); line-height: 1.55; }
+.footer-groups { display: flex; gap: 40px; flex-wrap: wrap; flex: 1; }
+.footer-group { display: flex; flex-direction: column; gap: 7px; min-width: 130px; }
+.footer-group strong { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 3px; }
+.footer-group a { font-size: 0.84rem; font-weight: 600; color: var(--ink); }
+.footer-group a:hover { color: var(--primary-deep); }
+.footer-base {
+  border-top: 1px solid var(--line);
+  max-width: 1080px; margin: 0 auto;
+  padding: 14px 20px calc(14px + 74px);
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: 0.72rem; color: var(--ink-soft); font-weight: 600;
+}
+@media (min-width: 681px) {
+  /* no floating bottom nav on desktop — no need for the extra clearance */
+  .footer-base { padding-bottom: 14px; }
+}
+/* The studio back office is a full-screen tool; a marketing footer inside a
+   workshop is furniture in the way. */
+[data-design="studio"][data-surface="operator"] .site-footer { display: none; }
+@media print { .site-footer { display: none; } }

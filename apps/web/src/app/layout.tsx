@@ -4,6 +4,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { AuthProvider } from '@/lib/auth';
 import { DesignProvider } from '@/lib/design';
 import { Header, BottomNav } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <DesignProvider>
               <Header />
               <main className="shell">{children}</main>
+              <Footer />
               <BottomNav />
             </DesignProvider>
           </AuthProvider>
