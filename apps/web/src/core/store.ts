@@ -99,6 +99,9 @@ export interface Booking {
   /** Set when the customer moved it themselves — the shop's bell tells them. */
   movedAt?: number;
   movedFromStartsAt?: number;
+  /** Standing appointment: every booking in the series shares the first
+   *  booking's id here, so the group is recognisable from any member. */
+  seriesId?: string;
   createdAt: number;
 }
 
@@ -2180,6 +2183,82 @@ export function createShopBooking(
   return b;
 }
 
+/**
+ * A standing appointment: the same time, the same stylist, every N weeks.
+ *
+ * The regular is the salon's whole economics and the customer's whole habit,
+ * yet every platform makes them re-book from scratch each visit. This books
+ * the next occurrences in one gesture — each one through the same
+ * hold-and-confirm path as any booking, so the no-double-booking contract
+ * holds for every member of the series.
+ *
+ * Dates where the slot is already taken are SKIPPED and reported, not
+ * silently shifted: "your usual Tuesday 14:00 is full on 6 Oct" is
+ * information the customer must see, and quietly booking 15:30 instead is
+ * how a standing appointment loses its meaning. Payment for future members
+ * is settled at the salon — the platform holds seats, not months of money.
+ */
+export function bookSeries(
+  deviceId: string,
+  bookingId: string,
+  everyWeeks: number,
+  count: number,
+): { booked: Booking[]; skippedDates: number[] } {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  if (!['confirmed', 'pending_payment'].includes(b.status)) throw new Error('not_bookable');
+  if (b.isPrime) throw new Error('prime_series'); // prime is flexible capacity, a series follows the grid
+  if (![1, 2, 3, 4, 6, 8].includes(everyWeeks) || count < 1 || count > 12) throw new Error('bad_series');
+
+  const booked: Booking[] = [];
+  const skippedDates: number[] = [];
+  for (let k = 1; k <= count; k++) {
+    const target = b.startsAt + everyWeeks * 7 * 864e5 * k;
+    // Rerunning the same series must not double it: a member already holding
+    // this exact seat counts as done, not as a new booking.
+    const dup = [...state.bookings.values()].some(
+      (x) => x.seriesId === bookingId && x.startsAt === target && !x.status.startsWith('cancelled'),
+    );
+    if (dup) {
+      skippedDates.push(target);
+      continue;
+    }
+    try {
+      // createHold is the seat authority: roster window + no overlap. The
+      // browsing slot list deliberately thins free times to shape demand, and
+      // a standing appointment must not be refused by merchandising — nor by
+      // the public booking horizon: reserving beyond it is exactly the
+      // privilege a regular's series has over a walk-up browser.
+      const hold = createHold({
+        shopId: b.shopId,
+        serviceIds: b.serviceIds,
+        staffId: b.staffId,
+        startsAt: target,
+        deviceId,
+        guestName: b.guestName,
+        guestPhone: b.guestPhone,
+        guestNote: b.guestNote,
+        idempotencyKey: `series-${bookingId}-${k}-${target}`,
+      });
+      const child = confirmBooking(hold.bookingId);
+      child.paidCents = 0; // settled at the salon, visit by visit
+      child.seriesId = bookingId;
+      booked.push(child);
+    } catch (e) {
+      if (e instanceof SlotTaken) {
+        skippedDates.push(target);
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (booked.length > 0) {
+    b.seriesId = bookingId;
+    persist();
+  }
+  return { booked, skippedDates };
+}
+
 // --- one stylist's week -----------------------------------------------------
 
 export interface StaffWeekDayView {
@@ -2442,6 +2521,7 @@ export interface BookingView {
   /** the shop's street address at the time of viewing — a Beleg must carry it */
   shopAddress: string;
   guestName: string;
+  seriesId: string | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -2475,6 +2555,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       breakdown: b.quote.breakdown,
       shopAddress: shop?.address ?? '',
       guestName: b.guestName,
+      seriesId: b.seriesId ?? null,
       isPrime: b.isPrime ?? false,
     };
   });

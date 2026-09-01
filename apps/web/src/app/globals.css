@@ -2776,3 +2776,20 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .rc-erech-row { display: flex; gap: 8px; }
 .rc-erech-row .input { flex: 1; }
 @media print { .rc-erech { display: none; } }
+
+/* --- standing appointments --------------------------------------------------- */
+.series-box {
+  margin: 0 0 16px; padding: 14px 16px; text-align: left;
+  background: var(--violet-soft); border-radius: var(--r-md);
+}
+.series-box strong { font-size: 0.9rem; }
+.series-box p { margin: 4px 0 0; font-size: 0.78rem; color: var(--ink-soft); line-height: 1.5; }
+.series-box.done { background: var(--teal-soft); }
+.series-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.series-skipped { font-weight: 600; }
+.series-note { font-size: 0.7rem !important; }
+.series-badge {
+  margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+  background: var(--violet-soft); color: var(--violet);
+  font-size: 0.66rem; font-weight: 800; white-space: nowrap;
+}

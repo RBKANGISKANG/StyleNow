@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   allShops, availability, requestAbsence, approveAbsence, isAbsent,
   createShopBooking, rescheduleBooking, setLocalPersistence, effectiveStaff,
+  bookSeries,
 } from '../store';
 import { todayIso, addDays, isoDow, dayStart } from '../time';
 
@@ -78,5 +79,34 @@ assert.throws(
   'inside the fee window, moving online must be refused',
 );
 console.log('moves: stranger refused, owner moved and was stamped, late move refused');
+
+// --- standing appointments ----------------------------------------------------
+
+// The demo synthesises busy blocks for every stylist-day, so pick a parent
+// time that is verifiably free at +4 and +8 weeks too (times in the offered
+// slot list are guaranteed free — it is a thinned subset of the free grid).
+const week4 = availability(shop.id, [svc.id], addDays(iso2, 28), 'dev-cust', staff.id).slots.map((s) => s.start);
+const seed = slots.find((s) => s.start !== booking.startsAt && week4.includes(s.start + 28 * 864e5));
+assert.ok(seed, 'fixture: no time free four weeks later — adjust the search');
+
+// Put the series parent on that time.
+booking.startsAt = seed!.start;
+
+// A stranger cannot start a series on someone else's booking.
+assert.throws(() => bookSeries('dev-intruder', booking.id, 4, 1), /not_yours/);
+
+const series = bookSeries('dev-cust', booking.id, 4, 1);
+assert.equal(series.booked.length, 1, 'the verified-free occurrence books');
+for (const child of series.booked) {
+  assert.equal(child.seriesId, booking.id, 'members carry the series id');
+  assert.equal(child.status, 'confirmed');
+  assert.equal(child.paidCents, 0, 'future visits are settled at the salon');
+}
+// Booking the same series again must not double it.
+const rerun = bookSeries('dev-cust', booking.id, 4, 1);
+assert.equal(rerun.booked.length, 0, 'a rerun recognises its own members and books nothing');
+assert.equal(rerun.skippedDates.length, 1);
+console.log(`series: ${series.booked.length} booked, rerun booked ${rerun.booked.length} (skipped ${rerun.skippedDates.length})`);
+
 
 console.log('\nOK — pending requests block nothing, approvals block the day, and moving stays inside the policy');

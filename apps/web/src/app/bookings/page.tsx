@@ -39,6 +39,7 @@ interface Bk {
   breakdown: Array<{ label: string; cents: number }>;
   shopAddress: string;
   guestName: string;
+  seriesId: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
 }
@@ -152,6 +153,7 @@ export default function BookingsPage() {
                 <div className="shop">
                   {b.shop?.emoji} {b.shop?.name ?? '—'}
                   {b.isPrime && <span className="prime-flag">★ {t('prime_flag')}</span>}
+                  {b.seriesId && <span className="series-badge">🔁 {t('sr_badge')}</span>}
                 </div>
                 <div className="svc">
                   {b.services.map((s) => `${s.emoji} ${s.name[lang]}`).join(' · ')}
@@ -257,6 +259,15 @@ export default function BookingsPage() {
                 <span style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', alignSelf: 'center' }}>
                   {t('cal_reminder_hint')}
                 </span>
+              </div>
+            )}
+            {b.status === 'completed' && b.shop && (
+              <div style={{ padding: '0 18px 6px' }}>
+                {/* The same cut, four weeks later, is the most common booking
+                    there is — one tap re-opens checkout with it prefilled. */}
+                <Link className="btn btn-soft sm" href={`/shops/${b.shop.slug}/book?service=${b.serviceIds[0] ?? ''}`}>
+                  🔁 {t('bk_again')}
+                </Link>
               </div>
             )}
             {b.status === 'completed' && b.shop && (

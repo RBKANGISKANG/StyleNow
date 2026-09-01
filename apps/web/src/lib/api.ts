@@ -595,6 +595,40 @@ export async function apiMoveMyBooking(
   }
 }
 
+/**
+ * Book the standing appointment: the same slot every N weeks, `count` times.
+ * Full dates are skipped and reported, never silently shifted.
+ */
+export async function apiBookSeries(
+  bookingId: string,
+  everyWeeks: number,
+  count: number,
+): Promise<{ ok: true; booked: number; skippedDates: number[] } | { ok: false }> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/bookings/${bookingId}/series`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ everyWeeks, count, deviceId: deviceId() }),
+    });
+    if (!res.ok) return { ok: false };
+    const d = await res.json();
+    announceMessages();
+    return { ok: true, booked: d.booked, skippedDates: d.skippedDates ?? [] };
+  }
+  await ready();
+  try {
+    // Series members go through the engine's own hold-and-confirm path, so the
+    // no-double-booking contract holds locally and in server mode. Supabase
+    // mode books against the synced mirror; wiring each member through the
+    // seat RPC is the one piece a real launch still owes this feature.
+    const r = store.bookSeries(deviceId(), bookingId, everyWeeks, count);
+    announceMessages();
+    return { ok: true, booked: r.booked.length, skippedDates: r.skippedDates };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // ---- shop logo ------------------------------------------------------------
 
 export async function apiShopLogo(shopId: string): Promise<string | null> {

@@ -9,6 +9,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { icsHref } from '@/lib/ics';
+import { BookSeries } from '@/components/BookSeries';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
@@ -323,6 +324,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </a>
           )}
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginBottom: 16 }}>{t('cal_reminder_hint')}</p>
+
+          {/* The moment the time still feels chosen rather than remembered —
+              lock the rhythm before life re-fills the calendar. Prime bookings
+              are flexible capacity and deliberately have no series. */}
+          {!prime && <BookSeries bookingId={hold.bookingId} />}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/bookings" className="btn btn-primary">
