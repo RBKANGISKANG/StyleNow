@@ -2645,12 +2645,10 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
 
 /* --- booking summary strip (step 0 may be skipped by a deep link) ------------ */
-.bk-summary {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 10px 14px; margin-bottom: 12px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
-}
+.bk-sum-panel { padding: 12px 14px; }
+.bk-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .bk-summary-txt { font-size: 0.85rem; font-weight: 700; }
+.bk-sum-edit { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px; }
 
 /* --- payment step ------------------------------------------------------------ */
 .pm-panel { margin-top: 14px; }

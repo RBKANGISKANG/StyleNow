@@ -202,10 +202,41 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     : 0;
 
   const selected = menu.filter((s) => serviceIds.includes(s.id));
+  // The expandable service editor on the time step — the same multi-select
+  // rows as step 0, so a deep-linked customer can still build a basket.
+  const [editServices, setEditServices] = useState(false);
+  const serviceRows = menu.map((s) => {
+    const sel = serviceIds.includes(s.id);
+    const totalMin = s.durationMin + s.processingGapMin + s.finishMin;
+    return (
+      <button
+        key={s.id}
+        className={`pick-row ${sel ? 'sel' : ''}`}
+        onClick={() => setServiceIds(sel ? serviceIds.filter((x) => x !== s.id) : [...serviceIds, s.id])}
+      >
+        <span className="svc-ico">{s.emoji}</span>
+        <span className="grow">
+          <div className="t">
+            {s.name[lang]} {s.popular && '🔥'}
+          </div>
+          <div className="s">
+            {totalMin} {t('min')}
+            {s.dynamicPricing && ` · ${t('dynamic_badge')}`}
+          </div>
+        </span>
+        <span className="svc-price">{money(s.basePriceCents, lang)}</span>
+      </button>
+    );
+  });
 
   // ---- slots -------------------------------------------------------------
   const loadSlots = useCallback(async () => {
-    if (serviceIds.length === 0) return;
+    if (serviceIds.length === 0) {
+      // deselecting everything must not leave yesterday's times on screen
+      setSlots([]);
+      setSlot(null);
+      return;
+    }
     setSlots(null);
     setSlot(null);
     setSlots(await apiAvailability(shop.id, serviceIds, date, staffId));
@@ -412,31 +443,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       {step === 0 && (
         <div className="panel">
           <h3>{t('choose_service')}</h3>
-          {menu.map((s) => {
-            const sel = serviceIds.includes(s.id);
-            const totalMin = s.durationMin + s.processingGapMin + s.finishMin;
-            return (
-              <button
-                key={s.id}
-                className={`pick-row ${sel ? 'sel' : ''}`}
-                onClick={() =>
-                  setServiceIds(sel ? serviceIds.filter((x) => x !== s.id) : [...serviceIds, s.id])
-                }
-              >
-                <span className="svc-ico">{s.emoji}</span>
-                <span className="grow">
-                  <div className="t">
-                    {s.name[lang]} {s.popular && '🔥'}
-                  </div>
-                  <div className="s">
-                    {totalMin} {t('min')}
-                    {s.dynamicPricing && ` · ${t('dynamic_badge')}`}
-                  </div>
-                </span>
-                <span className="svc-price">{money(s.basePriceCents, lang)}</span>
-              </button>
-            );
-          })}
+          {serviceRows}
           <button
             className="btn btn-primary"
             style={{ width: '100%', marginTop: 10 }}
@@ -452,21 +459,44 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       {step === 1 && (
         <>
           {/* What is being booked — step 0 may have been skipped by a deep
-              link, so the choice must stay visible and editable here. */}
-          {selected.length > 0 && (
+              link, so the whole service list lives right here behind one tap:
+              the strip expands into the same multi-select rows as step 0, and
+              every toggle re-derives the times below. */}
+          <div className="panel bk-sum-panel">
             <div className="bk-summary">
               <span className="bk-summary-txt">
-                {selected.map((s) => `${s.emoji} ${s.name[lang]}`).join(' + ')}
-                {' · '}
-                {selected.reduce((n, s) => n + s.durationMin + s.processingGapMin + s.finishMin, 0)} {t('min')}
-                {' · '}
-                {money(selected.reduce((n, s) => n + s.basePriceCents, 0), lang)}
+                {selected.length === 0
+                  ? t('choose_service')
+                  : <>
+                      {selected.map((s) => `${s.emoji} ${s.name[lang]}`).join(' + ')}
+                      {' · '}
+                      {selected.reduce((n, s) => n + s.durationMin + s.processingGapMin + s.finishMin, 0)} {t('min')}
+                      {' · '}
+                      {money(selected.reduce((n, s) => n + s.basePriceCents, 0), lang)}
+                    </>}
               </span>
-              <button className="btn btn-ghost sm" onClick={() => setStep(0)}>
-                ✏️ {t('bk_edit_services')}
+              <button
+                className={`btn sm ${editServices ? 'btn-primary' : 'btn-soft'}`}
+                onClick={() => setEditServices(!editServices)}
+                aria-expanded={editServices}
+              >
+                {editServices ? `✓ ${t('bk_services_done')}` : `＋ ${t('bk_edit_services')}`}
               </button>
             </div>
-          )}
+            {editServices && (
+              <div className="bk-sum-edit">
+                {serviceRows}
+                <button
+                  className="btn btn-primary"
+                  style={{ width: '100%', marginTop: 10 }}
+                  disabled={serviceIds.length === 0}
+                  onClick={() => setEditServices(false)}
+                >
+                  ✓ {t('bk_services_done')}
+                </button>
+              </div>
+            )}
+          </div>
           {expired && <div className="alert">⏱ {t('hold_expired')}</div>}
           {alternatives && (
             <div className="alert">
@@ -530,6 +560,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </div>
             {slots === null ? (
               <div className="spinner" />
+            ) : serviceIds.length === 0 ? (
+              <div className="empty" style={{ padding: '28px 16px' }}>
+                <p>{t('bk_pick_one')}</p>
+              </div>
             ) : slots.length === 0 ? (
               <div className="empty" style={{ padding: '28px 16px' }}>
                 <p>{t('no_slots')}</p>
