@@ -2212,8 +2212,13 @@ export function bookSeries(
 
   const booked: Booking[] = [];
   const skippedDates: number[] = [];
+  // "Same time in N weeks" means the same Berlin wall clock, not the same UTC
+  // instant — adding fixed milliseconds would slide every visit after a DST
+  // switch by an hour, off the roster grid the original seat sits on.
+  const baseIso = isoDateOf(b.startsAt);
+  const minutes = minuteOfDay(b.startsAt);
   for (let k = 1; k <= count; k++) {
-    const target = b.startsAt + everyWeeks * 7 * 864e5 * k;
+    const target = dayStart(addDays(baseIso, everyWeeks * 7 * k)) + minutes * 60_000;
     // Rerunning the same series must not double it: a member already holding
     // this exact seat counts as done, not as a new booking.
     const dup = [...state.bookings.values()].some(
@@ -2331,8 +2336,15 @@ export function getBooking(id: string): Booking | undefined {
 }
 
 export function bookingsForDevice(deviceId: string): Booking[] {
+  const now = Date.now();
   return [...state.bookings.values()]
-    .filter((b) => b.deviceId === deviceId && b.status !== 'hold')
+    .filter((b) => {
+      if (b.deviceId !== deviceId || b.status === 'hold') return false;
+      // An abandoned checkout whose hold timed out is not an appointment —
+      // listing it as "Payment pending" until its start date would be a lie.
+      if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) < now) return false;
+      return true;
+    })
     .sort((a, b) => b.startsAt - a.startsAt);
 }
 
@@ -2584,6 +2596,7 @@ export function validateVoucher(code: string, subtotalCents: number): VoucherRes
 
 /** 1 point per euro on completed visits (tips included); spending is recorded on the booking. */
 export function loyaltyBalance(deviceId: string): number {
+  const now = Date.now();
   let earned = 0;
   let spent = 0;
   for (const b of state.bookings.values()) {
@@ -2592,6 +2605,9 @@ export function loyaltyBalance(deviceId: string): number {
       earned += Math.floor(((b.quote.totalCents + (b.tipCents ?? 0)) / 100) * LOYALTY_EARN_PER_EURO);
     }
     if (['hold', 'pending_payment', 'confirmed', 'completed'].includes(b.status)) {
+      // A hold that timed out never becomes a sale — mirror bookingBlocks and
+      // give the reserved points back, or they'd be locked up forever.
+      if ((b.status === 'hold' || b.status === 'pending_payment') && (b.holdExpiresAt ?? 0) < now) continue;
       spent += b.pointsSpent ?? 0;
     }
   }
@@ -3280,7 +3296,8 @@ export function noticesForShop(shopId: string): AppNotice[] {
         id: `toff-${a.id}`,
         kind: 'timeoff',
         at: a.requestedAt,
-        href: '/dashboard/team',
+        href: '/dashboard/hr', // the Approve button lives in the HR panel
+
         shopId,
         shopName: shop.name,
         shopEmoji: shop.emoji,

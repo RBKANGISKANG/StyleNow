@@ -77,7 +77,11 @@ export function buildXRechnung(input: XRechnungInput): string {
   const toNet = (cents: number) => (small ? cents : Math.round((cents * 100) / 119));
   const positives = input.breakdown.filter((l) => l.cents >= 0).map((l) => ({ ...l, net: toNet(l.cents) }));
   const allowances = input.breakdown.filter((l) => l.cents < 0).map((l) => ({ ...l, net: -toNet(-l.cents) }));
-  const netTotal = input.totalCents - input.vatCents;
+  // The engine quotes VAT on every booking; a §19 UStG seller charges none, so
+  // the input's vatCents must not leak into a Kleinunternehmer invoice — the
+  // totals would stop agreeing (BR-CO-15) and the lines would be understated.
+  const vatCents = small ? 0 : input.vatCents;
+  const netTotal = input.totalCents - vatCents;
   const drift = netTotal - (positives.reduce((n, l) => n + l.net, 0) + allowances.reduce((n, l) => n + l.net, 0));
   if (positives.length > 0) {
     positives.reduce((a, b) => (b.net > a.net ? b : a)).net += drift;
@@ -131,7 +135,7 @@ export function buildXRechnung(input: XRechnungInput): string {
     </cac:TaxSubtotal>`
     : `    <cac:TaxSubtotal>
       <cbc:TaxableAmount currencyID="EUR">${eur(netTotal)}</cbc:TaxableAmount>
-      <cbc:TaxAmount currencyID="EUR">${eur(input.vatCents)}</cbc:TaxAmount>
+      <cbc:TaxAmount currencyID="EUR">${eur(vatCents)}</cbc:TaxAmount>
       <cac:TaxCategory>
         <cbc:ID>S</cbc:ID>
         <cbc:Percent>${rate}</cbc:Percent>
@@ -195,7 +199,7 @@ export function buildXRechnung(input: XRechnungInput): string {
   </cac:PaymentTerms>
 ${allowanceXml}
   <cac:TaxTotal>
-    <cbc:TaxAmount currencyID="EUR">${eur(small ? 0 : input.vatCents)}</cbc:TaxAmount>
+    <cbc:TaxAmount currencyID="EUR">${eur(vatCents)}</cbc:TaxAmount>
 ${taxSubtotal}
   </cac:TaxTotal>
   <cac:LegalMonetaryTotal>

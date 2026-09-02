@@ -17,7 +17,7 @@ import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } f
 import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows } from '@/lib/api';
 import { validateVoucher, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
-import { todayIso, addDays } from '@/core/time';
+import { todayIso, addDays, dayStart } from '@/core/time';
 import { useAuth } from '@/lib/auth';
 
 interface Svc {
@@ -567,7 +567,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             const baseCents = selected.reduce((n, x) => n + x.basePriceCents, 0);
             const estCents = baseCents + primeSurcharge(baseCents);
             const now = Date.now();
-            const dayMs = new Date(`${date}T00:00:00+02:00`).getTime();
+            // Berlin midnight via the shared helper — a literal +02:00 is only
+            // true half the year and would shift every winter chip by an hour.
+            const dayMs = dayStart(date);
             const steps: number[] = [];
             for (const w of primeWindows) {
               for (let m = Math.ceil(w.startMin / 15) * 15; m + durMin <= w.endMin; m += 15) {

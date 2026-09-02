@@ -426,7 +426,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   color: var(--ink);
 }
 .badge.teal { background: var(--teal); color: #fff; }
-.badge.amber { background: var(--amber); color: #fff; }
+.badge.amber { background: var(--amber); color: #4a3005; } /* white on amber fails contrast */
 
 .fav-btn {
   position: absolute;
@@ -1519,7 +1519,10 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   font-size: 0.88rem;
   box-shadow: var(--shadow-lift);
   animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  white-space: nowrap;
+  /* long German refund sentences must wrap on a phone, not run off-screen */
+  width: max-content;
+  max-width: min(92vw, 480px);
+  text-align: center;
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
@@ -2680,11 +2683,13 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 
 /* Printing: only the sheet, on paper-white, no chrome. The fixed positioning
    is what actually isolates it — visibility alone leaves blank first pages. */
+/* Only while a Beleg is open (Receipt toggles body.rc-open) — an unconditional
+   `body *` rule here would print every ordinary page as a blank sheet. */
 @media print {
-  body * { visibility: hidden; }
-  .rc-backdrop { position: static; padding: 0; background: none; overflow: visible; }
-  .rc-sheet, .rc-sheet * { visibility: visible; }
-  .rc-sheet {
+  body.rc-open * { visibility: hidden; }
+  body.rc-open .rc-backdrop { position: static; padding: 0; background: none; overflow: visible; }
+  body.rc-open .rc-sheet, body.rc-open .rc-sheet * { visibility: visible; }
+  body.rc-open .rc-sheet {
     position: fixed; inset: 0; width: auto;
     box-shadow: none; border-radius: 0; padding: 24px;
   }

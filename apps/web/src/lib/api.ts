@@ -574,7 +574,12 @@ export async function apiMoveMyBooking(
       body: JSON.stringify({ shopId, startsAt, deviceId: deviceId() }),
     });
     if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
-    if (res.status === 403) return { ok: false, code: 'too_late' };
+    if (res.status === 403) {
+      // 403 covers both "window closed" and "not your booking" — only the
+      // first one should show the too-late explanation.
+      const err = (await res.json().catch(() => ({}) as { error?: string })).error;
+      return err === 'too_late' ? { ok: false, code: 'too_late' } : { ok: false, code: 'error' };
+    }
     if (!res.ok) return { ok: false, code: 'error' };
     announceMessages();
     return { ok: true, reference: bookingId };
@@ -915,7 +920,10 @@ export async function apiSetBillingProfile(shopId: string, profile: BillingProfi
 export async function apiMyNotices(ownerKey: string | null): Promise<AppNotice[]> {
   if (backendMode() === 'server') {
     const params = new URLSearchParams({ deviceId: deviceId() });
-    if (ownerKey) params.set('owner', ownerKey);
+    // Shop ownership is claimed in the browser store, never on the server —
+    // resolve the ids here and send them, or the server finds no shops.
+    const owned = ownerKey ? store.shopsForOwner(ownerKey) : [];
+    if (owned.length) params.set('shops', owned.join(','));
     const res = await fetch(`/api/notices?${params}`);
     return res.ok ? (await res.json()).notices : [];
   }
@@ -1122,11 +1130,14 @@ export async function apiArchiveStaff(shopId: string, staffId: string): Promise<
   await localWrite();
   try {
     store.archiveStaff(shopId, staffId);
+    // Push BEFORE returning — this used to sit after the return, so archiving
+    // a stylist never reached the salon's other devices and they stayed
+    // bookable there until some unrelated config write happened to sync.
+    syncConfig(shopId);
     return true;
   } catch {
     return false; // last team member — refuse rather than empty the calendar
   }
-  syncConfig(shopId);
 }
 
 export async function apiLocations(shopId: string): Promise<ShopLocation[]> {
@@ -1174,11 +1185,11 @@ export async function apiDeleteLocation(shopId: string, locationId: string): Pro
   await localWrite();
   try {
     store.deleteLocation(shopId, locationId);
+    syncConfig(shopId);
     return true;
   } catch {
     return false;
   }
-  syncConfig(shopId);
 }
 
 // ---- HR --------------------------------------------------------------------

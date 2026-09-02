@@ -68,9 +68,13 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // The print stylesheet hides everything but the sheet — that rule may only
+    // exist while a receipt is actually open, or every other page prints blank.
+    document.body.classList.add('rc-open');
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
+      document.body.classList.remove('rc-open');
     };
   }, [onClose]);
 
@@ -105,7 +109,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
 
   return (
     <div className="rc-backdrop" onClick={onClose}>
-      <div className="rc-sheet" onClick={(e) => e.stopPropagation()}>
+      <div className="rc-sheet" role="dialog" aria-modal="true" aria-label={t('rc_title')} onClick={(e) => e.stopPropagation()}>
         <header className="rc-head">
           <div>
             <h2>{t('rc_title')}</h2>

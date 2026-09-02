@@ -262,15 +262,8 @@ export default function BookingsPage() {
               </div>
             )}
             {b.status === 'completed' && b.shop && (
-              <div style={{ padding: '0 18px 6px' }}>
-                {/* The same cut, four weeks later, is the most common booking
-                    there is — one tap re-opens checkout with it prefilled. */}
-                <Link className="btn btn-soft sm" href={`/shops/${b.shop.slug}/book?service=${b.serviceIds[0] ?? ''}`}>
-                  🔁 {t('bk_again')}
-                </Link>
-              </div>
-            )}
-            {b.status === 'completed' && b.shop && (
+              /* review, tip and the rebook link live in here — no second
+                 "book again" button outside it */
               <CompletedExtras booking={b} onChanged={() => { setToast('✅'); void load(); }} />
             )}
             {moveFor === b.id && b.shop && (
