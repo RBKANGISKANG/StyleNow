@@ -68,6 +68,8 @@ interface Hold {
   };
 }
 
+const GUEST_KEY = 'stylenow.guest';
+
 export function BookFlow({ shop }: { shop: ShopInfo }) {
   return (
     <Suspense fallback={<div className="spinner" />}>
@@ -87,7 +89,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const initialAt = Number(params.get('at')) || null;
   // Two months of bookable days (matches the shops' 62-day booking horizon).
   const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
-  const [step, setStep] = useState(initialServiceId && initialAt ? 1 : 0);
+  // A ?service= deep link IS the service choice — the customer tapped "Book"
+  // next to that service on the shop page. Making them re-confirm the same
+  // pick on step 0 was the flow's one genuinely wasted tap; they start on
+  // the times instead, with an "edit" back to the menu for adding more.
+  const [step, setStep] = useState(
+    initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? 1 : 0,
+  );
   // Live menu: the shop may have added or archived services since build time.
   const [menu, setMenu] = useState<Svc[]>(shop.services);
   useEffect(() => {
@@ -132,6 +140,21 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // and a note is where "I'm allergic to bleach" belongs, not a phone call.
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
+
+  // Nobody should type their own name a second time. The last booking's
+  // details prefill the next one (notes stay per-visit — allergies travel,
+  // parking questions don't... the note is the one field that's really new).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(GUEST_KEY);
+      if (!raw) return;
+      const g = JSON.parse(raw) as { name?: string; phone?: string };
+      setName((cur) => cur || g.name || '');
+      setPhone((cur) => cur || g.phone || '');
+    } catch {
+      // private mode — they type it once more
+    }
+  }, []);
 
   useEffect(() => {
     if (user && !name) setName(user.name);
@@ -249,6 +272,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
         void loadSlots();
       }
       return;
+    }
+    try {
+      window.localStorage.setItem(GUEST_KEY, JSON.stringify({ name: name.trim(), phone: phone.trim() }));
+    } catch {
+      // ignore
     }
     setHold(outcome.hold);
   };
@@ -423,6 +451,22 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       {/* step 1: staff + date + slot */}
       {step === 1 && (
         <>
+          {/* What is being booked — step 0 may have been skipped by a deep
+              link, so the choice must stay visible and editable here. */}
+          {selected.length > 0 && (
+            <div className="bk-summary">
+              <span className="bk-summary-txt">
+                {selected.map((s) => `${s.emoji} ${s.name[lang]}`).join(' + ')}
+                {' · '}
+                {selected.reduce((n, s) => n + s.durationMin + s.processingGapMin + s.finishMin, 0)} {t('min')}
+                {' · '}
+                {money(selected.reduce((n, s) => n + s.basePriceCents, 0), lang)}
+              </span>
+              <button className="btn btn-ghost sm" onClick={() => setStep(0)}>
+                ✏️ {t('bk_edit_services')}
+              </button>
+            </div>
+          )}
           {expired && <div className="alert">⏱ {t('hold_expired')}</div>}
           {alternatives && (
             <div className="alert">
