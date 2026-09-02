@@ -11,6 +11,8 @@ import { useSearchParams } from 'next/navigation';
 import { icsHref } from '@/lib/ics';
 import { BookSeries } from '@/components/BookSeries';
 import { SlotList, SlotViewToggle, useSlotView } from '@/components/SlotPicker';
+import { PayMethod } from '@/components/PayMethod';
+import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
@@ -136,6 +138,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
   const [hold, setHold] = useState<Hold | null>(null);
+  const [pay, setPay] = useState<PaymentChoice | null>(null);
   const [holding, setHolding] = useState(false);
   const [alternatives, setAlternatives] = useState<Slot[] | null>(null);
   const [expired, setExpired] = useState(false);
@@ -252,7 +255,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   const confirm = async () => {
     if (!hold) return;
-    const outcome = await apiConfirm(hold.bookingId);
+    const dueNow = hold.quote.depositCents > 0 ? hold.quote.depositCents : hold.quote.totalCents;
+    if (dueNow > 0 && !pay) return; // the button is disabled, but belt and braces
+    const outcome = await apiConfirm(hold.bookingId, dueNow > 0 ? (pay ?? undefined) : undefined);
     if (!outcome.ok) {
       if (outcome.code === 'hold_expired') {
         setHold(null);
@@ -261,6 +266,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       }
       return;
     }
+    if (dueNow > 0 && pay) rememberPayment(pay); // next checkout is one tap
     setConfirmed({ reference: outcome.reference });
   };
 
@@ -301,6 +307,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <div className="quote-line">
                 <span>{t('deposit_now')} ✅</span>
                 <span>{money(q.depositCents, lang)}</span>
+              </div>
+            )}
+            {pay && (
+              <div className="quote-line muted">
+                <span>{t('paid_via')}</span>
+                <span>{pay.label}</span>
               </div>
             )}
           </div>
@@ -774,6 +786,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </div>
           )}
 
+          {hold && (hold.quote.depositCents > 0 || hold.quote.totalCents > 0) && (
+            <PayMethod
+              amountCents={hold.quote.depositCents > 0 ? hold.quote.depositCents : hold.quote.totalCents}
+              onChange={setPay}
+            />
+          )}
+
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button className="btn btn-ghost" onClick={() => (hold ? undefined : setStep(1))} disabled={Boolean(hold)}>
               ← {t('back')}
@@ -788,7 +807,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 {holding ? '…' : `${t('continue')} →`}
               </button>
             ) : (
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => void confirm()}>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={(hold.quote.depositCents > 0 || hold.quote.totalCents > 0) && !pay}
+                onClick={() => void confirm()}
+              >
                 💳{' '}
                 {hold.quote.depositCents > 0
                   ? `${t('pay_confirm')} · ${money(hold.quote.depositCents, lang)}`

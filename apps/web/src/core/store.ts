@@ -56,6 +56,8 @@ export type BookingStatus =
   | 'cancelled_by_customer'
   | 'cancelled_by_shop';
 
+export type PaymentMethod = 'card' | 'paypal' | 'apple_pay' | 'google_pay' | 'sepa' | 'at_salon';
+
 export interface Booking {
   id: string;
   reference: string;
@@ -93,6 +95,9 @@ export interface Booking {
   tipCents?: number;
   pointsSpent?: number;
   voucherCode?: string;
+  /** How the online part was paid. Absent = settled at the salon. The label
+   *  is presentation-safe ("Visa ····4242", "PayPal") — never a full PAN. */
+  payment?: { method: PaymentMethod; label: string };
   /** A Prime flexible appointment: extra capacity the shop sells at a premium,
    *  at any time inside opening hours — it never occupies a seat in the grid. */
   isPrime?: boolean;
@@ -2126,7 +2131,7 @@ export function createHold(input: HoldInput): HoldResult {
   return result;
 }
 
-export function confirmBooking(id: string): Booking {
+export function confirmBooking(id: string, payment?: { method: PaymentMethod; label: string }): Booking {
   const b = state.bookings.get(id);
   if (!b) throw new Error('not_found');
   if (b.status === 'confirmed') return b;
@@ -2135,6 +2140,7 @@ export function confirmBooking(id: string): Booking {
   b.status = 'confirmed';
   b.holdExpiresAt = null;
   b.paidCents = b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
+  if (payment) b.payment = payment;
   persist();
   return b;
 }
@@ -2632,6 +2638,8 @@ export interface BookingView {
   breakdown: Array<{ label: string; cents: number }>;
   /** the shop's street address at the time of viewing — a Beleg must carry it */
   shopAddress: string;
+  /** how the online part was paid, presentation-safe — null means at the salon */
+  payment: { method: PaymentMethod; label: string } | null;
   guestName: string;
   seriesId: string | null;
 }
@@ -2666,6 +2674,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       vatCents: b.quote.vatCents,
       breakdown: b.quote.breakdown,
       shopAddress: shop?.address ?? '',
+      payment: b.payment ?? null,
       guestName: b.guestName,
       seriesId: b.seriesId ?? null,
       isPrime: b.isPrime ?? false,
@@ -3467,6 +3476,8 @@ export interface RevenueReport {
   walkInCents: number;
   byService: Array<{ id: string; name: { en: string; de: string }; emoji: string; count: number; revenueCents: number }>;
   byStaff: Array<{ id: string; name: string; count: number; revenueCents: number }>;
+  /** how customers chose to pay — bookings with no online payment settle at the salon */
+  byMethod: Array<{ method: PaymentMethod; count: number; revenueCents: number }>;
 }
 
 /**
@@ -3583,6 +3594,7 @@ export function revenueReport(shopId: string, fromIso: string, toIso: string): R
     walkInCents: 0,
     byService: [],
     byStaff: [],
+    byMethod: [],
   };
   if (!shop) return empty;
 
@@ -3594,6 +3606,7 @@ export function revenueReport(shopId: string, fromIso: string, toIso: string): R
   const staffNames = new Map(effectiveStaff(shopId).map((s) => [s.id, s.name]));
   const byService = new Map<string, { count: number; revenueCents: number }>();
   const byStaff = new Map<string, { count: number; revenueCents: number }>();
+  const byMethod = new Map<PaymentMethod, { count: number; revenueCents: number }>();
 
   let walkInCents = 0;
   let bookedCents = 0;
@@ -3612,6 +3625,9 @@ export function revenueReport(shopId: string, fromIso: string, toIso: string): R
       dayCount += 1;
       const staff = byStaff.get(b.staffId) ?? { count: 0, revenueCents: 0 };
       byStaff.set(b.staffId, { count: staff.count + 1, revenueCents: staff.revenueCents + b.quote.totalCents });
+      const method = b.payment?.method ?? 'at_salon';
+      const pm = byMethod.get(method) ?? { count: 0, revenueCents: 0 };
+      byMethod.set(method, { count: pm.count + 1, revenueCents: pm.revenueCents + b.quote.totalCents });
       // A basket's total is split across its services by list price, so a
       // two-service booking doesn't credit both with the whole ticket.
       const prices = b.serviceIds.map((id) => serviceOf(shop, id)?.basePriceCents ?? 0);
@@ -3655,6 +3671,9 @@ export function revenueReport(shopId: string, fromIso: string, toIso: string): R
       .sort((a, b) => b.revenueCents - a.revenueCents),
     byStaff: [...byStaff.entries()]
       .map(([id, v]) => ({ id, name: staffNames.get(id) ?? '—', ...v }))
+      .sort((a, b) => b.revenueCents - a.revenueCents),
+    byMethod: [...byMethod.entries()]
+      .map(([method, v]) => ({ method, ...v }))
       .sort((a, b) => b.revenueCents - a.revenueCents),
   };
 }

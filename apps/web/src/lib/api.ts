@@ -45,6 +45,7 @@ import type {
   AppNotice,
   BillingProfile,
   BookingConflict,
+  PaymentMethod,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -244,17 +245,27 @@ export type ConfirmOutcome =
   | { ok: true; reference: string }
   | { ok: false; code: 'hold_expired' | 'error' };
 
-export async function apiConfirm(bookingId: string): Promise<ConfirmOutcome> {
+export async function apiConfirm(
+  bookingId: string,
+  payment?: { method: PaymentMethod; label: string },
+): Promise<ConfirmOutcome> {
   const mode = backendMode();
   if (mode === 'server') {
-    const res = await fetch(`/api/bookings/${bookingId}/confirm`, { method: 'POST' });
+    const res = await fetch(`/api/bookings/${bookingId}/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ payment }),
+    });
     if (res.status === 410) return { ok: false, code: 'hold_expired' };
     if (!res.ok) return { ok: false, code: 'error' };
     return { ok: true, reference: (await res.json()).reference };
   }
   await ready();
   try {
-    const b = backendMode() === 'supabase' ? await sb.confirmBooking(bookingId) : store.confirmBooking(bookingId);
+    const b =
+      backendMode() === 'supabase'
+        ? await sb.confirmBooking(bookingId, payment)
+        : store.confirmBooking(bookingId, payment);
     return { ok: true, reference: b.reference };
   } catch (e) {
     if (e instanceof store.HoldExpired) return { ok: false, code: 'hold_expired' };

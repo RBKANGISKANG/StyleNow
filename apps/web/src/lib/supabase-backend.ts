@@ -193,8 +193,11 @@ export async function createHold(input: HoldInput): Promise<HoldResult> {
   return result;
 }
 
-export async function confirmBooking(bookingId: string): Promise<Booking> {
-  const b = store.confirmBooking(bookingId);
+export async function confirmBooking(
+  bookingId: string,
+  payment?: { method: store.PaymentMethod; label: string },
+): Promise<Booking> {
+  const b = store.confirmBooking(bookingId, payment);
   const db = await sb();
   const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
   if (error) throw error;

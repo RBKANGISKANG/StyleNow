@@ -44,6 +44,8 @@ export interface ReceiptData {
   refundedCents: number;
   tipCents: number;
   staffName: string | null;
+  /** masked payment label ("Visa ····4242"); null = settled at the salon */
+  paidVia?: string | null;
 }
 
 const KLEINUNTERNEHMER_SENTENCE =
@@ -98,6 +100,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
       ...(b?.smallBusiness
         ? [KLEINUNTERNEHMER_SENTENCE]
         : [`${t('rc_net')}: ${money(netCents, lang)}`, `${t('rc_vat')}: ${money(data.vatCents, lang)}`]),
+      ...(data.paidVia ? [`${t('paid_via')}: ${data.paidVia}`] : []),
       ...(data.tipCents > 0 ? [`${t('rc_tip')}: ${money(data.tipCents, lang)}`] : []),
       ...(data.refundedCents > 0 ? [`${t('rc_refunded')}: ${money(data.refundedCents, lang)}`] : []),
     ];
@@ -141,6 +144,12 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
             <div>
               <span className="k">{t('rc_staff')}</span>
               <span>{data.staffName}</span>
+            </div>
+          )}
+          {data.paidVia && (
+            <div>
+              <span className="k">{t('paid_via')}</span>
+              <span>{data.paidVia}</span>
             </div>
           )}
         </div>

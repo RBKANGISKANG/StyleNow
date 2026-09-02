@@ -7,7 +7,7 @@
  * seven-day strip at the bottom of the calendar.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
 import { apiRevenueReport, type RevenueReport } from '@/lib/api';
 import { RevenueChart } from '@/components/RevenueChart';
@@ -16,6 +16,10 @@ import type { ShopRef } from '@/lib/owned-shops';
 import { todayIso, addDays } from '@/core/time';
 
 type Period = 'd7' | 'd30' | 'month' | 'ahead';
+
+const METHOD_ICON: Record<string, string> = {
+  card: '💳', paypal: '🅿️', apple_pay: '', google_pay: '🇬', sepa: '🏦', at_salon: '🏪',
+};
 
 export function RevenueScreen({ shops }: { shops: ShopRef[] }) {
   return (
@@ -136,6 +140,23 @@ function RevenueTab({ shopId }: { shopId: string }) {
               )}
             </div>
           </section>
+
+          {report.byMethod.length > 0 && (
+            <section className="section">
+              <h2>{t('rev_by_method')}</h2>
+              <div className="panel">
+                <Ranked
+                  rows={report.byMethod.map((m) => ({
+                    key: m.method,
+                    label: `${METHOD_ICON[m.method] ?? '💳'} ${t(`pm_${m.method}` as MsgKey)}`,
+                    count: m.count,
+                    cents: m.revenueCents,
+                  }))}
+                  countLabel={t('rev_bookings')}
+                />
+              </div>
+            </section>
+          )}
 
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>
             💡 {ahead ? t('rev_ahead_hint') : t('rev_hint')}

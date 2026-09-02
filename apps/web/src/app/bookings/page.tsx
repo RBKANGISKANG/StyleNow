@@ -42,6 +42,7 @@ interface Bk {
   seriesId: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
+  payment: { method: string; label: string } | null;
 }
 
 interface Wl {
@@ -206,6 +207,7 @@ export default function BookingsPage() {
                         refundedCents: b.refundedCents,
                         tipCents: b.tipCents,
                         staffName: b.staffName,
+                        paidVia: b.payment?.label ?? null,
                       })
                     }
                   >

@@ -2644,6 +2644,41 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 /* --- a pending time-off request -------------------------------------------- */
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
 
+/* --- payment step ------------------------------------------------------------ */
+.pm-panel { margin-top: 14px; }
+.pm-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 12px; }
+.pm-tabs button {
+  padding: 8px 13px; border-radius: 999px; border: 1.5px solid var(--line);
+  background: var(--surface); font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  color: var(--ink);
+}
+.pm-tabs button.on { border-color: var(--primary); background: var(--primary-soft, #fdeef3); color: var(--primary-deep); }
+.pm-body { display: flex; flex-direction: column; }
+.pm-cardnum { position: relative; }
+.pm-cardnum .input { width: 100%; padding-right: 64px; font-variant-numeric: tabular-nums; }
+.pm-brand {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  font-size: 0.68rem; font-weight: 900; letter-spacing: 0.04em;
+  color: var(--ink-soft); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px;
+}
+.pm-brand.known { color: var(--primary-deep); border-color: var(--primary-deep); }
+.pm-row { display: flex; gap: 8px; margin-top: 8px; }
+.pm-row .input { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.pm-err { margin-top: 6px; font-size: 0.78rem; font-weight: 600; color: var(--danger); }
+.pm-fine { margin-top: 10px; font-size: 0.7rem; color: var(--ink-soft); line-height: 1.5; }
+.pm-saved {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border: 1.5px solid var(--teal); border-radius: var(--r-md);
+  background: var(--teal-soft); font-size: 0.86rem;
+}
+.pm-wallet {
+  width: 100%; padding: 13px 16px; border-radius: 12px; border: 0; cursor: pointer;
+  font-size: 0.95rem; font-weight: 800; letter-spacing: 0.01em;
+}
+.pm-wallet.apple, .pm-wallet.google { background: #000; color: #fff; }
+.pm-wallet.paypal { background: #ffc439; color: #003087; }
+.pm-wallet.done { background: var(--teal); color: #fff; cursor: default; }
+
 /* --- conflict guard: bookings a personnel decision would strand -------------- */
 .cg-box {
   margin: 6px 0 10px; padding: 10px 12px;
