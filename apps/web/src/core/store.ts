@@ -99,6 +99,10 @@ export interface Booking {
   /** Set when the customer moved it themselves — the shop's bell tells them. */
   movedAt?: number;
   movedFromStartsAt?: number;
+  /** Set when the SHOP moved the time — the customer's bell tells them. */
+  shopMovedAt?: number;
+  /** Set when the shop handed the appointment to a different stylist. */
+  reassignedAt?: number;
   /** Standing appointment: every booking in the series shares the first
    *  booking's id here, so the group is recognisable from any member. */
   seriesId?: string;
@@ -944,8 +948,95 @@ export function patchStaff(shopId: string, staffId: string, patch: Partial<Staff
 /** Archive: their past bookings must still render with a name. */
 export function archiveStaff(shopId: string, staffId: string): void {
   if (effectiveStaff(shopId).length <= 1) throw new Error('last_staff');
+  // Archiving somebody with booked customers would orphan those appointments
+  // silently. The dashboard resolves them first (reassign or cancel & refund).
+  if (bookingConflicts(shopId, { staffId }).length > 0) throw new Error('has_bookings');
   state.archivedStaff.add(staffId);
   persist();
+}
+
+/**
+ * The bookings a personnel decision would strand.
+ *
+ * Approving a vacation, adding a closure or archiving a stylist all remove
+ * working windows — but the appointments already sold inside those windows do
+ * not disappear with them. This lists every live future booking the decision
+ * touches, and for a per-stylist question also says which colleagues could
+ * take each appointment exactly as it stands (same day, same time, same
+ * services), so the front desk can resolve with one tap per row instead of a
+ * phone call per customer.
+ */
+export interface BookingConflict {
+  bookingId: string;
+  reference: string;
+  startsAt: number;
+  endsAt: number;
+  guestName: string;
+  serviceNames: Array<{ en: string; de: string }>;
+  staffId: string;
+  staffName: string;
+  totalCents: number;
+  candidates: Array<{ id: string; name: string }>;
+}
+
+export function bookingConflicts(
+  shopId: string,
+  opts: { staffId?: string | null; fromIso?: string; toIso?: string } = {},
+): BookingConflict[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const now = Date.now();
+  const team = effectiveStaff(shopId);
+  const out: BookingConflict[] = [];
+
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.startsAt <= now) continue;
+    if (!['confirmed', 'pending_payment'].includes(b.status)) continue;
+    if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) < now) continue; // dead hold
+    // Prime bookings hold no seat, so no stylist's absence can strand them.
+    if (b.isPrime) continue;
+    if (opts.staffId && b.staffId !== opts.staffId) continue;
+    const iso = isoDateOf(b.startsAt);
+    if (opts.fromIso && iso < opts.fromIso) continue;
+    if (opts.toIso && iso > opts.toIso) continue;
+
+    const services = b.serviceIds
+      .map((id) => serviceOf(shop, id))
+      .filter((x): x is SeedService => Boolean(x));
+    const timing = aggregate(services);
+    const held = occupancyForBasket(b.startsAt, services, shop.rules);
+
+    // Colleagues only make sense for a per-stylist question; a shop-wide
+    // closure shuts everyone, so there is nobody left to hand the visit to.
+    const candidates: Array<{ id: string; name: string }> = [];
+    if (opts.staffId) {
+      for (const st of team) {
+        if (st.id === b.staffId) continue;
+        const day = staffDayOf(shop, st.id, iso, now);
+        const fits = day.working.some(
+          (w) => b.startsAt >= w.start && b.startsAt + timing.durationMin * MIN <= w.end,
+        );
+        if (fits && !held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
+          candidates.push({ id: st.id, name: st.name });
+        }
+      }
+    }
+
+    out.push({
+      bookingId: b.id,
+      reference: b.reference,
+      startsAt: b.startsAt,
+      endsAt: b.endsAt,
+      guestName: b.guestName,
+      serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+      staffId: b.staffId,
+      staffName: team.find((s) => s.id === b.staffId)?.name ?? '—',
+      totalCents: b.quote.totalCents,
+      candidates,
+    });
+  }
+
+  return out.sort((a, b) => a.startsAt - b.startsAt);
 }
 
 // --- absences: holiday / sick leave / training ------------------------------
@@ -2139,12 +2230,21 @@ export function rescheduleBooking(
     b.staffRanges = held;
   }
 
+  const prevStaffId = b.staffId;
   b.staffId = staffId;
   b.startsAt = newStartsAt;
   b.endsAt = newStartsAt + (timing.durationMin + timing.processingGapMin + timing.finishMin) * MIN;
   if (opts.byDevice) {
     b.movedAt = Date.now();
     b.movedFromStartsAt = movedFrom;
+  } else {
+    // The front desk did this — the customer deserves to hear about it, the
+    // mirror image of the shop hearing about customer moves.
+    if (newStartsAt !== movedFrom) {
+      b.shopMovedAt = Date.now();
+      b.movedFromStartsAt = movedFrom;
+    }
+    if (staffId !== prevStaffId) b.reassignedAt = Date.now();
   }
   persist();
   return b;
@@ -3122,7 +3222,18 @@ export function setBillingProfile(shopId: string, profile: BillingProfile): void
 export interface AppNotice {
   /** stable across recomputations, so the client can tell old from new */
   id: string;
-  kind: 'appt_soon' | 'appt_tomorrow' | 'message' | 'offer' | 'booking_new' | 'booking_moved' | 'timeoff';
+  kind:
+    | 'appt_soon'
+    | 'appt_tomorrow'
+    | 'message'
+    | 'offer'
+    | 'booking_new'
+    | 'booking_moved'
+    | 'timeoff'
+    // the mirror image of booking_moved: the SHOP changed something and the
+    // customer's bell says so
+    | 'appt_moved'
+    | 'staff_changed';
   /** when this became worth showing — the badge counts notices after the watermark */
   at: number;
   /** where tapping it goes */
@@ -3172,6 +3283,28 @@ export function noticesForDevice(deviceId: string): AppNotice[] {
       out.push({ ...base, id: `soon-${b.id}`, kind: 'appt_soon', at: b.startsAt - 3 * 36e5 });
     } else if (hoursAway <= 26) {
       out.push({ ...base, id: `tmrw-${b.id}`, kind: 'appt_tomorrow', at: b.startsAt - 26 * 36e5 });
+    }
+
+    // The shop touched this appointment — moved it, or handed it to a
+    // different stylist. Recent changes only; old history is not news.
+    const changeCutoff = now - 7 * 864e5;
+    if (b.shopMovedAt && b.shopMovedAt >= changeCutoff) {
+      out.push({
+        ...base,
+        id: `shmv-${b.id}-${b.shopMovedAt}`,
+        kind: 'appt_moved',
+        at: b.shopMovedAt,
+        preview: b.movedFromStartsAt ? String(b.movedFromStartsAt) : '',
+      });
+    }
+    if (b.reassignedAt && b.reassignedAt >= changeCutoff) {
+      out.push({
+        ...base,
+        id: `rsgn-${b.id}-${b.reassignedAt}`,
+        kind: 'staff_changed',
+        at: b.reassignedAt,
+        who: effectiveStaff(shop.id).find((s) => s.id === b.staffId)?.name ?? '',
+      });
     }
   }
 

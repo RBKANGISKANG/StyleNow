@@ -2644,6 +2644,25 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 /* --- a pending time-off request -------------------------------------------- */
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
 
+/* --- conflict guard: bookings a personnel decision would strand -------------- */
+.cg-box {
+  margin: 6px 0 10px; padding: 10px 12px;
+  background: var(--amber-soft); border: 1px solid var(--amber);
+  border-radius: var(--r-md);
+}
+.cg-title { display: block; font-size: 0.82rem; color: #7a4a10; }
+.cg-sub { margin: 3px 0 8px; font-size: 0.75rem; color: var(--ink-soft); line-height: 1.5; }
+.cg-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 8px 0; border-top: 1px dashed rgba(176, 117, 20, 0.35);
+}
+.cg-what { display: flex; flex-direction: column; gap: 2px; min-width: 180px; flex: 1; }
+.cg-when { font-weight: 800; font-size: 0.82rem; }
+.cg-who { font-size: 0.78rem; color: var(--ink-soft); }
+.cg-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cg-actions select { max-width: 150px; padding: 6px 8px; font-size: 0.8rem; }
+.cg-nobody { font-size: 0.75rem; color: #b07514; font-weight: 600; }
+
 /* --- the Beleg --------------------------------------------------------------- */
 .rc-backdrop {
   position: fixed; inset: 0; z-index: 95;

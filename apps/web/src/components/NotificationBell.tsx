@@ -190,6 +190,8 @@ const ICONS: Record<AppNotice['kind'], string> = {
   booking_new: '🎉',
   booking_moved: '🔀',
   timeoff: '🌴',
+  appt_moved: '🔀',
+  staff_changed: '💇',
 };
 
 type T = ReturnType<typeof useI18n>['t'];
@@ -210,19 +212,23 @@ function noticeTitle(n: AppNotice, t: T, lang: 'en' | 'de'): string {
       return t('nt_moved', { who: n.who || t('walk_in'), time: timeOf(n.startsAt!, lang) });
     case 'timeoff':
       return t('nt_timeoff', { who: n.who });
+    case 'appt_moved':
+      return t('nt_appt_moved', { shop: n.shopName });
+    case 'staff_changed':
+      return t('nt_staff_changed', { who: n.who });
   }
 }
 
 function noticeBody(n: AppNotice, lang: 'en' | 'de'): string {
   if (n.kind === 'message') return n.preview;
   // A moved booking's preview is the old start time — show what it left behind.
-  if (n.kind === 'booking_moved') {
+  if (n.kind === 'booking_moved' || n.kind === 'appt_moved') {
     const from = Number(n.preview);
     return from ? `${dateOf(from, lang)} ${timeOf(from, lang)} → ${dateOf(n.startsAt!, lang)} ${timeOf(n.startsAt!, lang)}` : '';
   }
   if (n.kind === 'timeoff') return n.preview.replace('→', ' → ');
   const services = n.serviceNames.map((s) => s[lang]).join(', ');
-  if (n.kind === 'booking_new' && n.startsAt) {
+  if ((n.kind === 'booking_new' || n.kind === 'staff_changed') && n.startsAt) {
     return `${dateOf(n.startsAt, lang)} · ${timeOf(n.startsAt, lang)}${services ? ` · ${services}` : ''}`;
   }
   return services;

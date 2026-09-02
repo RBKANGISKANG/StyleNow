@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {
   allShops, availability, requestAbsence, approveAbsence, isAbsent,
   createShopBooking, rescheduleBooking, setLocalPersistence, effectiveStaff,
-  bookSeries,
+  bookSeries, bookingConflicts, archiveStaff, setBookingStatus, noticesForDevice,
 } from '../store';
 import { todayIso, addDays, isoDow, dayStart } from '../time';
 
@@ -108,5 +108,56 @@ assert.equal(rerun.booked.length, 0, 'a rerun recognises its own members and boo
 assert.equal(rerun.skippedDates.length, 1);
 console.log(`series: ${series.booked.length} booked, rerun booked ${rerun.booked.length} (skipped ${rerun.skippedDates.length})`);
 
+
+// --- conflict guard: personnel decisions must not strand booked customers -----
+
+// The customer's booking and the series child both sit on this stylist's book.
+const conflicts = bookingConflicts(shop.id, { staffId: staff.id });
+assert.ok(
+  conflicts.some((c) => c.bookingId === booking.id),
+  'an upcoming booking shows up as a conflict for its stylist',
+);
+const child = series.booked[0];
+assert.ok(
+  conflicts.some((c) => c.bookingId === child.id),
+  'series members conflict too',
+);
+
+// Archiving somebody with booked customers is refused, not silently done.
+assert.throws(() => archiveStaff(shop.id, staff.id), /has_bookings/);
+
+// The front desk hands the visit to a colleague on a day they are free.
+const colleague = effectiveStaff(shop.id).find((s) => s.id !== staff.id)!;
+assert.ok(colleague, 'fixture needs a second stylist');
+let iso3 = addDays(iso2, 2);
+let colleagueSlots: Array<{ start: number }> = [];
+for (let i = 0; i < 14 && colleagueSlots.length === 0; i++) {
+  if ([1, 2, 3, 4, 5].includes(isoDow(dayStart(iso3)))) {
+    colleagueSlots = availability(shop.id, [svc.id], iso3, 'dev-cust', colleague.id).slots;
+  }
+  if (colleagueSlots.length === 0) iso3 = addDays(iso3, 1);
+}
+assert.ok(colleagueSlots.length > 0, 'fixture: colleague has no free day in two weeks');
+
+rescheduleBooking(shop.id, booking.id, colleagueSlots[0].start, colleague.id);
+assert.equal(booking.staffId, colleague.id, 'the visit changed hands');
+assert.ok(booking.reassignedAt, 'a staff change by the shop is stamped');
+assert.ok(booking.shopMovedAt, 'a time change by the shop is stamped');
+
+const custNotices = noticesForDevice('dev-cust');
+assert.ok(custNotices.some((n) => n.kind === 'staff_changed' && n.who === colleague.name),
+  'the customer is told who their new stylist is');
+assert.ok(custNotices.some((n) => n.kind === 'appt_moved'),
+  'the customer is told the shop moved their time');
+
+// The remaining conflict is cancelled — shop cancels always refund in full.
+setBookingStatus(shop.id, child.id, 'cancelled_by_shop');
+assert.equal(child.status, 'cancelled_by_shop');
+assert.equal(child.cancellation!.feeCents, 0, 'the shop broke the promise, the shop eats the fee');
+
+const after = bookingConflicts(shop.id, { staffId: staff.id });
+assert.ok(!after.some((c) => c.bookingId === booking.id || c.bookingId === child.id),
+  'resolved bookings leave the conflict list');
+console.log(`conflicts: ${conflicts.length} found, archive refused, one reassigned (+2 customer notices), one refunded`);
 
 console.log('\nOK — pending requests block nothing, approvals block the day, and moving stays inside the policy');

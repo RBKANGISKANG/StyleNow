@@ -44,6 +44,7 @@ import type {
   StaffWeekDayView,
   AppNotice,
   BillingProfile,
+  BookingConflict,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -1122,10 +1123,16 @@ export async function apiPatchStaff(shopId: string, staffId: string, patch: Part
   syncConfig(shopId);
 }
 
-export async function apiArchiveStaff(shopId: string, staffId: string): Promise<boolean> {
+export type ArchiveStaffResult = { ok: true } | { ok: false; reason: 'last_staff' | 'has_bookings' | 'error' };
+
+export async function apiArchiveStaff(shopId: string, staffId: string): Promise<ArchiveStaffResult> {
+  const asReason = (msg: string): ArchiveStaffResult =>
+    msg === 'last_staff' || msg === 'has_bookings' ? { ok: false, reason: msg } : { ok: false, reason: 'error' };
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/staff/${staffId}`, { method: 'DELETE' });
-    return res.ok;
+    if (res.ok) return { ok: true };
+    const err = (await res.json().catch(() => ({}) as { error?: string })).error ?? '';
+    return asReason(err);
   }
   await localWrite();
   try {
@@ -1134,9 +1141,11 @@ export async function apiArchiveStaff(shopId: string, staffId: string): Promise<
     // a stylist never reached the salon's other devices and they stayed
     // bookable there until some unrelated config write happened to sync.
     syncConfig(shopId);
-    return true;
-  } catch {
-    return false; // last team member — refuse rather than empty the calendar
+    return { ok: true };
+  } catch (e) {
+    // last team member, or upcoming appointments still on their book —
+    // refuse rather than empty the calendar or strand customers
+    return asReason(e instanceof Error ? e.message : '');
   }
 }
 
@@ -1423,4 +1432,27 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile };
+export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile, BookingConflict };
+
+/**
+ * The bookings a personnel decision would strand — see store.bookingConflicts.
+ * Pass a staffId for a per-stylist question (time off, archiving), or null for
+ * a shop-wide one (closure). from/to are inclusive ISO dates.
+ */
+export async function apiBookingConflicts(
+  shopId: string,
+  staffId: string | null,
+  from?: string,
+  to?: string,
+): Promise<BookingConflict[]> {
+  if (backendMode() === 'server') {
+    const params = new URLSearchParams();
+    if (staffId) params.set('staff', staffId);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const res = await fetch(`/api/shop/${shopId}/conflicts?${params}`);
+    return res.ok ? (await res.json()).conflicts : [];
+  }
+  await readyForRead();
+  return store.bookingConflicts(shopId, { staffId, fromIso: from, toIso: to });
+}

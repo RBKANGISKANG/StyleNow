@@ -9,6 +9,7 @@ import { useI18n } from '@/lib/i18n';
 import { Glyph } from '@/components/Icon';
 import { usePaged, Pager } from '@/components/Pager';
 import { apiAddStaff, apiPatchStaff, apiArchiveStaff } from '@/lib/api';
+import { ConflictGuard } from '@/components/ConflictGuard';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
@@ -101,6 +102,9 @@ function TeamManager({
   const [locationId, setLocationId] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // set when archiving failed because the person still has booked customers —
+  // opens the conflict resolver under their row
+  const [conflictFor, setConflictFor] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const { ask, dialog } = useConfirm();
 
@@ -231,9 +235,16 @@ function TeamManager({
                               typeToConfirm: r.name,
                               confirmLabel: t('del_staff_confirm'),
                               run: () =>
-                                apiArchiveStaff(shopId, r.staffId).then((ok) => {
-                                  if (ok) onChanged('🗑 ' + t('team_removed'));
-                                  else setErr(t('team_last'));
+                                apiArchiveStaff(shopId, r.staffId).then((res) => {
+                                  if (res.ok) {
+                                    setConflictFor(null);
+                                    onChanged('🗑 ' + t('team_removed'));
+                                  } else if (res.reason === 'has_bookings') {
+                                    setErr(t('team_has_bookings', { name: r.name }));
+                                    setConflictFor(r.staffId);
+                                  } else {
+                                    setErr(t('team_last'));
+                                  }
                                 }),
                             })
                           }
@@ -243,6 +254,20 @@ function TeamManager({
                       </td>
                     </tr>
 
+                    {conflictFor === r.staffId && (
+                      <tr className="dt-detail">
+                        <td colSpan={6}>
+                          <ConflictGuard
+                            shopId={shopId}
+                            staffId={r.staffId}
+                            onChanged={(msg) => {
+                              onChanged(msg);
+                              setErr(null);
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )}
                     {editing === r.staffId && (
                       <tr className="dt-detail">
                         <td colSpan={6}>

@@ -22,6 +22,7 @@ import {
   type AbsenceKind,
 } from '@/lib/api';
 import { useConfirm } from './ConfirmDialog';
+import { ConflictGuard } from './ConflictGuard';
 
 const ABSENCE_KINDS: AbsenceKind[] = ['vacation', 'sick', 'training', 'other'];
 
@@ -222,7 +223,8 @@ export function HrPanel({
                 <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0' }}>{t('hr_none')}</p>
               ) : (
                 r.absences.map((a) => (
-                  <div key={a.id} className={`hr-abs${a.status === 'pending' ? ' pending' : ''}`}>
+                  <div key={a.id}>
+                  <div className={`hr-abs${a.status === 'pending' ? ' pending' : ''}`}>
                     <span className={`st-badge ${a.kind === 'sick' ? 'st-no_show' : 'st-completed'}`}>{kindLabel(a.kind)}</span>
                     <span style={{ fontSize: '0.82rem' }}>
                       {a.from} → {a.to}
@@ -265,6 +267,23 @@ export function HrPanel({
                     >
                       ✕
                     </button>
+                  </div>
+                  {/* Whatever was already booked into these days needs a plan —
+                      shown for the request BEFORE approving, so the manager
+                      sees the cost of the yes, and kept for approved leave
+                      until every affected visit is resolved. */}
+                  {a.to >= todayIso() && (
+                    <ConflictGuard
+                      shopId={shopId}
+                      staffId={r.staffId}
+                      from={a.from}
+                      to={a.to}
+                      onChanged={(msg) => {
+                        load();
+                        onChanged(msg);
+                      }}
+                    />
+                  )}
                   </div>
                 ))
               )}

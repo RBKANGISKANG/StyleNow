@@ -23,6 +23,7 @@ import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
 import { BillingSettings } from '@/components/BillingSettings';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { ConflictGuard } from '@/components/ConflictGuard';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
 import type { ShopRef } from '@/lib/owned-shops';
@@ -352,7 +353,8 @@ function ClosureManager({ shopId, onChanged }: { shopId: string; onChanged: (msg
         <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('cls_none')}</p>
       ) : (
         rows.map((c) => (
-          <div key={c.id} className="hr-abs">
+          <div key={c.id}>
+          <div className="hr-abs">
             <span className="st-badge st-cancelled_by_shop">{t('cls_closed')}</span>
             <span style={{ fontSize: '0.85rem' }}>
               {c.from}
@@ -378,6 +380,13 @@ function ClosureManager({ shopId, onChanged }: { shopId: string; onChanged: (msg
             >
               ✕
             </button>
+          </div>
+          {/* Closing the shop does not un-sell the appointments inside those
+              days. Every stylist is off, so there is nobody to reassign to —
+              each one is cancelled with a full refund, or the closure moves. */}
+          {c.to >= todayIso() && (
+            <ConflictGuard shopId={shopId} staffId={null} from={c.from} to={c.to} onChanged={onChanged} />
+          )}
           </div>
         ))
       )}
