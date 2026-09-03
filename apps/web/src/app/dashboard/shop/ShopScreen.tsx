@@ -17,6 +17,8 @@ import {
   apiClosures,
   apiAddClosure,
   apiDeleteClosure,
+  apiShopBackup,
+  apiShopRestore,
   type ShopClosure,
 } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
@@ -144,6 +146,11 @@ function ShopTab({
       <section className="section">
         <h2>🚫 {t('cls_title')}</h2>
         <ClosureManager shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>💾 {t('bk_title')}</h2>
+        <BackupPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -317,6 +324,93 @@ function LocationManager({
           {t('loc_add')}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Backup and restore: the shop's whole configuration — team, hours, menu,
+ * rules, photos, billing, notes — as one JSON file the operator OWNS. Ten
+ * years from now the file still opens; a platform's database might not be
+ * so obliging. Restore merges only this shop's slice, exactly like a sync
+ * document, then pushes to the shop's other devices.
+ */
+function BackupPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const { ask, dialog } = useConfirm();
+  const [busy, setBusy] = useState(false);
+
+  const download = async () => {
+    const doc = await apiShopBackup(shopId);
+    if (!doc) return;
+    const stamp = todayIso();
+    const blob = new Blob([JSON.stringify({ shopId, exportedAt: new Date().toISOString(), config: doc }, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stylenow-backup-${shopId}-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onChanged('💾 ' + t('bk_downloaded'));
+  };
+
+  const restore = (file: File) => {
+    void file.text().then((text) => {
+      let parsed: { shopId?: string; config?: unknown } | null = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        onChanged('⚠️ ' + t('bk_bad_file'));
+        return;
+      }
+      if (!parsed?.config || typeof parsed.config !== 'object') {
+        onChanged('⚠️ ' + t('bk_bad_file'));
+        return;
+      }
+      if (parsed.shopId && parsed.shopId !== shopId) {
+        onChanged('⚠️ ' + t('bk_wrong_shop'));
+        return;
+      }
+      const config = parsed.config as Parameters<typeof apiShopRestore>[1];
+      ask({
+        title: t('bk_restore_title'),
+        body: t('bk_restore_body'),
+        consequences: [t('bk_restore_c1'), t('bk_restore_c2')],
+        confirmLabel: t('bk_restore_confirm'),
+        run: async () => {
+          setBusy(true);
+          const ok = await apiShopRestore(shopId, config);
+          setBusy(false);
+          onChanged(ok ? '✅ ' + t('bk_restored') : '⚠️ ' + t('bk_bad_file'));
+        },
+      });
+    });
+  };
+
+  return (
+    <div className="panel">
+      {dialog}
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('bk_hint')}</p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button className="btn btn-soft sm" onClick={() => void download()} disabled={busy}>
+          ⬇️ {t('bk_download')}
+        </button>
+        <label className="btn btn-ghost sm" style={{ cursor: 'pointer' }}>
+          ⬆️ {t('bk_restore')}
+          <input
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) restore(f);
+            }}
+          />
+        </label>
+      </div>
     </div>
   );
 }

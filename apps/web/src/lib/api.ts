@@ -948,6 +948,29 @@ export async function apiMyNotices(ownerKey: string | null): Promise<AppNotice[]
   return [...own, ...forShops].sort((a, b) => b.at - a.at);
 }
 
+// ---- shop backup & restore ------------------------------------------------
+
+/** The shop's whole configuration as one downloadable document. */
+export async function apiShopBackup(shopId: string): Promise<store.ShopConfig | null> {
+  await readyForRead();
+  try {
+    return store.exportShopConfig(shopId);
+  } catch {
+    return null;
+  }
+}
+
+export async function apiShopRestore(shopId: string, doc: store.ShopConfig): Promise<boolean> {
+  await localWrite();
+  try {
+    store.restoreShopConfig(shopId, doc);
+    syncConfig(shopId); // the restored state must reach the shop's other devices too
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---- gift cards -----------------------------------------------------------
 
 export async function apiBuyGiftCard(

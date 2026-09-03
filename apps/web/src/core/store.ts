@@ -727,6 +727,18 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   stateVersion += 1;
 }
 
+/**
+ * Restore from a downloaded backup file. Same merge as a sync document —
+ * only this shop's slice is touched — but the result is written to disk,
+ * which the sync path leaves to its own caller.
+ */
+export function restoreShopConfig(shopId: string, doc: ShopConfig): void {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  if (!doc || typeof doc !== 'object') throw new Error('bad_backup');
+  applyShopConfig(shopId, doc);
+  persist();
+}
+
 export function applyExternalState(snapshot: {
   bookings: Booking[];
   ruleDisabled: string[];

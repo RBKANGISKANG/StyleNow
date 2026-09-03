@@ -19,6 +19,8 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import * as sb from '@/lib/supabase-backend';
+import * as store from '@/core/store';
+import { deviceId } from '@/lib/device';
 
 export interface Profile {
   name: string;
@@ -273,11 +275,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const exportData = useCallback((): string => {
-    // GDPR Art. 20 — everything this browser knows about the person.
+    // GDPR Art. 20 — what this browser knows about THE PERSON, and only the
+    // person. The old version dumped the whole engine snapshot, which is the
+    // opposite of a personal export: it carried every other guest's bookings
+    // and the shops' private notes along for the ride.
     const payload = {
       exportedAt: new Date().toISOString(),
       profile: user,
-      bookings: JSON.parse(localStorage.getItem('sn-state-v1') ?? '{}'),
+      bookings: store.bookingsForDeviceView(deviceId()),
+      giftCards: store.giftCardsForDevice(deviceId()),
+      waitlist: store.waitlistForDevice(deviceId()),
+      loyaltyPoints: store.loyaltyBalance(deviceId()),
+      conversations: store.threadsForDevice(deviceId()),
       favourites: JSON.parse(localStorage.getItem('sn-favs') ?? '[]'),
     };
     return `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
