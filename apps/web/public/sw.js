@@ -9,6 +9,21 @@
  */
 const CACHE = 'stylenow-v1';
 
+/* The cache must not grow forever: every deploy retires a set of content-
+ * hashed chunks that would otherwise sit in storage for the life of the
+ * origin. Trim oldest-first after each write — an evicted hashed asset is
+ * simply re-fetched, so the cap costs nothing but a request. */
+const MAX_ENTRIES = 80;
+
+async function putTrimmed(request, response) {
+  const c = await caches.open(CACHE);
+  await c.put(request, response);
+  const keys = await c.keys();
+  if (keys.length > MAX_ENTRIES) {
+    await Promise.all(keys.slice(0, keys.length - MAX_ENTRIES).map((k) => c.delete(k)));
+  }
+}
+
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(caches.open(CACHE));
@@ -38,7 +53,7 @@ self.addEventListener('fetch', (event) => {
           hit ||
           fetch(event.request).then((res) => {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(event.request, copy));
+            void putTrimmed(event.request, copy);
             return res;
           }),
       ),
@@ -51,7 +66,7 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request)
         .then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(event.request, copy));
+          void putTrimmed(event.request, copy);
           return res;
         })
         .catch(() => caches.match(event.request).then((hit) => hit || caches.match('./'))),

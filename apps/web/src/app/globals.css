@@ -2644,6 +2644,8 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 /* --- a pending time-off request -------------------------------------------- */
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
 
+.legend-link { margin-left: 10px; font-size: 0.72rem; color: var(--primary-deep); font-weight: 700; white-space: nowrap; }
+
 /* --- accessibility ------------------------------------------------------------- */
 /* Keyboard focus must be visible EVERYWHERE. Several components style their
    own outline away for mouse aesthetics; :focus-visible only fires for

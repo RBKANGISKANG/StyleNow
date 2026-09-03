@@ -591,6 +591,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     <p className="slot-legend">
                       <span className="tone-dot prime" /> {t('prime_legend')}
                       <span className="tone-dot saver" /> {t('saver_legend')}
+                      {/* the full story, one tap away from where the question arises */}
+                      <Link href="/pricing" className="legend-link">ⓘ {t('price_how')}</Link>
                     </p>
                   ) : (
                     <span />
