@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, type RevenueReport } from '@/lib/api';
 import { RevenueChart } from '@/components/RevenueChart';
 import { DayClose } from '@/components/DayClose';
 import { OperatorShell } from '../shell';
@@ -35,6 +35,11 @@ function RevenueTab({ shopId }: { shopId: string }) {
   const [period, setPeriod] = useState<Period>('d7');
   const [closeIso, setCloseIso] = useState(todayIso());
   const [closeOpen, setCloseOpen] = useState(false);
+  const [gift, setGift] = useState<Awaited<ReturnType<typeof apiShopGiftCards>>>(null);
+
+  useEffect(() => {
+    if (shopId) void apiShopGiftCards(shopId).then(setGift);
+  }, [shopId]);
   const [report, setReport] = useState<RevenueReport | null>(null);
 
   const range = useMemo(() => {
@@ -157,6 +162,25 @@ function RevenueTab({ shopId }: { shopId: string }) {
                   }))}
                   countLabel={t('rev_bookings')}
                 />
+              </div>
+            </section>
+          )}
+
+          {gift && gift.soldCount > 0 && (
+            <section className="section">
+              <h2>🎁 {t('gc_shop_title')}</h2>
+              <div className="panel" style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                <div className="hr-kpi">
+                  <span className="k">{t('gc_shop_sold')}</span>
+                  <span className="v">{gift.soldCount} · {money(gift.soldCents, lang)}</span>
+                </div>
+                <div className="hr-kpi">
+                  <span className="k">{t('gc_shop_outstanding')}</span>
+                  <span className="v">{money(gift.outstandingCents, lang)}</span>
+                </div>
+                <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', flexBasis: '100%' }}>
+                  {t('gc_shop_hint')}
+                </span>
               </div>
             </section>
           )}

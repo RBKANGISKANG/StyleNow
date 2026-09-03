@@ -189,7 +189,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       setVoucherError(
         r.reason === 'min_subtotal'
           ? t('voucher_min', { min: money(r.minSubtotalCents ?? 0, lang) })
-          : t('voucher_unknown'),
+          : r.reason === 'empty_card'
+            ? t('gc_empty')
+            : t('voucher_unknown'),
       );
     }
   };

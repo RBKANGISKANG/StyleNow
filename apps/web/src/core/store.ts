@@ -95,6 +95,9 @@ export interface Booking {
   tipCents?: number;
   pointsSpent?: number;
   voucherCode?: string;
+  /** the part of the discount funded by a gift card — deducted from the card
+   *  only when the booking confirms, never on a hold */
+  giftCents?: number;
   /** How the online part was paid. Absent = settled at the salon. The label
    *  is presentation-safe ("Visa ····4242", "PayPal") — never a full PAN. */
   payment?: { method: PaymentMethod; label: string };
@@ -206,6 +209,7 @@ interface State {
   customerNotes: Map<string, string>; // `${shopId}:${customerKey}` → private note
   messages: Map<string, Message[]>; // `${shopId}:${customerKey}` → the conversation
   billing: Map<string, BillingProfile>; // shopId → what its receipts must say
+  giftCards: Map<string, GiftCard>; // code → the card (balance lives here)
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
 }
@@ -262,6 +266,7 @@ const state: State =
     customerNotes: new Map(),
     messages: new Map(),
     billing: new Map(),
+    giftCards: new Map(),
     exitFeedback: [],
     seq: 1,
   });
@@ -323,6 +328,7 @@ function persist(): boolean {
         customerNotes: [...state.customerNotes.entries()],
         messages: [...state.messages.entries()],
         billing: [...state.billing.entries()],
+        giftCards: [...state.giftCards.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
       }),
@@ -361,6 +367,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         customerNotes?: Array<[string, string]>;
         messages?: Array<[string, Message[]]>;
         billing?: Array<[string, BillingProfile]>;
+        giftCards?: Array<[string, GiftCard]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
       };
@@ -386,6 +393,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.customerNotes = new Map(d.customerNotes ?? []);
       state.messages = new Map(d.messages ?? []);
       state.billing = new Map(d.billing ?? []);
+      state.giftCards = new Map(d.giftCards ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
     }
@@ -2048,12 +2056,15 @@ export function createHold(input: HoldInput): HoldResult {
 
   // Discounts: voucher first, then loyalty points on the remainder.
   let discountCents = 0;
+  let giftCents = 0;
   const discountLines: Array<{ label: string; cents: number }> = [];
   if (input.voucherCode) {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
     if (!v.ok) throw new Error('voucher_invalid');
     discountCents += v.discountCents;
-    discountLines.push({ label: `Voucher ${v.voucher.code}`, cents: -v.discountCents });
+    const isGift = v.giftBalanceCents !== undefined;
+    if (isGift) giftCents = v.discountCents;
+    discountLines.push({ label: `${isGift ? 'Gift card' : 'Voucher'} ${v.voucher.code}`, cents: -v.discountCents });
   }
   let pointsSpent = 0;
   if (input.pointsToSpend && input.pointsToSpend > 0) {
@@ -2113,6 +2124,7 @@ export function createHold(input: HoldInput): HoldResult {
     guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
     voucherCode: input.voucherCode || undefined,
+    giftCents: giftCents || undefined,
     isPrime: input.prime || undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
@@ -2141,6 +2153,7 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
   b.holdExpiresAt = null;
   b.paidCents = b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
   if (payment) b.payment = payment;
+  redeemGiftCard(b); // the moment the promise is real, the card pays its share
   persist();
   return b;
 }
@@ -2686,11 +2699,130 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
 // vouchers & loyalty
 // ---------------------------------------------------------------------------
 
+// --- gift cards (Gutscheine) ------------------------------------------------
+//
+// The salon's oldest revenue product: money paid today for a visit somebody
+// else takes later. A card is bought for a euro amount, carries a code in an
+// unambiguous alphabet, and redeems through the same voucher field checkout
+// already has — partially, keeping its remaining balance, until it is empty.
+// The balance is only ever deducted when a booking actually confirms; a hold
+// that dies takes nothing with it.
+
+export interface GiftCard {
+  code: string;
+  shopId: string;
+  initialCents: number;
+  balanceCents: number;
+  buyerDeviceId: string;
+  toName?: string;
+  fromName?: string;
+  message?: string;
+  payment?: { method: PaymentMethod; label: string };
+  createdAt: number;
+  redemptions: Array<{ at: number; cents: number; reference: string }>;
+}
+
+export const GIFT_MIN_CENTS = 1000;
+export const GIFT_MAX_CENTS = 50000;
+
+/** No 0/O, 1/I/L — a code read over the phone must survive the phone. */
+const GIFT_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+export function buyGiftCard(
+  shopId: string,
+  deviceId: string,
+  amountCents: number,
+  opts: { toName?: string; fromName?: string; message?: string } = {},
+  payment?: { method: PaymentMethod; label: string },
+): GiftCard {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  if (amountCents < GIFT_MIN_CENTS || amountCents > GIFT_MAX_CENTS) throw new Error('bad_amount');
+  let code = '';
+  do {
+    const part = () =>
+      Array.from({ length: 4 }, () => GIFT_ALPHABET[Math.floor(Math.random() * GIFT_ALPHABET.length)]).join('');
+    code = `GC-${part()}-${part()}`;
+  } while (state.giftCards.has(code));
+  const card: GiftCard = {
+    code,
+    shopId,
+    initialCents: amountCents,
+    balanceCents: amountCents,
+    buyerDeviceId: deviceId,
+    toName: opts.toName?.trim() || undefined,
+    fromName: opts.fromName?.trim() || undefined,
+    message: opts.message?.trim() || undefined,
+    payment,
+    createdAt: Date.now(),
+    redemptions: [],
+  };
+  state.giftCards.set(code, card);
+  persist();
+  return card;
+}
+
+export function giftCard(code: string): GiftCard | null {
+  return state.giftCards.get(code.trim().toUpperCase()) ?? null;
+}
+
+export function giftCardsForDevice(deviceId: string): GiftCard[] {
+  return [...state.giftCards.values()]
+    .filter((c) => c.buyerDeviceId === deviceId)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** The liability view: what was sold, and how much of it is still unredeemed. */
+export function giftCardsForShop(shopId: string): {
+  soldCount: number;
+  soldCents: number;
+  outstandingCents: number;
+  cards: GiftCard[];
+} {
+  const cards = [...state.giftCards.values()]
+    .filter((c) => c.shopId === shopId)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return {
+    soldCount: cards.length,
+    soldCents: cards.reduce((n, c) => n + c.initialCents, 0),
+    outstandingCents: cards.reduce((n, c) => n + c.balanceCents, 0),
+    cards,
+  };
+}
+
+/** Called once, on the hold→confirmed transition. Clamped, never negative. */
+function redeemGiftCard(b: Booking): void {
+  if (!b.voucherCode || !b.giftCents) return;
+  const card = state.giftCards.get(b.voucherCode);
+  if (!card) return;
+  const cents = Math.min(card.balanceCents, b.giftCents);
+  if (cents <= 0) return;
+  card.balanceCents -= cents;
+  card.redemptions.push({ at: Date.now(), cents, reference: b.reference });
+}
+
 export type VoucherResult =
-  | { ok: true; voucher: Voucher; discountCents: number }
-  | { ok: false; reason: 'unknown_code' | 'min_subtotal'; minSubtotalCents?: number };
+  | { ok: true; voucher: Voucher; discountCents: number; giftBalanceCents?: number }
+  | { ok: false; reason: 'unknown_code' | 'min_subtotal' | 'empty_card'; minSubtotalCents?: number };
 
 export function validateVoucher(code: string, subtotalCents: number): VoucherResult {
+  // Gift cards share the voucher field — one box at checkout, not two.
+  const card = state.giftCards.get(code.trim().toUpperCase());
+  if (card) {
+    if (card.balanceCents <= 0) return { ok: false, reason: 'empty_card' };
+    const discountCents = Math.min(card.balanceCents, subtotalCents);
+    return {
+      ok: true,
+      voucher: {
+        code: card.code,
+        label: { en: 'Gift card', de: 'Gutschein' },
+        kind: 'fixed_cents',
+        value: card.balanceCents,
+        minSubtotalCents: 0,
+      },
+      discountCents,
+      giftBalanceCents: card.balanceCents,
+    };
+  }
   const voucher = VOUCHERS.find((v) => v.code === code.trim().toUpperCase());
   if (!voucher) return { ok: false, reason: 'unknown_code' };
   if (subtotalCents < voucher.minSubtotalCents) {

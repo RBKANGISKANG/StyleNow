@@ -47,6 +47,7 @@ import type {
   BookingConflict,
   PaymentMethod,
   DayCloseReport,
+  GiftCard,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -947,6 +948,50 @@ export async function apiMyNotices(ownerKey: string | null): Promise<AppNotice[]
   return [...own, ...forShops].sort((a, b) => b.at - a.at);
 }
 
+// ---- gift cards -----------------------------------------------------------
+
+export async function apiBuyGiftCard(
+  shopId: string,
+  amountCents: number,
+  opts: { toName?: string; fromName?: string; message?: string },
+  payment?: { method: PaymentMethod; label: string },
+): Promise<GiftCard | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/giftcards`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ amountCents, ...opts, payment, deviceId: deviceId() }),
+    });
+    return res.ok ? (await res.json()).card : null;
+  }
+  await localWrite();
+  try {
+    return store.buyGiftCard(shopId, deviceId(), amountCents, opts, payment);
+  } catch {
+    return null;
+  }
+}
+
+export async function apiMyGiftCards(): Promise<GiftCard[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/me/giftcards?deviceId=${encodeURIComponent(deviceId())}`);
+    return res.ok ? (await res.json()).cards : [];
+  }
+  await readyForRead();
+  return store.giftCardsForDevice(deviceId());
+}
+
+export async function apiShopGiftCards(
+  shopId: string,
+): Promise<{ soldCount: number; soldCents: number; outstandingCents: number; cards: GiftCard[] } | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/giftcards`);
+    return res.ok ? await res.json() : null;
+  }
+  await readyForRead();
+  return store.giftCardsForShop(shopId);
+}
+
 // ---- custom categories ----------------------------------------------------
 
 export async function apiCustomCategories(): Promise<Array<{ id: string; label: string }>> {
@@ -1453,7 +1498,7 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile, BookingConflict, DayCloseReport };
+export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile, BookingConflict, DayCloseReport, GiftCard };
 
 /**
  * The bookings a personnel decision would strand — see store.bookingConflicts.

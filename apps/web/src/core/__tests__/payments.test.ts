@@ -11,6 +11,7 @@ import {
 import {
   allShops, availability, createHold, confirmBooking, revenueReport,
   setLocalPersistence, effectiveStaff, setBookingStatus, dayCloseReport,
+  buyGiftCard, giftCard, validateVoucher, giftCardsForShop,
 } from '../store';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
 
@@ -108,4 +109,37 @@ assert.equal(
   'the take reconciles with the method split',
 );
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue and the Tagesabschluss all check out');
+// --- gift cards: buy → redeem partially → balance survives, empties, refuses --
+
+const gc = buyGiftCard(shop.id, 'dev-buyer', 5000, { toName: 'Mia', fromName: 'Ben' }, { method: 'card', label: 'Visa ····4242' });
+assert.match(gc.code, /^GC-[A-Z2-9]{4}-[A-Z2-9]{4}$/, 'code uses the phone-proof alphabet');
+assert.ok(!/[01OIL]/.test(gc.code.slice(3)), 'no 0/O/1/I/L in the code');
+
+// The card validates in the voucher box, capped at the basket.
+const vr = validateVoucher(gc.code, 3000);
+assert.ok(vr.ok && vr.discountCents === 3000, 'a €50 card covers a €30 basket fully');
+
+// Book with it: hold takes nothing, confirm deducts exactly the used share.
+const slots2 = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-buyer', staff.id).slots;
+assert.ok(slots2.length > 0, 'fixture needs another slot');
+const gHold = createHold({
+  shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: slots2[0].start,
+  deviceId: 'dev-buyer', guestName: 'Mia', voucherCode: gc.code, idempotencyKey: 'gc-test-1',
+});
+assert.equal(giftCard(gc.code)!.balanceCents, 5000, 'a hold must not touch the balance');
+const gBooking = confirmBooking(gHold.bookingId, { method: 'card', label: 'Visa ····4242' });
+const used = gBooking.giftCents!;
+assert.ok(used > 0, 'the gift share is stamped on the booking');
+assert.equal(giftCard(gc.code)!.balanceCents, 5000 - used, 'confirm deducts exactly the used share');
+assert.equal(giftCard(gc.code)!.redemptions.length, 1);
+
+// The shop sees the liability.
+const shopView = giftCardsForShop(shop.id);
+assert.ok(shopView.soldCents >= 5000 && shopView.outstandingCents >= 5000 - used);
+
+// Drain it and the box says "empty", not "unknown".
+giftCard(gc.code)!.balanceCents = 0;
+const empty = validateVoucher(gc.code, 3000);
+assert.ok(!empty.ok && empty.reason === 'empty_card');
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss and gift cards all check out');

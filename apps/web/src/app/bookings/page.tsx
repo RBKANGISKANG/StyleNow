@@ -12,6 +12,8 @@ import {
   apiMyWaitlist,
   apiWaitlistLeave,
   apiMyUnread,
+  apiMyGiftCards,
+  type GiftCard,
 } from '@/lib/api';
 import { icsHref } from '@/lib/ics';
 import { MoveBooking } from '@/components/MoveBooking';
@@ -65,12 +67,14 @@ export default function BookingsPage() {
   const [points, setPoints] = useState(0);
   const [waitlist, setWaitlist] = useState<Wl[]>([]);
   const [unread, setUnread] = useState(0);
+  const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
 
   const load = useCallback(async () => {
     setBookings(await apiMyBookings());
     setPoints(await apiLoyaltyBalance());
     setWaitlist(await apiMyWaitlist());
     setUnread(await apiMyUnread());
+    setGiftCards(await apiMyGiftCards());
   }, []);
 
   useEffect(() => {
@@ -353,6 +357,25 @@ export default function BookingsPage() {
               )}
             </div>
           ))}
+        </section>
+      )}
+      {giftCards.length > 0 && (
+        <section className="section" style={{ marginTop: 24 }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>🎁 {t('gc_mine')}</h2>
+          {giftCards.map((c) => (
+            <div key={c.code} className="gc-row">
+              <span className="gc-row-code">{c.code}</span>
+              <span className="gc-row-meta">
+                {c.toName ? `${t('gc_for')} ${c.toName} · ` : ''}
+                {dateOf(c.createdAt, lang)}
+              </span>
+              <span className="gc-row-bal">
+                <strong>{money(c.balanceCents, lang)}</strong>
+                {c.balanceCents !== c.initialCents && <em> / {money(c.initialCents, lang)}</em>}
+              </span>
+            </div>
+          ))}
+          <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('gc_mine_hint')}</p>
         </section>
       )}
       {receiptFor && <Receipt data={receiptFor} onClose={() => setReceiptFor(null)} />}

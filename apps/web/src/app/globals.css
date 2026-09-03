@@ -2644,6 +2644,43 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 /* --- a pending time-off request -------------------------------------------- */
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
 
+/* --- gift cards --------------------------------------------------------------- */
+.gc-promo {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; border-radius: var(--r-lg);
+  background: var(--violet-soft); border: 1px solid var(--line);
+}
+.gc-promo strong { display: block; font-size: 0.92rem; }
+.gc-promo-sub { display: block; font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
+.gc-sheet { margin-top: 8px; }
+.gc-card {
+  border-radius: 18px; padding: 26px 24px; text-align: center; color: #fff;
+  background: linear-gradient(135deg, #6d28d9, #db2777);
+  box-shadow: var(--shadow-lift);
+}
+.gc-shop { font-weight: 800; font-size: 1rem; opacity: 0.95; }
+.gc-amount { font-size: 2.4rem; font-weight: 900; margin: 10px 0 6px; letter-spacing: 0.01em; }
+.gc-line { font-size: 0.88rem; opacity: 0.95; }
+.gc-msg { font-size: 0.92rem; font-style: italic; margin: 8px auto; max-width: 40ch; opacity: 0.95; }
+.gc-code {
+  margin: 14px auto 8px; padding: 10px 16px; width: max-content; max-width: 100%;
+  background: rgba(255, 255, 255, 0.16); border: 1px dashed rgba(255, 255, 255, 0.55);
+  border-radius: 10px; font-family: ui-monospace, monospace;
+  font-size: 1.15rem; font-weight: 800; letter-spacing: 0.12em;
+}
+.gc-fine { font-size: 0.68rem; opacity: 0.85; margin-top: 6px; }
+.gc-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.gc-row-code { font-family: ui-monospace, monospace; font-weight: 800; letter-spacing: 0.06em; }
+.gc-row-meta { flex: 1; font-size: 0.78rem; color: var(--ink-soft); }
+.gc-row-bal em { font-style: normal; font-size: 0.75rem; color: var(--ink-soft); }
+@media print {
+  body.rc-open .gc-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
 /* --- booking summary strip (step 0 may be skipped by a deep link) ------------ */
 .bk-sum-panel { padding: 12px 14px; }
 .bk-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

@@ -203,6 +203,19 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         </div>
       </section>
 
+      <section className="section">
+        <div className="gc-promo">
+          <span style={{ fontSize: '1.5rem' }} aria-hidden>🎁</span>
+          <span style={{ flex: 1 }}>
+            <strong>{t('gc_promo_title')}</strong>
+            <span className="gc-promo-sub">{t('gc_promo_sub')}</span>
+          </span>
+          <Link className="btn btn-soft sm" href={`/shops/${shop.slug}/gift`}>
+            {t('gc_promo_cta')}
+          </Link>
+        </div>
+      </section>
+
       <HoursTable hours={hours} />
 
       <section className="section">
