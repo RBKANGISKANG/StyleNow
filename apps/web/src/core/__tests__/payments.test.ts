@@ -11,8 +11,9 @@ import {
 import {
   allShops, availability, createHold, confirmBooking, revenueReport,
   setLocalPersistence, effectiveStaff, setBookingStatus, dayCloseReport,
-  buyGiftCard, giftCard, validateVoucher, giftCardsForShop,
+  buyGiftCard, giftCard, validateVoucher, giftCardsForShop, bookingLedger,
 } from '../store';
+import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
 
 setLocalPersistence(false);
@@ -142,4 +143,19 @@ giftCard(gc.code)!.balanceCents = 0;
 const empty = validateVoucher(gc.code, 3000);
 assert.ok(!empty.ok && empty.reason === 'empty_card');
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss and gift cards all check out');
+// --- the accountant's ledger and its CSV dialect -----------------------------
+
+const ledger = bookingLedger(shop.id, isoDateOf(b.startsAt), isoDateOf(b.startsAt));
+const row = ledger.find((r) => r.reference === b.reference);
+assert.ok(row, 'the completed booking appears in its day’s ledger');
+assert.equal(row!.grossCents, b.quote.totalCents);
+assert.equal(row!.netCents + row!.vatCents, row!.grossCents, 'net + VAT = gross, to the cent');
+assert.equal(row!.paymentLabel, 'Visa ····4242', 'the masked method rides along');
+assert.equal(row!.tipCents, 500);
+
+assert.equal(eurDe(1234), '12,34', 'German Excel wants the decimal comma');
+const csv = toCsv([['a', 'b;c', 'd"e'], ['x', 'line\nbreak', 'ü']]);
+assert.ok(csv.startsWith('﻿'), 'BOM first, or umlauts shred');
+assert.ok(csv.includes('"b;c"') && csv.includes('"d""e"') && csv.includes('"line\nbreak"'), 'RFC 4180 quoting');
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards and the ledger CSV all check out');

@@ -3897,6 +3897,65 @@ export function dayCloseReport(shopId: string, isoDate: string): DayCloseReport 
   return report;
 }
 
+// --- booking ledger (the accountant's view) ---------------------------------
+
+/**
+ * One row per money-relevant booking in a range — what a tax adviser wants
+ * to ingest, not a chart. Completed visits carry their revenue; no-shows and
+ * cancellations carry the fee kept and the refund issued. Derived live, like
+ * every report here.
+ */
+export interface LedgerRow {
+  iso: string;
+  time: string; // HH:MM Berlin wall clock
+  reference: string;
+  status: BookingStatus;
+  guestName: string;
+  services: string; // English names joined — stable identifiers for a ledger
+  staffName: string;
+  netCents: number;
+  vatCents: number;
+  grossCents: number;
+  tipCents: number;
+  feeCents: number;
+  refundedCents: number;
+  paymentLabel: string; // masked method or "at salon"
+}
+
+export function bookingLedger(shopId: string, fromIso: string, toIso: string): LedgerRow[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const start = dayStart(fromIso);
+  const end = dayStart(toIso) + 24 * 60 * MIN;
+  const staffNames = new Map(effectiveStaff(shopId).map((s) => [s.id, s.name]));
+  const out: LedgerRow[] = [];
+
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.startsAt < start || b.startsAt >= end) continue;
+    if (!['completed', 'no_show', 'cancelled_by_customer', 'cancelled_by_shop'].includes(b.status)) continue;
+    const completed = b.status === 'completed';
+    const minutes = minuteOfDay(b.startsAt);
+    out.push({
+      iso: isoDateOf(b.startsAt),
+      time: `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`,
+      reference: b.reference,
+      status: b.status,
+      guestName: b.guestName,
+      services: b.serviceIds.map((id) => serviceOf(shop, id)?.name.en ?? id).join(' + '),
+      staffName: staffNames.get(b.staffId) ?? '—',
+      netCents: completed ? b.quote.totalCents - b.quote.vatCents : 0,
+      vatCents: completed ? b.quote.vatCents : 0,
+      grossCents: completed ? b.quote.totalCents : 0,
+      tipCents: completed ? (b.tipCents ?? 0) : 0,
+      feeCents: completed ? 0 : (b.cancellation?.feeCents ?? 0),
+      refundedCents: b.refundedCents ?? 0,
+      paymentLabel: b.payment?.label ?? '',
+    });
+  }
+
+  return out.sort((a, b) => (a.iso === b.iso ? a.time.localeCompare(b.time) : a.iso.localeCompare(b.iso)));
+}
+
 // --- roster calendar -------------------------------------------------------
 
 /**

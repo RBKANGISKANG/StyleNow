@@ -9,7 +9,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, apiShopGiftCards, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, type RevenueReport } from '@/lib/api';
+import { toCsv, eurDe } from '@/lib/csv';
 import { RevenueChart } from '@/components/RevenueChart';
 import { DayClose } from '@/components/DayClose';
 import { OperatorShell } from '../shell';
@@ -52,6 +53,29 @@ function RevenueTab({ shopId }: { shopId: string }) {
   }, [period]);
 
   const ahead = period === 'ahead';
+
+  // The accountant's file: one row per money-relevant booking in the shown
+  // range, in the dialect German Excel actually opens (BOM, ';', "12,34").
+  const exportCsv = async () => {
+    const rows = await apiBookingLedger(shopId, range.from, range.to);
+    const head = lang === 'de'
+      ? ['Datum', 'Uhrzeit', 'Beleg-Nr.', 'Status', 'Gast', 'Leistungen', 'Mitarbeiter:in', 'Netto EUR', 'USt EUR', 'Brutto EUR', 'Trinkgeld EUR', 'Gebühr EUR', 'Erstattet EUR', 'Zahlungsart']
+      : ['Date', 'Time', 'Reference', 'Status', 'Guest', 'Services', 'Staff', 'Net EUR', 'VAT EUR', 'Gross EUR', 'Tip EUR', 'Fee EUR', 'Refunded EUR', 'Payment'];
+    const csv = toCsv([
+      head,
+      ...rows.map((r) => [
+        r.iso, r.time, r.reference, r.status, r.guestName, r.services, r.staffName,
+        eurDe(r.netCents), eurDe(r.vatCents), eurDe(r.grossCents), eurDe(r.tipCents),
+        eurDe(r.feeCents), eurDe(r.refundedCents), r.paymentLabel,
+      ]),
+    ]);
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stylenow-ledger-${range.from}-${range.to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (!shopId) return;
@@ -201,6 +225,9 @@ function RevenueTab({ shopId }: { shopId: string }) {
               />
               <button className="btn btn-primary sm" onClick={() => setCloseOpen(true)} disabled={!closeIso}>
                 {t('zb_open')}
+              </button>
+              <button className="btn btn-soft sm" onClick={() => void exportCsv()}>
+                📑 {t('csv_export')}
               </button>
             </div>
           </section>

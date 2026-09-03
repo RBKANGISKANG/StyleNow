@@ -1430,6 +1430,11 @@ export async function apiRevenueReport(shopId: string, from: string, to: string)
   return store.revenueReport(shopId, from, to);
 }
 
+export async function apiBookingLedger(shopId: string, from: string, to: string): Promise<store.LedgerRow[]> {
+  await readyForRead();
+  return store.bookingLedger(shopId, from, to);
+}
+
 export async function apiDayClose(shopId: string, iso: string): Promise<DayCloseReport | null> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/revenue?close=${iso}`);
