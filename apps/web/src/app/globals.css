@@ -2644,6 +2644,28 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 /* --- a pending time-off request -------------------------------------------- */
 .hr-abs.pending { background: var(--amber-soft); border-radius: var(--r-sm); padding: 6px 8px; }
 
+/* --- accessibility ------------------------------------------------------------- */
+/* Keyboard focus must be visible EVERYWHERE. Several components style their
+   own outline away for mouse aesthetics; :focus-visible only fires for
+   keyboard/switch navigation, and the !important wins those fights on
+   purpose — an invisible focus ring is a broken app for anyone tabbing. */
+*:focus-visible {
+  outline: 2px solid var(--primary-deep) !important;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Vestibular safety: whoever asked the OS for less motion gets less motion —
+   every animation and transition collapses to imperceptible. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* --- first-run screen intros --------------------------------------------------- */
 .intro-card {
   margin: 0 0 16px; padding: 14px 16px;

@@ -11,5 +11,5 @@ export function useToast() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  return { toast, setToast, toastEl: toast ? <div className="toast">{toast}</div> : null };
+  return { toast, setToast, toastEl: toast ? <div className="toast" role="status">{toast}</div> : null };
 }

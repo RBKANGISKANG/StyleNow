@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { useDialogFocus } from '@/lib/dialog-focus';
 
 export interface ConfirmQuestion {
   id: string;
@@ -98,7 +99,7 @@ export function ConfirmDialog({
 
   return (
     <div className="cd-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={onCancel}>
-      <div className="cd-card" onClick={(e) => e.stopPropagation()}>
+      <CardWithFocus onClick={(e) => e.stopPropagation()}>
         <h3 className="cd-title">⚠️ {title}</h3>
         {body && <p className="cd-body">{body}</p>}
 
@@ -168,7 +169,23 @@ export function ConfirmDialog({
             {busy ? '…' : confirmLabel}
           </button>
         </div>
-      </div>
+      </CardWithFocus>
+    </div>
+  );
+}
+
+/** Mounted only while the dialog is open, so focus moves in and back out. */
+function CardWithFocus({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const ref = useDialogFocus<HTMLDivElement>();
+  return (
+    <div className="cd-card" ref={ref} tabIndex={-1} onClick={onClick}>
+      {children}
     </div>
   );
 }

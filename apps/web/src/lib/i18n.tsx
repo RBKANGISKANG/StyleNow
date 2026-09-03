@@ -1913,6 +1913,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     setLangState(locale.startsWith('de') ? 'de' : 'en');
   }, []);
 
+  // The document must say which language it speaks — screen readers pick
+  // their voice from this, and a German page announced in an English voice
+  // is unintelligible, not just wrong.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const setLang = (l: Lang) => {
     localStorage.setItem('sn-lang', l);
     setLangState(l);

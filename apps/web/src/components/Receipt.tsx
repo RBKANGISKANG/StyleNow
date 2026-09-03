@@ -29,6 +29,7 @@ import { useI18n } from '@/lib/i18n';
 import { money, dateOf, fullDateOf } from '@/lib/format';
 import { apiBillingProfile, type BillingProfile } from '@/lib/api';
 import { buildXRechnung } from '@/lib/xrechnung';
+import { useDialogFocus } from '@/lib/dialog-focus';
 
 export interface ReceiptData {
   reference: string;
@@ -53,6 +54,7 @@ const KLEINUNTERNEHMER_SENTENCE =
 
 export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => void }) {
   const { t, lang } = useI18n();
+  const sheetRef = useDialogFocus<HTMLDivElement>();
   const [billing, setBilling] = useState<BillingProfile | null>(null);
 
   useEffect(() => {
@@ -112,7 +114,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
 
   return (
     <div className="rc-backdrop" onClick={onClose}>
-      <div className="rc-sheet" role="dialog" aria-modal="true" aria-label={t('rc_title')} onClick={(e) => e.stopPropagation()}>
+      <div className="rc-sheet" role="dialog" aria-modal="true" aria-label={t('rc_title')} ref={sheetRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <header className="rc-head">
           <div>
             <h2>{t('rc_title')}</h2>

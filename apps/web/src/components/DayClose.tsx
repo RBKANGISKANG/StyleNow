@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, dateOf, timeOf } from '@/lib/format';
 import { apiDayClose, type DayCloseReport } from '@/lib/api';
+import { useDialogFocus } from '@/lib/dialog-focus';
 
 const METHOD_ICON: Record<string, string> = {
   card: '💳', paypal: '🅿️', apple_pay: '', google_pay: '🇬', sepa: '🏦', at_salon: '🏪',
@@ -21,6 +22,7 @@ const METHOD_ICON: Record<string, string> = {
 
 export function DayClose({ shopId, iso, onClose }: { shopId: string; iso: string; onClose: () => void }) {
   const { t, lang } = useI18n();
+  const sheetRef = useDialogFocus<HTMLDivElement>();
   const [report, setReport] = useState<DayCloseReport | null>(null);
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export function DayClose({ shopId, iso, onClose }: { shopId: string; iso: string
 
   return (
     <div className="rc-backdrop" onClick={onClose}>
-      <div className="rc-sheet" role="dialog" aria-modal="true" aria-label={t('zb_title')} onClick={(e) => e.stopPropagation()}>
+      <div className="rc-sheet" role="dialog" aria-modal="true" aria-label={t('zb_title')} ref={sheetRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         {report === null ? (
           <div className="spinner" />
         ) : (

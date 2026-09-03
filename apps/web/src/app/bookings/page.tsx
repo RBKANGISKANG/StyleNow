@@ -379,7 +379,7 @@ export default function BookingsPage() {
         </section>
       )}
       {receiptFor && <Receipt data={receiptFor} onClose={() => setReceiptFor(null)} />}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }

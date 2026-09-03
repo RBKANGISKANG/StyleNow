@@ -558,7 +558,7 @@ function Waitlist({ shopId }: { shopId: string }) {
         ))}
         <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 10 }}>💡 {t('wl_offer_hint')}</p>
       </div>
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </section>
   );
 }

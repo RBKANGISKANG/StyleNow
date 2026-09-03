@@ -327,7 +327,7 @@ function ProfileView() {
           🗑 {t('acc_delete')}
         </button>
       </div>
-      {toast && <div className="toast">✅ {toast}</div>}
+      {toast && <div className="toast" role="status">✅ {toast}</div>}
       {dialog}
     </>
   );
