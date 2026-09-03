@@ -15,6 +15,7 @@ import { useStudio } from '@/lib/design';
 import { Icon, type IconName } from '@/components/Icon';
 import { apiClaimShop, apiOverview, apiShopUnread, MESSAGES_CHANGED } from '@/lib/api';
 import { useOwnedShops, type ShopRef } from '@/lib/owned-shops';
+import { ScreenIntro } from '@/components/ScreenIntro';
 import { todayIso } from '@/core/time';
 
 /** Shape of the dashboard payload, shared by every tab. */
@@ -268,7 +269,10 @@ export function OperatorShell({
           {picker}
           <nav className="op-nav">{nav}</nav>
         </aside>
-        <div className="op-main">{children({ shopId, ownerKey, myShops, refresh })}</div>
+        <div className="op-main">
+          <ScreenIntro screen={active || '/dashboard'} />
+          {children({ shopId, ownerKey, myShops, refresh })}
+        </div>
       </div>
     );
   }
@@ -284,6 +288,7 @@ export function OperatorShell({
         {nav}
       </nav>
 
+      <ScreenIntro screen={active || '/dashboard'} />
       {children({ shopId, ownerKey, myShops, refresh })}
     </div>
   );
