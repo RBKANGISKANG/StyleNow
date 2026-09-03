@@ -11,6 +11,7 @@ import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
 import { apiRevenueReport, type RevenueReport } from '@/lib/api';
 import { RevenueChart } from '@/components/RevenueChart';
+import { DayClose } from '@/components/DayClose';
 import { OperatorShell } from '../shell';
 import type { ShopRef } from '@/lib/owned-shops';
 import { todayIso, addDays } from '@/core/time';
@@ -32,6 +33,8 @@ export function RevenueScreen({ shops }: { shops: ShopRef[] }) {
 function RevenueTab({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
   const [period, setPeriod] = useState<Period>('d7');
+  const [closeIso, setCloseIso] = useState(todayIso());
+  const [closeOpen, setCloseOpen] = useState(false);
   const [report, setReport] = useState<RevenueReport | null>(null);
 
   const range = useMemo(() => {
@@ -157,6 +160,27 @@ function RevenueTab({ shopId }: { shopId: string }) {
               </div>
             </section>
           )}
+
+          <section className="section">
+            <h2>🧾 {t('zb_title')}</h2>
+            <div className="panel" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--ink-soft)', flex: 1, minWidth: 220 }}>
+                {t('zb_hint')}
+              </span>
+              <input
+                type="date"
+                className="input"
+                style={{ width: 'auto' }}
+                value={closeIso}
+                max={todayIso()}
+                onChange={(e) => setCloseIso(e.target.value)}
+              />
+              <button className="btn btn-primary sm" onClick={() => setCloseOpen(true)} disabled={!closeIso}>
+                {t('zb_open')}
+              </button>
+            </div>
+          </section>
+          {closeOpen && <DayClose shopId={shopId} iso={closeIso} onClose={() => setCloseOpen(false)} />}
 
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>
             💡 {ahead ? t('rev_ahead_hint') : t('rev_hint')}

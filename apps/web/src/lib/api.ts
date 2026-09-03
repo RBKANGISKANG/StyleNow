@@ -46,6 +46,7 @@ import type {
   BillingProfile,
   BookingConflict,
   PaymentMethod,
+  DayCloseReport,
 } from '@/core/store';
 import { todayIso } from '@/core/time';
 import { deviceId, newIdempotencyKey } from '@/lib/device';
@@ -1361,6 +1362,15 @@ export async function apiRevenueReport(shopId: string, from: string, to: string)
   return store.revenueReport(shopId, from, to);
 }
 
+export async function apiDayClose(shopId: string, iso: string): Promise<DayCloseReport | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/revenue?close=${iso}`);
+    return res.ok ? await res.json() : null;
+  }
+  await readyForRead();
+  return store.dayCloseReport(shopId, iso);
+}
+
 export async function apiRoster(shopId: string, from: string, to: string): Promise<RosterCalendar | null> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/roster?from=${from}&to=${to}`);
@@ -1443,7 +1453,7 @@ export async function apiDeleteAbsence(shopId: string, staffId: string, absenceI
   syncConfig(shopId);
 }
 
-export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile, BookingConflict };
+export type { ApiSlot, HrRow, RosterCalendar, CalendarDay, RevenueReport, CustomerRow, ShopReview, ShopWaitlistRow, ShopClosure, Absence, AbsenceKind, ShopPhoto, Message, ThreadSummary, StaffWeekDayView, AppNotice, BillingProfile, BookingConflict, DayCloseReport };
 
 /**
  * The bookings a personnel decision would strand — see store.bookingConflicts.

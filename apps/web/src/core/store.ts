@@ -3678,6 +3678,81 @@ export function revenueReport(shopId: string, fromIso: string, toIso: string): R
   };
 }
 
+// --- daily closing (Tagesabschluss / Z-Bericht) ----------------------------
+
+/**
+ * One day's money, closed out the way a German till expects it: what was
+ * earned, the VAT inside it, tips (staff money, outside the taxable total),
+ * cancellation fees kept, refunds issued, and the split by payment method.
+ * Everything is derived from the bookings of that day — no stored copy that
+ * could drift from the calendar it summarizes.
+ */
+export interface DayCloseReport {
+  iso: string;
+  shopName: string;
+  shopAddress: string;
+  generatedAt: number;
+  completedCount: number;
+  noShowCount: number;
+  cancelledCount: number;
+  /** completed appointments' service revenue, gross */
+  grossCents: number;
+  vatCents: number;
+  tipsCents: number;
+  /** late-cancellation and no-show fees the shop kept */
+  feesCents: number;
+  refundedCents: number;
+  byMethod: Array<{ method: PaymentMethod; count: number; cents: number }>;
+}
+
+export function dayCloseReport(shopId: string, isoDate: string): DayCloseReport {
+  const shop = shopById(shopId);
+  const report: DayCloseReport = {
+    iso: isoDate,
+    shopName: shop?.name ?? '',
+    shopAddress: shop?.address ?? '',
+    generatedAt: Date.now(),
+    completedCount: 0,
+    noShowCount: 0,
+    cancelledCount: 0,
+    grossCents: 0,
+    vatCents: 0,
+    tipsCents: 0,
+    feesCents: 0,
+    refundedCents: 0,
+    byMethod: [],
+  };
+  if (!shop) return report;
+  const start = dayStart(isoDate);
+  const end = start + 24 * 60 * MIN;
+  const byMethod = new Map<PaymentMethod, { count: number; cents: number }>();
+
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.startsAt < start || b.startsAt >= end) continue;
+    if (b.status === 'completed') {
+      report.completedCount += 1;
+      report.grossCents += b.quote.totalCents;
+      report.vatCents += b.quote.vatCents;
+      report.tipsCents += b.tipCents ?? 0;
+      const method = b.payment?.method ?? 'at_salon';
+      const row = byMethod.get(method) ?? { count: 0, cents: 0 };
+      byMethod.set(method, { count: row.count + 1, cents: row.cents + b.quote.totalCents + (b.tipCents ?? 0) });
+    } else if (b.status === 'no_show') {
+      report.noShowCount += 1;
+      report.feesCents += b.cancellation?.feeCents ?? 0;
+    } else if (b.status === 'cancelled_by_customer' || b.status === 'cancelled_by_shop') {
+      report.cancelledCount += 1;
+      report.feesCents += b.cancellation?.feeCents ?? 0;
+      report.refundedCents += b.refundedCents ?? 0;
+    }
+  }
+
+  report.byMethod = [...byMethod.entries()]
+    .map(([method, v]) => ({ method, ...v }))
+    .sort((a, b) => b.cents - a.cents);
+  return report;
+}
+
 // --- roster calendar -------------------------------------------------------
 
 /**

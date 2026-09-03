@@ -8,7 +8,10 @@ import {
   luhnValid, cardBrand, formatCardNumber, expiryValid, cvcValid,
   ibanValid, maskedCardLabel, maskedIbanLabel,
 } from '../../lib/payments';
-import { allShops, availability, createHold, confirmBooking, revenueReport, setLocalPersistence, effectiveStaff } from '../store';
+import {
+  allShops, availability, createHold, confirmBooking, revenueReport,
+  setLocalPersistence, effectiveStaff, setBookingStatus, dayCloseReport,
+} from '../store';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
 
 setLocalPersistence(false);
@@ -87,4 +90,22 @@ assert.ok(
   'unpaid-online bookings settle at the salon',
 );
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, and per-method revenue all check out');
+// --- daily closing (Tagesabschluss) ------------------------------------------
+
+// Complete the card booking and give a tip, then close its day.
+setBookingStatus(shop.id, b.id, 'completed');
+b.tipCents = 500;
+const close = dayCloseReport(shop.id, isoDateOf(b.startsAt));
+assert.ok(close.completedCount >= 1, 'the completed visit is counted');
+assert.ok(close.grossCents >= b.quote.totalCents, 'its revenue is in the gross');
+assert.ok(close.tipsCents >= 500, 'the tip is counted, outside the taxable total');
+assert.ok(close.vatCents > 0, 'VAT inside the gross is stated');
+const closeCard = close.byMethod.find((m) => m.method === 'card');
+assert.ok(closeCard && closeCard.cents >= b.quote.totalCents + 500, 'the method split includes the tip');
+assert.equal(
+  close.grossCents + close.tipsCents + close.feesCents - close.refundedCents,
+  close.byMethod.reduce((n, m) => n + m.cents, 0) + close.feesCents - close.refundedCents,
+  'the take reconciles with the method split',
+);
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue and the Tagesabschluss all check out');
