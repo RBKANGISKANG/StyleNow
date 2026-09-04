@@ -12,6 +12,9 @@ import {
   allShops, availability, createHold, confirmBooking, revenueReport,
   setLocalPersistence, effectiveStaff, setBookingStatus, dayCloseReport,
   buyGiftCard, giftCard, validateVoucher, giftCardsForShop, bookingLedger,
+  myReferralCode, referralUsable, giftCardsForDevice, setCustomerMemo, getBooking,
+  sendMessage, addClosure, messageThread, dayLoadForecast, shopTrust, quietWindows,
+  setShopAnnouncement, shopAnnouncement,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -158,4 +161,57 @@ const csv = toCsv([['a', 'b;c', 'd"e'], ['x', 'line\nbreak', 'ü']]);
 assert.ok(csv.startsWith('﻿'), 'BOM first, or umlauts shred');
 assert.ok(csv.includes('"b;c"') && csv.includes('"d""e"') && csv.includes('"line\nbreak"'), 'RFC 4180 quoting');
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards and the ledger CSV all check out');
+// --- ten-features batch -------------------------------------------------------
+
+// Referrals: a friend saves once, the referrer earns on confirm — never sooner.
+const refCode = myReferralCode('dev-referrer');
+assert.match(refCode, /^REF-[A-Z2-9]{4}$/);
+assert.equal(myReferralCode('dev-referrer'), refCode, 'the code is stable per device');
+assert.ok(!referralUsable(refCode, 'dev-referrer'), 'your own code is not a discount');
+assert.ok(referralUsable(refCode, 'dev-friend'), 'a stranger may use it once');
+const below = validateVoucher(refCode, 2000);
+assert.ok(!below.ok && below.reason === 'min_subtotal', 'below the minimum it refuses');
+const okRef = validateVoucher(refCode, 6000);
+assert.ok(okRef.ok && okRef.discountCents === 500, '€5 off above the minimum');
+
+const rSlots = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-friend', staff.id).slots;
+assert.ok(rSlots.length > 0, 'fixture needs a slot for the friend');
+const rHold = createHold({
+  shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: rSlots[0].start,
+  deviceId: 'dev-friend', guestName: 'Freya', voucherCode: refCode, idempotencyKey: 'ref-t-1',
+});
+assert.equal(giftCardsForDevice('dev-referrer').length, 0, 'a hold earns nothing yet');
+confirmBooking(rHold.bookingId, { method: 'paypal', label: 'PayPal' });
+const rewards = giftCardsForDevice('dev-referrer');
+assert.equal(rewards.length, 1, 'confirm grants the referrer their gift card');
+assert.equal(rewards[0].balanceCents, 500);
+assert.ok(!referralUsable(refCode, 'dev-friend'), 'the friend cannot use a second code');
+
+// Customer memo: private, guarded, round-trips.
+assert.throws(() => setCustomerMemo(rHold.bookingId, 'dev-intruder', 'x'), /not_yours/);
+setCustomerMemo(rHold.bookingId, 'dev-friend', 'ask for the 7.1 gloss');
+assert.equal(getBooking(rHold.bookingId)!.customerMemo, 'ask for the 7.1 gloss');
+
+// Closed-shop auto-reply: exactly one per closure, with the return date.
+addClosure(shop.id, { from: isoDateOf(Date.now()), to: isoDateOf(Date.now()), reason: 'Test' });
+sendMessage(shop.id, 'd:dev-friend', 'customer', 'Are you open?');
+sendMessage(shop.id, 'd:dev-friend', 'customer', 'Hello?');
+const autoReplies = messageThread(shop.id, 'd:dev-friend').filter((m) => m.from === 'shop' && m.text.includes('🤖'));
+assert.equal(autoReplies.length, 1, 'exactly one auto-reply per closure, however often they write');
+assert.ok(autoReplies[0].text.includes(addDays(isoDateOf(Date.now()), 1)), 'it names the return date');
+
+// Derived panels return sane shapes.
+assert.equal(dayLoadForecast(shop.id).length, 7);
+const trust = shopTrust(shop.id);
+assert.ok(trust.completed90 > 0 && (trust.avgRating === null || trust.avgRating <= 5));
+const qw = quietWindows(shop.id);
+assert.ok(qw.length > 0 && qw.every((w) => w.dow >= 1 && w.dow <= 7));
+assert.ok(qw[0].count <= qw[qw.length - 1].count, 'sorted quietest first');
+
+// Announcements round-trip and clear.
+setShopAnnouncement(shop.id, '  We have AC 🧊  ');
+assert.equal(shopAnnouncement(shop.id), 'We have AC 🧊');
+setShopAnnouncement(shop.id, '');
+assert.equal(shopAnnouncement(shop.id), '');
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts and announcements all check out');

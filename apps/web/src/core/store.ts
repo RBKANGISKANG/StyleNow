@@ -116,6 +116,8 @@ export interface Booking {
   seriesId?: string;
   /** Booked together: both seats of a pair share the first booking's id. */
   duoId?: string;
+  /** The customer's own note-to-self about this visit — never shown to the shop. */
+  customerMemo?: string;
   createdAt: number;
 }
 
@@ -212,6 +214,8 @@ interface State {
   messages: Map<string, Message[]>; // `${shopId}:${customerKey}` → the conversation
   billing: Map<string, BillingProfile>; // shopId → what its receipts must say
   giftCards: Map<string, GiftCard>; // code → the card (balance lives here)
+  announcements: Map<string, string>; // shopId → the banner customers see
+  referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
 }
@@ -269,6 +273,8 @@ const state: State =
     messages: new Map(),
     billing: new Map(),
     giftCards: new Map(),
+    announcements: new Map(),
+    referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
   });
@@ -331,6 +337,8 @@ function persist(): boolean {
         messages: [...state.messages.entries()],
         billing: [...state.billing.entries()],
         giftCards: [...state.giftCards.entries()],
+        announcements: [...state.announcements.entries()],
+        referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
       }),
@@ -370,6 +378,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
         messages?: Array<[string, Message[]]>;
         billing?: Array<[string, BillingProfile]>;
         giftCards?: Array<[string, GiftCard]>;
+        announcements?: Array<[string, string]>;
+        referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
       };
@@ -396,6 +406,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.messages = new Map(d.messages ?? []);
       state.billing = new Map(d.billing ?? []);
       state.giftCards = new Map(d.giftCards ?? []);
+      state.announcements = new Map(d.announcements ?? []);
+      state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
     }
@@ -610,6 +622,7 @@ export interface ShopConfig {
   photos?: ShopPhoto[];
   messages?: Array<[string, Message[]]>;
   billing?: BillingProfile;
+  announcement?: string;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -655,6 +668,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     photos: state.shopPhotos.get(shopId) ?? [],
     messages: [...state.messages.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     billing: state.billing.get(shopId),
+    announcement: state.announcements.get(shopId),
   };
 }
 
@@ -678,6 +692,10 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.rules) state.customRules.set(shopId, doc.rules);
   if (doc.photos) state.shopPhotos.set(shopId, doc.photos);
   if (doc.billing) state.billing.set(shopId, doc.billing);
+  if (doc.announcement !== undefined) {
+    if (doc.announcement) state.announcements.set(shopId, doc.announcement);
+    else state.announcements.delete(shopId);
+  }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
   // stylist created on another device is recognised as ours.
@@ -2076,6 +2094,10 @@ export function createHold(input: HoldInput): HoldResult {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
     if (!v.ok) throw new Error('voucher_invalid');
     discountCents += v.discountCents;
+    // The engine, not the UI, is the referral gate: own code and second uses bounce.
+    if (input.voucherCode.toUpperCase().startsWith('REF-') && !referralUsable(input.voucherCode, input.deviceId)) {
+      throw new Error('voucher_invalid');
+    }
     const isGift = v.giftBalanceCents !== undefined;
     if (isGift) giftCents = v.discountCents;
     discountLines.push({ label: `${isGift ? 'Gift card' : 'Voucher'} ${v.voucher.code}`, cents: -v.discountCents });
@@ -2239,6 +2261,7 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
   b.paidCents = b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
   if (payment) b.payment = payment;
   redeemGiftCard(b); // the moment the promise is real, the card pays its share
+  grantReferralReward(b); // and the friend who sent them gets their thank-you
   persist();
   return b;
 }
@@ -2741,6 +2764,7 @@ export interface BookingView {
   guestName: string;
   seriesId: string | null;
   duoId: string | null;
+  customerMemo: string | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -2777,6 +2801,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       guestName: b.guestName,
       seriesId: b.seriesId ?? null,
       duoId: b.duoId ?? null,
+      customerMemo: b.customerMemo ?? null,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -2892,6 +2917,24 @@ export type VoucherResult =
   | { ok: false; reason: 'unknown_code' | 'min_subtotal' | 'empty_card'; minSubtotalCents?: number };
 
 export function validateVoucher(code: string, subtotalCents: number): VoucherResult {
+  // Referral codes: a friend's first booking gets a fixed amount off.
+  const refOwner = state.referralCodes.get(code.trim().toUpperCase());
+  if (refOwner) {
+    if (subtotalCents < REFERRAL_MIN_SUBTOTAL_CENTS) {
+      return { ok: false, reason: 'min_subtotal', minSubtotalCents: REFERRAL_MIN_SUBTOTAL_CENTS };
+    }
+    return {
+      ok: true,
+      voucher: {
+        code: code.trim().toUpperCase(),
+        label: { en: 'Friend referral', de: 'Freundschaftswerbung' },
+        kind: 'fixed_cents',
+        value: REFERRAL_FRIEND_CENTS,
+        minSubtotalCents: REFERRAL_MIN_SUBTOTAL_CENTS,
+      },
+      discountCents: Math.min(REFERRAL_FRIEND_CENTS, subtotalCents),
+    };
+  }
   // Gift cards share the voucher field — one box at checkout, not two.
   const card = state.giftCards.get(code.trim().toUpperCase());
   if (card) {
@@ -3247,7 +3290,30 @@ export function sendMessage(
     readAt: null,
   };
   const key = threadKey(shopId, customerKey);
-  state.messages.set(key, [...(state.messages.get(key) ?? []), msg]);
+  const thread = [...(state.messages.get(key) ?? []), msg];
+
+  // Nobody is at the desk during a closure — say so once, with the return
+  // date, instead of letting the message sit in silence for a week.
+  if (from === 'customer') {
+    const today = todayIso();
+    const closure = (state.closures.get(shopId) ?? []).find((c) => today >= c.from && today <= c.to);
+    if (closure) {
+      const back = addDays(closure.to, 1);
+      const marker = `🤖 ${back}`;
+      const alreadySaid = thread.some((m) => m.from === 'shop' && m.text.startsWith(marker));
+      if (!alreadySaid) {
+        thread.push({
+          id: `m-${state.seq++}-${Date.now().toString(36)}`,
+          from: 'shop',
+          text: `${marker} · Wir haben vorübergehend geschlossen und antworten ab ${back}. / We are temporarily closed and will reply from ${back}.`,
+          at: Date.now() + 1,
+          readAt: null,
+        });
+      }
+    }
+  }
+
+  state.messages.set(key, thread);
   persist();
   return msg;
 }
@@ -4029,6 +4095,178 @@ export function bookingLedger(shopId: string, fromIso: string, toIso: string): L
   }
 
   return out.sort((a, b) => (a.iso === b.iso ? a.time.localeCompare(b.time) : a.iso.localeCompare(b.iso)));
+}
+
+// --- ten-features batch: memo, late, forecast, trust, referral, quiet, banner --
+
+/** The customer's private note-to-self on a past visit ("ask for the 7.1"). */
+export function setCustomerMemo(bookingId: string, deviceId: string, text: string): void {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  const memo = text.trim().slice(0, 200);
+  b.customerMemo = memo || undefined;
+  persist();
+}
+
+/** A customer writing to the shop from one of their own bookings. */
+export function sendBookingMessage(bookingId: string, deviceId: string, text: string): Message | null {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  return sendMessage(b.shopId, customerKeyOf(b), 'customer', text);
+}
+
+/** 0–100 per day for the next week — the demand curve customers can plan by. */
+export function dayLoadForecast(shopId: string, days = 7): Array<{ iso: string; pct: number }> {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const now = Date.now();
+  return Array.from({ length: days }, (_, i) => {
+    const iso = addDays(todayIso(), i);
+    return { iso, pct: isShopClosed(shopId, iso) ? -1 : occupancyPct(shop, iso, now) };
+  });
+}
+
+/** Numbers a sceptical customer can check: all derived, none editable. */
+export function shopTrust(shopId: string): {
+  completed90: number;
+  repeatPct: number | null;
+  avgRating: number | null;
+  reviewCount: number;
+} {
+  const now = Date.now();
+  const cutoff = now - 90 * 864e5;
+  let completed90 = 0;
+  const visitsByCustomer = new Map<string, number>();
+  let ratingSum = 0;
+  let reviewCount = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (b.startsAt >= cutoff) completed90 += 1;
+    const key = customerKeyOf(b);
+    visitsByCustomer.set(key, (visitsByCustomer.get(key) ?? 0) + 1);
+    if (b.review) {
+      ratingSum += b.review.rating;
+      reviewCount += 1;
+    }
+  }
+  const customers = visitsByCustomer.size;
+  const repeats = [...visitsByCustomer.values()].filter((n) => n >= 2).length;
+  return {
+    completed90,
+    repeatPct: customers >= 5 ? Math.round((repeats / customers) * 100) : null,
+    avgRating: reviewCount > 0 ? Math.round((ratingSum / reviewCount) * 10) / 10 : null,
+    reviewCount,
+  };
+}
+
+/** The emptiest open day-parts of the last 30 days — where a Saver rule earns. */
+export function quietWindows(
+  shopId: string,
+): Array<{ dow: number; part: 'morning' | 'afternoon' | 'evening'; count: number }> {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const now = Date.now();
+  const cutoff = now - 30 * 864e5;
+  const PARTS = { morning: [0, 12 * 60], afternoon: [12 * 60, 17 * 60], evening: [17 * 60, 24 * 60] } as const;
+  const team = effectiveStaff(shopId);
+  const counts = new Map<string, number>();
+  // only day-parts the shop is actually open can be "quiet"
+  for (let dow = 1; dow <= 7; dow++) {
+    for (const part of ['morning', 'afternoon', 'evening'] as const) {
+      const [a, z] = PARTS[part];
+      const open = team.some((st) => (st.shifts[dow] ?? []).some((w) => w.startMin < z && w.endMin > a));
+      if (open) counts.set(`${dow}:${part}`, 0);
+    }
+  }
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.startsAt < cutoff || b.startsAt > now) continue;
+    if (!['confirmed', 'completed'].includes(b.status)) continue;
+    const dow = isoDow(b.startsAt);
+    const minute = minuteOfDay(b.startsAt);
+    const part = minute < 12 * 60 ? 'morning' : minute < 17 * 60 ? 'afternoon' : 'evening';
+    const key = `${dow}:${part}`;
+    if (counts.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([k, count]) => {
+      const [dow, part] = k.split(':');
+      return { dow: Number(dow), part: part as 'morning' | 'afternoon' | 'evening', count };
+    })
+    .sort((a, b) => a.count - b.count);
+}
+
+// --- referrals: a friend saves, the referrer earns --------------------------
+
+export const REFERRAL_FRIEND_CENTS = 500;
+export const REFERRAL_MIN_SUBTOTAL_CENTS = 2500;
+export const REFERRAL_REWARD_CENTS = 500;
+
+/** Deterministic per device, registered on first ask so checkout can find it. */
+export function myReferralCode(deviceId: string): string {
+  const h = hash(`ref:${deviceId}`);
+  let code = 'REF-';
+  for (let i = 0; i < 4; i++) code += GIFT_ALPHABET[Math.floor(h / 31 ** i) % GIFT_ALPHABET.length];
+  const owner = state.referralCodes.get(code);
+  if (owner !== deviceId) {
+    state.referralCodes.set(code, deviceId);
+    persist();
+  }
+  return code;
+}
+
+function deviceUsedReferral(deviceId: string): boolean {
+  const now = Date.now();
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || !b.voucherCode?.startsWith('REF-')) continue;
+    if (['confirmed', 'completed'].includes(b.status)) return true;
+    if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) >= now) return true;
+  }
+  return false;
+}
+
+/** Once per device, never on your own code — the checkout's extra referral gate. */
+export function referralUsable(code: string, deviceId: string): boolean {
+  const owner = state.referralCodes.get(code.trim().toUpperCase());
+  if (!owner) return false;
+  return owner !== deviceId && !deviceUsedReferral(deviceId);
+}
+
+/** The referrer's thank-you: a small gift card, granted when the friend's
+ *  booking actually confirms — never for holds that die. */
+function grantReferralReward(b: Booking): void {
+  if (!b.voucherCode?.startsWith('REF-')) return;
+  const referrer = state.referralCodes.get(b.voucherCode);
+  if (!referrer || referrer === b.deviceId) return;
+  let code = '';
+  do {
+    const part = () =>
+      Array.from({ length: 4 }, () => GIFT_ALPHABET[Math.floor(Math.random() * GIFT_ALPHABET.length)]).join('');
+    code = `GC-${part()}-${part()}`;
+  } while (state.giftCards.has(code));
+  state.giftCards.set(code, {
+    code,
+    shopId: b.shopId,
+    initialCents: REFERRAL_REWARD_CENTS,
+    balanceCents: REFERRAL_REWARD_CENTS,
+    buyerDeviceId: referrer,
+    fromName: 'StyleNow',
+    message: 'Referral reward — thank you!',
+    createdAt: Date.now(),
+    redemptions: [],
+  });
+}
+
+// --- shop announcements ------------------------------------------------------
+
+export function shopAnnouncement(shopId: string): string {
+  return state.announcements.get(shopId) ?? '';
+}
+
+export function setShopAnnouncement(shopId: string, text: string): void {
+  const clean = text.trim().slice(0, 140);
+  if (clean) state.announcements.set(shopId, clean);
+  else state.announcements.delete(shopId);
+  persist();
 }
 
 // --- roster calendar -------------------------------------------------------

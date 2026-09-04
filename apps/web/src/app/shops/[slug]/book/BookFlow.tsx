@@ -16,8 +16,9 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows } from '@/lib/api';
-import { validateVoucher, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement } from '@/lib/api';
+import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
+import { deviceId } from '@/lib/device';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays, dayStart } from '@/core/time';
 import { useAuth } from '@/lib/auth';
@@ -87,6 +88,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // service, which day, which minute. Re-asking all three would throw that away.
   const initialDate = params.get('date');
   const initialAt = Number(params.get('at')) || null;
+  const initialStaff = params.get('staff');
   // Two months of bookable days (matches the shops' 62-day booking horizon).
   const days = useMemo(() => Array.from({ length: 62 }, (_, i) => addDays(todayIso(), i)), []);
   // A ?service= deep link IS the service choice — the customer tapped "Book"
@@ -113,7 +115,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [serviceIds, setServiceIds] = useState<string[]>(
     initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
   );
-  const [staffId, setStaffId] = useState<string | null>(null);
+  // "Book again with Lena" arrives with the stylist already chosen.
+  const [staffId, setStaffId] = useState<string | null>(
+    initialStaff && shop.staff.some((s) => s.id === initialStaff) ? initialStaff : null,
+  );
   const [date, setDate] = useState(initialDate && days.includes(initialDate) ? initialDate : days[0]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
@@ -135,6 +140,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       alive = false;
     };
   }, [shop.id, date]);
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    void apiShopAnnouncement(shop.id).then(setAnnouncement);
+  }, [shop.id]);
   const [name, setName] = useState('');
   // Optional, but the shop needs a way to reach you if something changes —
   // and a note is where "I'm allergic to bleach" belongs, not a phone call.
@@ -186,6 +195,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const applyVoucher = () => {
     if (!slot) return;
     const r = validateVoucher(voucherInput, slot.priceCents);
+    if (r.ok && voucherInput.trim().toUpperCase().startsWith('REF-') && !referralUsable(voucherInput, deviceId())) {
+      setVoucher(null);
+      setVoucherError(t('ref_not_usable'));
+      return;
+    }
     if (r.ok) {
       setVoucher({ code: r.voucher.code, discountCents: r.discountCents });
       setVoucherError(null);
@@ -465,6 +479,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           ← {t('back')}
         </Link>
       </div>
+
+      {announcement && <div className="shop-banner">📣 {announcement}</div>}
 
       <div className="steps">
         {steps.map((label, i) => (
@@ -903,6 +919,19 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={280}
               />
+              {/* The things people want to say but rarely type — one tap each. */}
+              <div className="filter-row" style={{ marginTop: 8 }}>
+                {(['np_first', 'np_quiet', 'np_early', 'np_parking'] as const).map((k) => (
+                  <button
+                    key={k}
+                    className="chip"
+                    type="button"
+                    onClick={() => setNote((cur) => (cur.includes(t(k)) ? cur : `${cur ? cur + ' · ' : ''}${t(k)}`))}
+                  >
+                    + {t(k)}
+                  </button>
+                ))}
+              </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <input
                   className="input"

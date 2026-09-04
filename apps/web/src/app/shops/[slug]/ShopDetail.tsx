@@ -6,8 +6,8 @@ import { NextOpenings } from '@/components/NextOpenings';
 import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n } from '@/lib/i18n';
-import { money } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices } from '@/lib/api';
+import { money, weekdayShort } from '@/lib/format';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -203,6 +203,9 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         </div>
       </section>
 
+      {/* the demand curve customers can plan by, and the banner the shop set */}
+      <ShopPulse shopId={shop.id} />
+
       <section className="section">
         <div className="gc-promo">
           <span style={{ fontSize: '1.5rem' }} aria-hidden>🎁</span>
@@ -287,5 +290,70 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         ))}
       </section>
     </div>
+  );
+}
+
+/**
+ * The shop's live pulse for customers: an announcement if the shop set one,
+ * trust numbers nobody can edit (all derived from real bookings), and a
+ * seven-day busy-ness forecast — so "when should I come?" answers itself.
+ */
+function ShopPulse({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [announcement, setAnnouncement] = useState('');
+  const [trust, setTrust] = useState<Awaited<ReturnType<typeof apiShopTrust>> | null>(null);
+  const [forecast, setForecast] = useState<Array<{ iso: string; pct: number }>>([]);
+
+  useEffect(() => {
+    void apiShopAnnouncement(shopId).then(setAnnouncement);
+    void apiShopTrust(shopId).then(setTrust);
+    void apiDayForecast(shopId).then(setForecast);
+  }, [shopId]);
+
+  const open = forecast.filter((d) => d.pct >= 0);
+  const quietest = open.length > 1 ? open.reduce((a, b) => (b.pct < a.pct ? b : a)) : null;
+
+  return (
+    <>
+      {announcement && <div className="shop-banner">📣 {announcement}</div>}
+
+      {trust && (trust.completed90 > 0 || trust.reviewCount > 0) && (
+        <div className="trust-strip">
+          {trust.completed90 > 0 && <span>✂️ {t('tr_visits', { n: String(trust.completed90) })}</span>}
+          {trust.repeatPct !== null && <span>🔁 {t('tr_repeat', { pct: String(trust.repeatPct) })}</span>}
+          {trust.avgRating !== null && (
+            <span>★ {trust.avgRating.toFixed(1)} · {t('tr_reviews', { n: String(trust.reviewCount) })}</span>
+          )}
+          <em>{t('tr_derived')}</em>
+        </div>
+      )}
+
+      {open.length > 0 && (
+        <section className="section">
+          <h2>{t('fc_title')}</h2>
+          <div className="panel">
+            <div className="fc-bars">
+              {forecast.map((d) => (
+                <div key={d.iso} className="fc-day" title={d.pct >= 0 ? `${d.pct}%` : t('fc_closed')}>
+                  <div className="fc-bar">
+                    {d.pct >= 0 ? (
+                      <div className={`fc-fill${d.pct >= 66 ? ' hot' : d.pct <= 33 ? ' cool' : ''}`} style={{ height: `${Math.max(d.pct, 6)}%` }} />
+                    ) : (
+                      <span className="fc-x">—</span>
+                    )}
+                  </div>
+                  <span className="fc-dow">{weekdayShort(d.iso, lang)}</span>
+                </div>
+              ))}
+            </div>
+            {quietest && (
+              <p className="fc-hint">
+                💡 {t('fc_hint', { day: weekdayShort(quietest.iso, lang) })}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+    </>
   );
 }

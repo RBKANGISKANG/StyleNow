@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { useAuth, emptyProfile, type Profile } from '@/lib/auth';
 import { apiMyBookings, apiRecordExitFeedback } from '@/lib/api';
+import { ReferralPanel } from '@/components/ReferralPanel';
 import { useConfirm } from '@/components/ConfirmDialog';
 
 const SOCIALS = [
@@ -317,6 +318,10 @@ function ProfileView() {
         </Link>
         <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('ds_lead')}</p>
       </div>
+
+      {/* Invite a friend: they save €5 on a first booking over €25; when it
+          confirms, a €5 gift card lands on your account automatically. */}
+      <ReferralPanel />
 
       <div className="panel" style={{ marginTop: 14 }}>
         <a className="btn btn-soft" href={exportData()} download="stylenow-my-data.json">

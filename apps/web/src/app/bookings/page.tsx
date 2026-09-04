@@ -13,11 +13,14 @@ import {
   apiWaitlistLeave,
   apiMyUnread,
   apiMyGiftCards,
+  apiSetCustomerMemo,
+  apiSendBookingMessage,
   type GiftCard,
 } from '@/lib/api';
 import { icsHref } from '@/lib/ics';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
+import { ReferralPanel } from '@/components/ReferralPanel';
 
 interface Bk {
   id: string;
@@ -43,6 +46,7 @@ interface Bk {
   guestName: string;
   seriesId: string | null;
   duoId: string | null;
+  customerMemo: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   payment: { method: string; label: string } | null;
@@ -69,6 +73,7 @@ export default function BookingsPage() {
   const [waitlist, setWaitlist] = useState<Wl[]>([]);
   const [unread, setUnread] = useState(0);
   const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
+  const [lateSent, setLateSent] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setBookings(await apiMyBookings());
@@ -380,6 +385,7 @@ export default function BookingsPage() {
           <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('gc_mine_hint')}</p>
         </section>
       )}
+      <ReferralPanel />
       {receiptFor && <Receipt data={receiptFor} onClose={() => setReceiptFor(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
@@ -461,9 +467,26 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
       )}
       {booking.shop && (
         <div style={{ marginTop: 10 }}>
-          <Link className="btn btn-soft sm" href={`/shops/${booking.shop.slug}/book?service=${booking.serviceIds[0]}`}>
-            🔄 {t('rebook')}
+          <Link
+            className="btn btn-soft sm"
+            href={`/shops/${booking.shop.slug}/book?service=${booking.serviceIds[0]}${booking.staffId ? `&staff=${booking.staffId}` : ''}`}
+          >
+            🔄 {booking.staffName ? t('rebook_with', { name: booking.staffName }) : t('rebook')}
           </Link>
+          {/* the note-to-self that makes next time as good as this time */}
+          <input
+            className="input"
+            style={{ marginTop: 8, fontSize: '0.82rem' }}
+            placeholder={`📝 ${t('memo_ph')}`}
+            defaultValue={booking.customerMemo ?? ''}
+            maxLength={200}
+            onBlur={(e) => {
+              if (e.target.value.trim() !== (booking.customerMemo ?? '')) {
+                void apiSetCustomerMemo(booking.id, e.target.value).then((ok) => ok && onChanged());
+              }
+            }}
+          />
+          <p style={{ fontSize: '0.68rem', color: 'var(--ink-soft)', marginTop: 3 }}>{t('memo_hint')}</p>
         </div>
       )}
     </div>

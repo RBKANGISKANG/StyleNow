@@ -1005,6 +1005,62 @@ export async function apiShopRestore(shopId: string, doc: store.ShopConfig): Pro
   }
 }
 
+// ---- ten-features batch ---------------------------------------------------
+
+/** The customer's private memo on their own past visit. */
+export async function apiSetCustomerMemo(bookingId: string, text: string): Promise<boolean> {
+  await localWrite();
+  try {
+    store.setCustomerMemo(bookingId, deviceId(), text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A message to the shop straight from one of the customer's bookings. */
+export async function apiSendBookingMessage(bookingId: string, text: string): Promise<boolean> {
+  await localWrite();
+  try {
+    const msg = store.sendBookingMessage(bookingId, deviceId(), text);
+    announceMessages();
+    return msg !== null;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiDayForecast(shopId: string): Promise<Array<{ iso: string; pct: number }>> {
+  await readyForRead();
+  return store.dayLoadForecast(shopId);
+}
+
+export async function apiShopTrust(shopId: string): Promise<ReturnType<typeof store.shopTrust>> {
+  await readyForRead();
+  return store.shopTrust(shopId);
+}
+
+export async function apiQuietWindows(shopId: string): Promise<ReturnType<typeof store.quietWindows>> {
+  await readyForRead();
+  return store.quietWindows(shopId);
+}
+
+export async function apiMyReferralCode(): Promise<string> {
+  await localWrite(); // registering the code is a write
+  return store.myReferralCode(deviceId());
+}
+
+export async function apiShopAnnouncement(shopId: string): Promise<string> {
+  await readyForRead();
+  return store.shopAnnouncement(shopId);
+}
+
+export async function apiSetShopAnnouncement(shopId: string, text: string): Promise<void> {
+  await localWrite();
+  store.setShopAnnouncement(shopId, text);
+  syncConfig(shopId); // the banner must reach customers via the shop document
+}
+
 // ---- gift cards -----------------------------------------------------------
 
 export async function apiBuyGiftCard(

@@ -19,6 +19,8 @@ import {
   apiDeleteClosure,
   apiShopBackup,
   apiShopRestore,
+  apiShopAnnouncement,
+  apiSetShopAnnouncement,
   type ShopClosure,
 } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
@@ -146,6 +148,11 @@ function ShopTab({
       <section className="section">
         <h2>🚫 {t('cls_title')}</h2>
         <ClosureManager shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>📣 {t('an_title')}</h2>
+        <AnnouncementPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -324,6 +331,59 @@ function LocationManager({
           {t('loc_add')}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * One sentence from the shop to everyone about to book — "we have AC",
+ * "Christmas closing 24.–26.12.", "cash only today". Shown on the shop page
+ * and at the top of checkout; empty means invisible.
+ */
+function AnnouncementPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiShopAnnouncement(shopId).then((a) => {
+      setText(a);
+      setLoaded(true);
+    });
+  }, [shopId]);
+
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('an_hint')}</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 220 }}
+          placeholder={t('an_ph')}
+          value={text}
+          maxLength={140}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button
+          className="btn btn-primary sm"
+          onClick={() => void apiSetShopAnnouncement(shopId, text).then(() => onChanged('📣 ' + t('an_saved')))}
+        >
+          {t('an_save')}
+        </button>
+        {text && (
+          <button
+            className="btn btn-ghost sm"
+            onClick={() => {
+              setText('');
+              void apiSetShopAnnouncement(shopId, '').then(() => onChanged('📣 ' + t('an_cleared')));
+            }}
+          >
+            {t('an_clear')}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

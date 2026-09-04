@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, type RevenueReport } from '@/lib/api';
 import { toCsv, eurDe } from '@/lib/csv';
 import { RevenueChart } from '@/components/RevenueChart';
 import { DayClose } from '@/components/DayClose';
@@ -37,9 +37,12 @@ function RevenueTab({ shopId }: { shopId: string }) {
   const [closeIso, setCloseIso] = useState(todayIso());
   const [closeOpen, setCloseOpen] = useState(false);
   const [gift, setGift] = useState<Awaited<ReturnType<typeof apiShopGiftCards>>>(null);
+  const [quiet, setQuiet] = useState<Awaited<ReturnType<typeof apiQuietWindows>>>([]);
 
   useEffect(() => {
-    if (shopId) void apiShopGiftCards(shopId).then(setGift);
+    if (!shopId) return;
+    void apiShopGiftCards(shopId).then(setGift);
+    void apiQuietWindows(shopId).then(setQuiet);
   }, [shopId]);
   const [report, setReport] = useState<RevenueReport | null>(null);
 
@@ -205,6 +208,21 @@ function RevenueTab({ shopId }: { shopId: string }) {
                 <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', flexBasis: '100%' }}>
                   {t('gc_shop_hint')}
                 </span>
+              </div>
+            </section>
+          )}
+
+          {quiet.length > 0 && (
+            <section className="section">
+              <h2>🌙 {t('qw_title')}</h2>
+              <div className="panel">
+                <p style={{ fontSize: '0.82rem', lineHeight: 1.6 }}>
+                  {t('qw_body', {
+                    a: `${t(`dow_${quiet[0].dow}` as MsgKey)} ${t(`part_${quiet[0].part}` as MsgKey).toLowerCase()}`,
+                    b: quiet.length > 1 ? `${t(`dow_${quiet[1].dow}` as MsgKey)} ${t(`part_${quiet[1].part}` as MsgKey).toLowerCase()}` : '—',
+                  })}
+                </p>
+                <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', marginTop: 6 }}>💡 {t('qw_hint')}</p>
               </div>
             </section>
           )}
