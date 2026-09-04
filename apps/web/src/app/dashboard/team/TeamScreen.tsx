@@ -293,6 +293,20 @@ function TeamManager({
                                     />
                                     <span className="knob" />
                                   </label>
+                                  {shift && (
+                                    <button
+                                      className="btn btn-ghost sm"
+                                      style={{ order: 9, marginLeft: 'auto' }}
+                                      title={t('copy_week_tip')}
+                                      onClick={() => {
+                                        const shifts = { ...r.shifts };
+                                        for (const wd of [1, 2, 3, 4, 5]) shifts[wd] = [{ ...shift }];
+                                        void apiPatchStaff(shopId, r.staffId, { shifts }).then(() => onChanged('💾 ' + t('team_saved')));
+                                      }}
+                                    >
+                                      {t('copy_week')}
+                                    </button>
+                                  )}
                                   {shift ? (
                                     <>
                                       <input

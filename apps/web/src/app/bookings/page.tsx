@@ -159,6 +159,15 @@ export default function BookingsPage() {
               <div className="bk-when">
                 <div className="d">{dateOf(b.startsAt, lang)}</div>
                 <div className="t">{timeOf(b.startsAt, lang)}</div>
+                {b.startsAt > now && ['confirmed', 'pending_payment'].includes(b.status) && (
+                  <div className="bk-count">
+                    {b.startsAt - now < 864e5 && new Date(b.startsAt).getDate() === new Date(now).getDate()
+                      ? t('nu_today')
+                      : b.startsAt - now < 2 * 864e5
+                        ? t('nu_tomorrow')
+                        : t('nu_in_days', { days: String(Math.round((b.startsAt - now) / 864e5)) })}
+                  </div>
+                )}
               </div>
               <div className="bk-info">
                 <div className="shop">
@@ -255,7 +264,7 @@ export default function BookingsPage() {
                   href={icsHref({
                     reference: b.reference,
                     title: `${b.shop.name} — ${b.services.map((s) => s.name[lang]).join(', ')}`,
-                    location: `${b.shop.name}, ${b.shop.district}`,
+                    location: `${b.shop.name}, ${b.shopAddress || b.shop.district}`,
                     startsAt: b.startsAt,
                     endsAt: b.endsAt,
                     description: `${b.services.map((s) => s.name[lang]).join(', ')}${b.staffName ? ` · ${b.staffName}` : ''}\n${t('booked_sub')}: ${b.reference}`,
@@ -263,6 +272,32 @@ export default function BookingsPage() {
                   download={`stylenow-${b.reference}.ics`}
                 >
                   📅 {t('add_calendar')}
+                </a>
+                <button
+                  className="btn btn-soft sm"
+                  onClick={() => {
+                    const text = `${b.shop!.name} — ${b.services.map((s) => s.name[lang]).join(', ')}\n${dateOf(b.startsAt, lang)} ${timeOf(b.startsAt, lang)}\n${b.shopAddress}`;
+                    if (navigator.share) {
+                      void navigator.share({ text }).catch(() => {});
+                    } else {
+                      try {
+                        void navigator.clipboard.writeText(text);
+                        setToast('📋 ' + t('appt_copied'));
+                      } catch {
+                        // no clipboard — nothing sensible to do
+                      }
+                    }
+                  }}
+                >
+                  📤 {t('share_appt')}
+                </button>
+                <a
+                  className="btn btn-soft sm"
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${b.shop.name}, ${b.shopAddress}`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  🗺 {t('open_maps')}
                 </a>
                 {/* Straight into the right conversation — "can I move this?" is
                     the message people actually want to send from here. */}
@@ -306,7 +341,18 @@ export default function BookingsPage() {
                         refund: money(cancelFor.refundCents, lang),
                       })}
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-primary sm"
+                    onClick={() => {
+                      // half of all "cancellations" are really "wrong time" —
+                      // hand them the move tool before they burn the booking
+                      setMoveFor(cancelFor!.id);
+                      setCancelFor(null);
+                    }}
+                  >
+                    🔀 {t('mv_instead')}
+                  </button>
                   <button className="btn btn-soft sm" onClick={() => setCancelFor(null)}>
                     {t('keep_booking')}
                   </button>

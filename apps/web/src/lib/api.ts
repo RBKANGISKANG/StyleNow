@@ -1005,6 +1005,35 @@ export async function apiShopRestore(shopId: string, doc: store.ShopConfig): Pro
   }
 }
 
+// ---- twenty-features batch ------------------------------------------------
+
+export async function apiToggleVip(shopId: string, customerKey: string): Promise<boolean> {
+  await localWrite();
+  const on = store.toggleVip(shopId, customerKey);
+  syncConfig(shopId);
+  return on;
+}
+
+export async function apiShopGoal(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.shopGoal(shopId);
+}
+
+export async function apiSetShopGoal(shopId: string, cents: number): Promise<void> {
+  await localWrite();
+  store.setShopGoal(shopId, cents);
+  syncConfig(shopId);
+}
+
+export async function apiSellGiftCard(shopId: string, amountCents: number, toName?: string): Promise<GiftCard | null> {
+  await localWrite();
+  try {
+    return store.sellGiftCardAtCounter(shopId, amountCents, toName);
+  } catch {
+    return null;
+  }
+}
+
 // ---- ten-features batch ---------------------------------------------------
 
 /** The customer's private memo on their own past visit. */

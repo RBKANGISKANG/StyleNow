@@ -147,6 +147,16 @@ export function MessageThread({
         )}
       </div>
 
+      {/* The three sentences a front desk types fifty times a week. */}
+      {me === 'shop' && (
+        <div className="filter-row" style={{ margin: '0 0 6px' }}>
+          {(['qr_confirm', 'qr_thanks', 'qr_full'] as const).map((k) => (
+            <button key={k} className="chip" type="button" onClick={() => setDraft(t(k))}>
+              {t(k).slice(0, 28)}{t(k).length > 28 ? '…' : ''}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="thread-compose">
         <textarea
           rows={1}

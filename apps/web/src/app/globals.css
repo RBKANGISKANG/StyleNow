@@ -2718,6 +2718,35 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   body.rc-open .gc-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* --- twenty-features batch ----------------------------------------------------- */
+.fav-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; margin-bottom: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.fav-emoji {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  font-size: 1.3rem; color: #fff; flex: none;
+}
+.fav-row strong { display: block; }
+.fav-sub { display: block; font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
+.fav-btn-inline { background: none; border: 0; cursor: pointer; padding: 6px; }
+.seen-strip {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0 4px;
+}
+.seen-label { font-size: 0.76rem; font-weight: 800; color: var(--ink-soft); }
+.bk-count { font-size: 0.68rem; font-weight: 800; color: var(--primary-deep); margin-top: 2px; }
+.patch-hint {
+  font-size: 0.76rem; line-height: 1.5; padding: 8px 10px; margin: 0 0 10px;
+  background: var(--violet-soft); border-radius: var(--r-sm);
+}
+.vip-star {
+  background: none; border: 0; cursor: pointer; font-size: 0.95rem; padding: 0 4px;
+  opacity: 0.45; vertical-align: 1px;
+}
+.vip-star.on { opacity: 1; }
+.wb-panel { margin-bottom: 12px; background: var(--violet-soft); }
+
 /* --- shop pulse: banner, trust strip, weekly forecast -------------------------- */
 .shop-banner {
   margin: 14px 0; padding: 12px 16px;

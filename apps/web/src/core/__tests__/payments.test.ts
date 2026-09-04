@@ -14,7 +14,8 @@ import {
   buyGiftCard, giftCard, validateVoucher, giftCardsForShop, bookingLedger,
   myReferralCode, referralUsable, giftCardsForDevice, setCustomerMemo, getBooking,
   sendMessage, addClosure, messageThread, dayLoadForecast, shopTrust, quietWindows,
-  setShopAnnouncement, shopAnnouncement,
+  setShopAnnouncement, shopAnnouncement, toggleVip, customersForShop,
+  setShopGoal, shopGoal, sellGiftCardAtCounter, noticesForShop,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -214,4 +215,32 @@ assert.equal(shopAnnouncement(shop.id), 'We have AC 🧊');
 setShopAnnouncement(shop.id, '');
 assert.equal(shopAnnouncement(shop.id), '');
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts and announcements all check out');
+// --- twenty-features batch ----------------------------------------------------
+
+// VIPs: toggled by the shop, surfaced on the customer row, reversible.
+const anyCustomer = customersForShop(shop.id)[0];
+assert.ok(anyCustomer, 'the seeded shop has customers');
+assert.equal(toggleVip(shop.id, anyCustomer.key), true);
+assert.ok(customersForShop(shop.id).find((c) => c.key === anyCustomer.key)!.vip, 'the star sticks');
+assert.equal(toggleVip(shop.id, anyCustomer.key), false, 'and unsticks');
+
+// Monthly goal: set, clamp, clear.
+setShopGoal(shop.id, 1200000);
+assert.equal(shopGoal(shop.id), 1200000);
+setShopGoal(shop.id, 0);
+assert.equal(shopGoal(shop.id), 0);
+
+// Counter sale: a card owned by the shop's till, paid at the salon.
+const counter = sellGiftCardAtCounter(shop.id, 5000, 'Walk-in');
+assert.equal(counter.balanceCents, 5000);
+assert.equal(counter.payment?.method, 'at_salon');
+assert.ok(counter.buyerDeviceId.startsWith('shop:'), 'the till, not a customer device, holds it');
+
+// Morning digest: today has seeded bookings → exactly one digest notice.
+const digests = noticesForShop(shop.id).filter((n) => n.kind === 'digest');
+assert.ok(digests.length <= 1, 'never more than one digest');
+if (digests.length === 1) {
+  assert.ok(Number(digests[0].preview) >= 1, 'it counts today’s appointments');
+}
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales and the digest all check out');

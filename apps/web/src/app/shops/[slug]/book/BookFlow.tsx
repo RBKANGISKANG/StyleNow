@@ -226,7 +226,24 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // The expandable service editor on the time step — the same multi-select
   // rows as step 0, so a deep-linked customer can still build a basket.
   const [editServices, setEditServices] = useState(false);
-  const serviceRows = menu.map((s) => {
+  const [svcQuery, setSvcQuery] = useState('');
+  const svcNeedle = svcQuery.trim().toLowerCase();
+  const filteredMenu = svcNeedle
+    ? menu.filter((s) => `${s.name.en} ${s.name.de}`.toLowerCase().includes(svcNeedle))
+    : menu;
+  const serviceRows = (
+    <>
+      {menu.length > 6 && (
+        <input
+          className="input"
+          style={{ marginBottom: 8 }}
+          placeholder={`🔎 ${t('svc_filter_ph')}`}
+          value={svcQuery}
+          onChange={(e) => setSvcQuery(e.target.value)}
+        />
+      )}
+      {filteredMenu.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--ink-soft)' }}>{t('no_results')}</p>}
+      {filteredMenu.map((s) => {
     const sel = serviceIds.includes(s.id);
     const totalMin = s.durationMin + s.processingGapMin + s.finishMin;
     return (
@@ -247,8 +264,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
         </span>
         <span className="svc-price">{money(s.basePriceCents, lang)}</span>
       </button>
-    );
-  });
+      );
+      })}
+    </>
+  );
 
   // ---- slots -------------------------------------------------------------
   const loadSlots = useCallback(async () => {
@@ -884,6 +903,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           {!hold && (
             <div className="panel">
               <h3>{t('your_details')}</h3>
+              {/* the answer to "when am I out of here?" without mental math */}
+              <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '2px 0 10px' }}>
+                ⏱ {t('done_by', { time: timeOf(slot.end, lang) })}
+              </p>
+              {selected.some((s) => /colou?r|balayage|toner|blond|gloss|tint/i.test(s.name.en)) && (
+                <p className="patch-hint">🧪 {t('patch_hint')}</p>
+              )}
               <input
                 className="input"
                 placeholder={t('your_name')}

@@ -18,6 +18,7 @@ const GROUPS = [
       { href: '/', key: 'nav_explore' },
       { href: '/bookings', key: 'nav_bookings' },
       { href: '/messages', key: 'mg_title' },
+      { href: '/favourites', key: 'fav_title' },
       { href: '/pricing', key: 'ft_pricing' },
       { href: '/help', key: 'ft_help' },
     ],

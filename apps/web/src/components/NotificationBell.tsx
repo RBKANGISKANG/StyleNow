@@ -192,6 +192,7 @@ const ICONS: Record<AppNotice['kind'], string> = {
   timeoff: '🌴',
   appt_moved: '🔀',
   staff_changed: '💇',
+  digest: '☀️',
 };
 
 type T = ReturnType<typeof useI18n>['t'];
@@ -216,6 +217,8 @@ function noticeTitle(n: AppNotice, t: T, lang: 'en' | 'de'): string {
       return t('nt_appt_moved', { shop: n.shopName });
     case 'staff_changed':
       return t('nt_staff_changed', { who: n.who });
+    case 'digest':
+      return t('nt_digest', { n: n.preview, time: timeOf(n.startsAt!, lang) });
   }
 }
 

@@ -215,6 +215,8 @@ interface State {
   billing: Map<string, BillingProfile>; // shopId → what its receipts must say
   giftCards: Map<string, GiftCard>; // code → the card (balance lives here)
   announcements: Map<string, string>; // shopId → the banner customers see
+  vips: Map<string, string[]>; // shopId → customer keys the shop starred
+  goals: Map<string, number>; // shopId → monthly revenue goal in cents
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -274,6 +276,8 @@ const state: State =
     billing: new Map(),
     giftCards: new Map(),
     announcements: new Map(),
+    vips: new Map(),
+    goals: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -338,6 +342,8 @@ function persist(): boolean {
         billing: [...state.billing.entries()],
         giftCards: [...state.giftCards.entries()],
         announcements: [...state.announcements.entries()],
+        vips: [...state.vips.entries()],
+        goals: [...state.goals.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -379,6 +385,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
         billing?: Array<[string, BillingProfile]>;
         giftCards?: Array<[string, GiftCard]>;
         announcements?: Array<[string, string]>;
+        vips?: Array<[string, string[]]>;
+        goals?: Array<[string, number]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -407,6 +415,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.billing = new Map(d.billing ?? []);
       state.giftCards = new Map(d.giftCards ?? []);
       state.announcements = new Map(d.announcements ?? []);
+      state.vips = new Map(d.vips ?? []);
+      state.goals = new Map(d.goals ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -623,6 +633,8 @@ export interface ShopConfig {
   messages?: Array<[string, Message[]]>;
   billing?: BillingProfile;
   announcement?: string;
+  vips?: string[];
+  goalCents?: number;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -669,6 +681,8 @@ export function exportShopConfig(shopId: string): ShopConfig {
     messages: [...state.messages.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     billing: state.billing.get(shopId),
     announcement: state.announcements.get(shopId),
+    vips: state.vips.get(shopId) ?? [],
+    goalCents: state.goals.get(shopId),
   };
 }
 
@@ -695,6 +709,11 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.announcement !== undefined) {
     if (doc.announcement) state.announcements.set(shopId, doc.announcement);
     else state.announcements.delete(shopId);
+  }
+  if (doc.vips) state.vips.set(shopId, doc.vips);
+  if (doc.goalCents !== undefined) {
+    if (doc.goalCents > 0) state.goals.set(shopId, doc.goalCents);
+    else state.goals.delete(shopId);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -2650,6 +2669,12 @@ export function dashboardOverview(shopId: string, isoDate: string) {
     return { iso, revenueCents: real + noise };
   });
 
+  const riskyKeys = new Set(
+    customersForShop(shopId)
+      .filter((c) => c.noShows > 0)
+      .map((c) => c.key),
+  );
+
   return {
     shop: {
       id: shop.id,
@@ -2669,6 +2694,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
     staffRows,
     bookings: todaysBookings.map((b) => ({
       id: b.id,
+      vip: (state.vips.get(shopId) ?? []).includes(customerKeyOf(b)),
+      risky: riskyKeys.has(customerKeyOf(b)),
       reference: b.reference,
       guestName: b.guestName,
       guestPhone: b.guestPhone ?? '',
@@ -3147,6 +3174,8 @@ export interface CustomerRow {
   nextVisit: number | null;
   noShows: number;
   cancellations: number;
+  /** starred by the shop — the regulars worth going the extra mile for */
+  vip: boolean;
   /** what they book most often */
   favouriteService: { id: string; name: { en: string; de: string }; emoji: string } | null;
   /** notes the customer left on their bookings, newest first */
@@ -3216,6 +3245,7 @@ export const customersForShop = memoByShop(function customersForShopUncached(sho
       spentCents: kept.reduce((sum, b) => sum + b.quote.totalCents + (b.tipCents ?? 0), 0),
       firstVisit: past[0]?.startsAt ?? null,
       lastVisit: past[past.length - 1]?.startsAt ?? null,
+      vip: (state.vips.get(shopId) ?? []).includes(key),
       nextVisit: future[0]?.startsAt ?? null,
       noShows: bookings.filter((b) => b.status === 'no_show').length,
       cancellations: bookings.filter((b) => b.status.startsWith('cancelled')).length,
@@ -3527,7 +3557,9 @@ export interface AppNotice {
     // the mirror image of booking_moved: the SHOP changed something and the
     // customer's bell says so
     | 'appt_moved'
-    | 'staff_changed';
+    | 'staff_changed'
+    // the operator's morning digest: today at a glance
+    | 'digest';
   /** when this became worth showing — the badge counts notices after the watermark */
   at: number;
   /** where tapping it goes */
@@ -3713,6 +3745,32 @@ export function noticesForShop(shopId: string): AppNotice[] {
       preview: b.movedFromStartsAt ? String(b.movedFromStartsAt) : '',
       count: 0,
     });
+  }
+
+  // The morning digest: the day at a glance, once, when the doors open.
+  {
+    const today = todayIso();
+    const dStart = dayStart(today);
+    const todays = [...state.bookings.values()]
+      .filter((b) => b.shopId === shopId && b.startsAt >= dStart && b.startsAt < dStart + 24 * 60 * MIN)
+      .filter((b) => ['confirmed', 'completed'].includes(b.status))
+      .sort((a, b) => a.startsAt - b.startsAt);
+    if (todays.length > 0) {
+      out.push({
+        id: `digest-${shopId}-${today}`,
+        kind: 'digest',
+        at: dStart + 7 * 36e5,
+        href: '/dashboard',
+        shopId,
+        shopName: shop.name,
+        shopEmoji: shop.emoji,
+        who: '',
+        startsAt: todays[0].startsAt,
+        serviceNames: [],
+        preview: String(todays.length),
+        count: todays.length,
+      });
+    }
   }
 
   // Time off somebody on the team is waiting to hear about.
@@ -4267,6 +4325,38 @@ export function setShopAnnouncement(shopId: string, text: string): void {
   if (clean) state.announcements.set(shopId, clean);
   else state.announcements.delete(shopId);
   persist();
+}
+
+// --- twenty-features batch: VIPs, goals, digest, counter gift sale ----------
+
+export function toggleVip(shopId: string, customerKey: string): boolean {
+  const list = state.vips.get(shopId) ?? [];
+  const on = list.includes(customerKey);
+  state.vips.set(shopId, on ? list.filter((k) => k !== customerKey) : [...list, customerKey]);
+  persist();
+  return !on;
+}
+
+export function shopGoal(shopId: string): number {
+  return state.goals.get(shopId) ?? 0;
+}
+
+export function setShopGoal(shopId: string, cents: number): void {
+  const clean = Math.max(0, Math.min(Math.round(cents), 100_000_00));
+  if (clean > 0) state.goals.set(shopId, clean);
+  else state.goals.delete(shopId);
+  persist();
+}
+
+/** The counter sale: a walk-in buys a Gutschein, paid at the till. */
+export function sellGiftCardAtCounter(shopId: string, amountCents: number, toName?: string): GiftCard {
+  return buyGiftCard(
+    shopId,
+    `shop:${shopId}`,
+    amountCents,
+    { toName },
+    { method: 'at_salon', label: 'At the salon' },
+  );
 }
 
 // --- roster calendar -------------------------------------------------------

@@ -63,6 +63,8 @@ export interface Overview {
   bookings: Array<{
     id: string;
     reference: string;
+    vip: boolean;
+    risky: boolean;
     guestName: string;
     guestPhone: string;
     guestNote: string;

@@ -104,6 +104,7 @@ function TodayTab({ shopId }: { shopId: string }) {
   // Clicking an appointment anywhere opens it; adding one is reachable from
   // every span, not just the day view.
   const [openAppt, setOpenAppt] = useState<DialogBooking | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const [addFor, setAddFor] = useState<{ date: string; staffId: string | null; minute?: number } | null>(null);
   const { ask, dialog } = useConfirm();
   // The strip now starts a fortnight in the past, so bring today into view
@@ -193,6 +194,19 @@ function TodayTab({ shopId }: { shopId: string }) {
               ☰ {t('view_list')}
             </button>
           </div>
+        )}
+        {span === 'day' && data && (
+          <button className="btn btn-soft sm" onClick={() => setPrintOpen(true)}>
+            🖨 {t('print_day')}
+          </button>
+        )}
+        {printOpen && data && (
+          <DayPlanSheet
+            shopName={data.shop.name}
+            date={data.isoDate}
+            bookings={data.bookings}
+            onClose={() => setPrintOpen(false)}
+          />
         )}
         {!(studio && span === 'day') && (
           <button className="btn btn-primary sm" onClick={() => setAddFor({ date, staffId: null })}>
@@ -369,6 +383,8 @@ function TodayTab({ shopId }: { shopId: string }) {
                       <td>{timeOf(b.startsAt, lang)}</td>
                       <td>
                         {b.guestName}
+                        {b.vip && <span title={t('vip_tag')}> ⭐</span>}
+                        {b.risky && <span className="cus-tag risk" title={t('risk_tag')} style={{ marginLeft: 4 }}>⚠</span>}
                         {b.guestPhone && (
                           <a className="bk-phone" href={`tel:${b.guestPhone.replace(/\s/g, '')}`}>
                             📞 {b.guestPhone}
@@ -752,3 +768,72 @@ function NewBooking({
   );
 }
 
+
+/**
+ * The paper the floor actually runs on: today's appointments in time order,
+ * one line each, through the Beleg's print isolation. Some salons still tape
+ * the day to the mirror — now it prints in two taps and never disagrees with
+ * the calendar it came from.
+ */
+function DayPlanSheet({
+  shopName,
+  date,
+  bookings,
+  onClose,
+}: {
+  shopName: string;
+  date: string;
+  bookings: Overview['bookings'];
+  onClose: () => void;
+}) {
+  const { t, lang } = useI18n();
+  useEffect(() => {
+    document.body.classList.add('rc-open');
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.classList.remove('rc-open');
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  const rows = [...bookings]
+    .filter((b) => ['confirmed', 'completed', 'pending_payment'].includes(b.status))
+    .sort((a, b) => a.startsAt - b.startsAt);
+
+  return (
+    <div className="rc-backdrop" onClick={onClose}>
+      <div className="rc-sheet" role="dialog" aria-modal="true" aria-label={t('dp_title')} onClick={(e) => e.stopPropagation()}>
+        <header className="rc-head">
+          <div>
+            <h2>{t('dp_title')}</h2>
+            <span className="rc-ref">{date}</span>
+          </div>
+          <div className="rc-issuer"><strong>{shopName}</strong></div>
+        </header>
+        {rows.length === 0 ? (
+          <p className="rc-note">{t('dp_none')}</p>
+        ) : (
+          <table className="rc-lines">
+            <tbody>
+              {rows.map((b) => (
+                <tr key={b.id} className="rc-sub">
+                  <td style={{ whiteSpace: 'nowrap', fontWeight: 800 }}>{timeOf(b.startsAt, lang)}</td>
+                  <td>
+                    {b.guestName}{b.vip ? ' ⭐' : ''} · {b.serviceNames.join(', ')}
+                    <div style={{ fontSize: '0.72rem', color: '#8a8494' }}>{b.staffName}{b.guestNote ? ` · ${b.guestNote}` : ''}</div>
+                  </td>
+                  <td className="num">{money(b.totalCents, lang)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <footer className="rc-actions">
+          <button className="btn btn-primary" onClick={() => window.print()}>🖨 {t('rc_print')}</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t('rc_close')}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}

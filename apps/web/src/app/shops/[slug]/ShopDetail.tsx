@@ -74,6 +74,16 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   const studio = useStudio();
   const fav = favs.includes(shop.id);
 
+  // Recently viewed, for the explore page's memory strip.
+  useEffect(() => {
+    try {
+      const seen: string[] = JSON.parse(localStorage.getItem('sn-seen') ?? '[]');
+      localStorage.setItem('sn-seen', JSON.stringify([shop.slug, ...seen.filter((x) => x !== shop.slug)].slice(0, 6)));
+    } catch {
+      // private mode — no memory, no harm
+    }
+  }, [shop.slug]);
+
   useEffect(() => {
     void apiShopReviews(shop.id).then(setLiveReviews);
     void apiShopLogo(shop.id).then(setLogoUrl);

@@ -13,8 +13,10 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePaged, Pager } from '@/components/Pager';
 import { useI18n } from '@/lib/i18n';
-import { money, timeOf } from '@/lib/format';
+import { money, timeOf, dateOf } from '@/lib/format';
+import { toCsv, eurDe } from '@/lib/csv';
 import {
+  apiToggleVip,
   apiShopCustomers,
   apiSetCustomerNote,
   apiShopReviewsForOwner,
@@ -148,6 +150,55 @@ function CustomersTab({ shopId }: { shopId: string }) {
             </div>
           )}
 
+          {(() => {
+            const cutoff = Date.now() - 42 * 864e5;
+            const lapsed = (rows ?? []).filter(
+              (c) => c.visits >= 2 && c.lastVisit !== null && c.lastVisit < cutoff && c.nextVisit === null,
+            );
+            if (lapsed.length === 0) return null;
+            return (
+              <div className="panel wb-panel">
+                <strong>💌 {t('wb_title')}</strong>
+                <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 8px' }}>
+                  {t('wb_body', { n: String(lapsed.length) })}
+                </p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {lapsed.slice(0, 6).map((c) => (
+                    <Link key={c.key} className="chip" href={`/dashboard/messages?customer=${encodeURIComponent(c.key)}`}>
+                      💬 {c.name} · <em style={{ fontStyle: 'normal', color: 'var(--ink-soft)' }}>{t('wb_last', { date: dateOf(c.lastVisit!, lang) })}</em>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '0 0 8px' }}>
+            <button
+              className="btn btn-soft sm"
+              onClick={() => {
+                const all = rows ?? [];
+                const csv = toCsv([
+                  ['Name', 'Phone', 'Visits', 'Spent EUR', 'No-shows', 'Last visit', 'Next visit', 'VIP'],
+                  ...all.map((c) => [
+                    c.name, c.phone, String(c.visits), eurDe(c.spentCents), String(c.noShows),
+                    c.lastVisit ? new Date(c.lastVisit).toISOString().slice(0, 10) : '',
+                    c.nextVisit ? new Date(c.nextVisit).toISOString().slice(0, 10) : '',
+                    c.vip ? 'x' : '',
+                  ]),
+                ]);
+                const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `stylenow-customers-${shopId}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              📑 {t('cust_csv')}
+            </button>
+          </div>
+
           {shown.length === 0 ? (
             <div className="empty">
               <p>{t('no_results')}</p>
@@ -177,6 +228,15 @@ function CustomersTab({ shopId }: { shopId: string }) {
                             </span>
                             <span>
                               <strong>{c.name}</strong>
+                              <button
+                                className={`vip-star${c.vip ? ' on' : ''}`}
+                                title={t('vip_tip')}
+                                aria-pressed={c.vip}
+                                onClick={() => void apiToggleVip(shopId, c.key).then(() => load())}
+                              >
+                                {c.vip ? '⭐' : '☆'}
+                              </button>
+                              {c.vip && <span className="cus-tag regular">{t('vip_tag')}</span>}
                               {c.visits >= 5 && <span className="cus-tag regular">★ {t('cus_regular')}</span>}
                               {c.noShows > 0 && <span className="cus-tag risk">⚠ {c.noShows} {t('cus_noshow')}</span>}
                               {c.favouriteService && (

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
 import { apiMatch } from '@/lib/api';
+import { allShops } from '@/core/store';
 import { GetApp } from '@/components/GetApp';
 import { FeedMap } from '@/components/FeedMap';
 import { Heart } from '@/components/Heart';
@@ -200,6 +201,7 @@ export default function Explore() {
       </section>
 
       <NextUp />
+      <RecentlyViewed />
 
       <div className="search-row">
         <input
@@ -460,5 +462,31 @@ function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () =>
         </div>
       </div>
     </Link>
+  );
+}
+
+/** The salons you just looked at — the tab you closed too soon. */
+function RecentlyViewed() {
+  const { t } = useI18n();
+  const [slugs, setSlugs] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      setSlugs(JSON.parse(localStorage.getItem('sn-seen') ?? '[]'));
+    } catch {
+      // ignore
+    }
+  }, []);
+  const shops = allShops().filter((s) => slugs.includes(s.slug));
+  if (shops.length === 0) return null;
+  const ordered = slugs.map((sl) => shops.find((s) => s.slug === sl)).filter(Boolean) as typeof shops;
+  return (
+    <div className="seen-strip">
+      <span className="seen-label">{t('seen_title')}:</span>
+      {ordered.map((s) => (
+        <Link key={s.id} className="chip" href={`/shops/${s.slug}`}>
+          {s.emoji} {s.name}
+        </Link>
+      ))}
+    </div>
   );
 }

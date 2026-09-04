@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, type RevenueReport } from '@/lib/api';
 import { toCsv, eurDe } from '@/lib/csv';
 import { RevenueChart } from '@/components/RevenueChart';
 import { DayClose } from '@/components/DayClose';
@@ -38,11 +38,20 @@ function RevenueTab({ shopId }: { shopId: string }) {
   const [closeOpen, setCloseOpen] = useState(false);
   const [gift, setGift] = useState<Awaited<ReturnType<typeof apiShopGiftCards>>>(null);
   const [quiet, setQuiet] = useState<Awaited<ReturnType<typeof apiQuietWindows>>>([]);
+  const [goal, setGoal] = useState(0);
+  const [goalDraft, setGoalDraft] = useState('');
+  const [soldCode, setSoldCode] = useState('');
+  const [sellAmount, setSellAmount] = useState('50');
+  const [sellName, setSellName] = useState('');
 
   useEffect(() => {
     if (!shopId) return;
     void apiShopGiftCards(shopId).then(setGift);
     void apiQuietWindows(shopId).then(setQuiet);
+    void apiShopGoal(shopId).then((g) => {
+      setGoal(g);
+      setGoalDraft(g ? String(g / 100) : '');
+    });
   }, [shopId]);
   const [report, setReport] = useState<RevenueReport | null>(null);
 
@@ -85,6 +94,14 @@ function RevenueTab({ shopId }: { shopId: string }) {
     setReport(null);
     void apiRevenueReport(shopId, range.from, range.to).then(setReport);
   }, [shopId, range.from, range.to]);
+
+  // The goal is monthly regardless of the picked range — one cheap extra read.
+  const [monthCents, setMonthCents] = useState<number | null>(null);
+  useEffect(() => {
+    if (!shopId) return;
+    const today = todayIso();
+    void apiRevenueReport(shopId, `${today.slice(0, 8)}01`, today).then((r) => setMonthCents(r?.totalCents ?? null));
+  }, [shopId]);
 
   const periodLabel = (p: Period) =>
     p === 'd7' ? t('rev_7d') : p === 'd30' ? t('rev_30d') : p === 'month' ? t('rev_month') : t('rev_ahead');
@@ -132,6 +149,43 @@ function RevenueTab({ shopId }: { shopId: string }) {
               </div>
             </div>
           </div>
+
+          <section className="section">
+            <h2>🎯 {t('goal_title')}</h2>
+            <div className="panel">
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="input"
+                  style={{ width: 120 }}
+                  inputMode="numeric"
+                  placeholder={t('goal_ph')}
+                  value={goalDraft}
+                  onChange={(e) => setGoalDraft(e.target.value.replace(/[^\d]/g, ''))}
+                />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>€ / {t('rev_month')}</span>
+                <button
+                  className="btn btn-soft sm"
+                  onClick={() => {
+                    const cents = Math.round(Number(goalDraft || '0') * 100);
+                    void apiSetShopGoal(shopId, cents).then(() => setGoal(cents));
+                  }}
+                >
+                  {t('goal_set')}
+                </button>
+              </div>
+              {goal > 0 && monthCents !== null && (
+                <>
+                  <div className="hr-bar" style={{ marginTop: 10 }}>
+                    <div style={{ width: `${Math.min(Math.round((monthCents / goal) * 100), 100)}%` }} />
+                  </div>
+                  <p style={{ fontSize: '0.8rem', fontWeight: 700, marginTop: 6 }}>
+                    {t('goal_progress', { pct: String(Math.round((monthCents / goal) * 100)), goal: money(goal, lang) })}
+                  </p>
+                </>
+              )}
+              <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('goal_hint')}</p>
+            </div>
+          </section>
 
           <section className="section">
             <h2>{ahead ? t('rev_ahead_trend') : t('rev_trend')}</h2>
@@ -226,6 +280,37 @@ function RevenueTab({ shopId }: { shopId: string }) {
               </div>
             </section>
           )}
+
+          <section className="section">
+            <h2>🎁 {t('gcs_title')}</h2>
+            <div className="panel" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input className="input" style={{ width: 90 }} inputMode="numeric" value={sellAmount}
+                onChange={(e) => setSellAmount(e.target.value.replace(/[^\d]/g, ''))} />
+              <span style={{ fontWeight: 700 }}>€</span>
+              <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t('gcs_name_ph')} value={sellName}
+                maxLength={60} onChange={(e) => setSellName(e.target.value)} />
+              <button
+                className="btn btn-primary sm"
+                disabled={!sellAmount || Number(sellAmount) < 10 || Number(sellAmount) > 500}
+                onClick={() =>
+                  void apiSellGiftCard(shopId, Number(sellAmount) * 100, sellName || undefined).then((card) => {
+                    if (card) {
+                      setSoldCode(card.code);
+                      setSellName('');
+                      void apiShopGiftCards(shopId).then(setGift);
+                    }
+                  })
+                }
+              >
+                {t('gcs_sell')}
+              </button>
+              {soldCode && (
+                <p style={{ flexBasis: '100%', fontSize: '0.85rem', fontWeight: 700 }}>
+                  ✅ {t('gcs_sold')}: <span className="gc-row-code">{soldCode}</span>
+                </p>
+              )}
+            </div>
+          </section>
 
           <section className="section">
             <h2>🧾 {t('zb_title')}</h2>
