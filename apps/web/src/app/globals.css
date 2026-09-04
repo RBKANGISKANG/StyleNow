@@ -2718,6 +2718,12 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   body.rc-open .gc-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* --- staff/HR edit dialogs -------------------------------------------------------- */
+.sd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sd-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.74rem; font-weight: 700; color: var(--ink-soft); }
+.sd-grid label .input { width: 100%; }
+@media (max-width: 560px) { .sd-grid { grid-template-columns: 1fr; } }
+
 /* --- the month picker: the real calendar in the booking flow -------------------- */
 .mp { margin-bottom: 12px; }
 .mp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
