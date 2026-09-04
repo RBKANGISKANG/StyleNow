@@ -12,6 +12,7 @@ import {
   allShops, availability, requestAbsence, approveAbsence, isAbsent,
   createShopBooking, rescheduleBooking, setLocalPersistence, effectiveStaff,
   bookSeries, bookingConflicts, archiveStaff, setBookingStatus, noticesForDevice,
+  createDuoHold, getBooking, bookingsForDevice, SlotTaken,
 } from '../store';
 import { todayIso, addDays, isoDow, dayStart } from '../time';
 
@@ -159,5 +160,50 @@ const after = bookingConflicts(shop.id, { staffId: staff.id });
 assert.ok(!after.some((c) => c.bookingId === booking.id || c.bookingId === child.id),
   'resolved bookings leave the conflict list');
 console.log(`conflicts: ${conflicts.length} found, archive refused, one reassigned (+2 customer notices), one refunded`);
+
+// --- together bookings: two chairs, the same minute, or nothing --------------
+
+// A future weekday with a time where at least two stylists are free.
+let dIso = addDays(todayIso(), 10);
+let duoStart = 0;
+for (let i = 0; i < 21 && !duoStart; i++) {
+  if ([1, 2, 3, 4, 5].includes(isoDow(dayStart(dIso)))) {
+    const s = availability(shop.id, [svc.id], dIso, 'dev-duo', null).slots.find((x) => x.staffIds.length >= 2);
+    if (s) duoStart = s.start;
+  }
+  if (!duoStart) dIso = addDays(dIso, 1);
+}
+assert.ok(duoStart, 'fixture: no time with two free chairs in three weeks');
+
+const pair = createDuoHold(
+  { shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: duoStart, deviceId: 'dev-duo', guestName: 'Ana', idempotencyKey: 'duo-t-1' },
+  'Bea',
+);
+const seatA = getBooking(pair.first.bookingId)!;
+const seatB = getBooking(pair.second.bookingId)!;
+assert.equal(seatA.startsAt, seatB.startsAt, 'both seats start at the same minute');
+assert.notEqual(seatA.staffId, seatB.staffId, 'the pair never shares a stylist');
+assert.equal(seatA.duoId, seatA.id, 'the pair is linked…');
+assert.equal(seatB.duoId, seatA.id, '…through the first booking’s id');
+assert.equal(seatB.guestName, 'Bea', 'the friend’s seat carries the friend’s name');
+
+// Exhaust the time: keep booking pairs until no second chair remains. The
+// failure must roll back completely — never a stranded half-pair.
+let failed = false;
+for (let k = 2; k <= 8 && !failed; k++) {
+  try {
+    createDuoHold(
+      { shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: duoStart, deviceId: 'dev-duo', guestName: `G${k}`, idempotencyKey: `duo-t-${k}` },
+      `F${k}`,
+    );
+  } catch (e) {
+    assert.ok(e instanceof SlotTaken, 'exhaustion answers with alternatives, not a crash');
+    failed = true;
+  }
+}
+assert.ok(failed, 'the chairs must run out eventually');
+const seatsAtTime = bookingsForDevice('dev-duo').filter((x) => x.startsAt === duoStart).length;
+assert.equal(seatsAtTime % 2, 0, `a failed pair leaves nothing behind (found ${seatsAtTime} seats)`);
+console.log(`duo: pair booked with two stylists, exhaustion left ${seatsAtTime} whole seats and no orphan`);
 
 console.log('\nOK — pending requests block nothing, approvals block the day, and moving stays inside the policy');

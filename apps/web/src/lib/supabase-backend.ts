@@ -193,6 +193,45 @@ export async function createHold(input: HoldInput): Promise<HoldResult> {
   return result;
 }
 
+/** Both seats of a pair, each pushed through the same atomic RPC. If the
+ *  second seat loses a race, the first is rolled back too — locally and in
+ *  Postgres — because a half-booked pair is worse than none. */
+export async function createDuoHold(
+  input: HoldInput,
+  friendName: string,
+): Promise<{ first: HoldResult; second: HoldResult }> {
+  await ensureSynced();
+  const pair = store.createDuoHold(input, friendName); // local resolution + both rows
+  const db = await sb();
+  const pushed: string[] = [];
+  for (const r of [pair.first, pair.second]) {
+    const booking = store.getBooking(r.bookingId)!;
+    const { data, error } = await deadline(db.rpc('create_hold', {
+      p_booking: toRow(booking),
+      p_ranges: booking.staffRanges.map((x) => ({
+        start: new Date(x.start).toISOString(),
+        end: new Date(x.end).toISOString(),
+      })),
+    }));
+    if (error || data?.conflict) {
+      for (const id of [pair.first.bookingId, pair.second.bookingId]) store.deleteBooking(id);
+      for (const id of pushed) {
+        await deadline(db.rpc('set_booking', { p_id: id, p_data: null, p_release_seat: true })).catch(() => {});
+      }
+      await syncNow();
+      const { slots } = store.availability(
+        input.shopId,
+        input.serviceIds,
+        new Date(input.startsAt).toISOString().slice(0, 10),
+        input.deviceId,
+      );
+      throw new store.SlotTaken(slots.filter((s) => s.staffIds.length >= 2).slice(0, 6));
+    }
+    pushed.push(r.bookingId);
+  }
+  return pair;
+}
+
 export async function confirmBooking(
   bookingId: string,
   payment?: { method: store.PaymentMethod; label: string },

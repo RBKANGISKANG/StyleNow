@@ -114,6 +114,8 @@ export interface Booking {
   /** Standing appointment: every booking in the series shares the first
    *  booking's id here, so the group is recognisable from any member. */
   seriesId?: string;
+  /** Booked together: both seats of a pair share the first booking's id. */
+  duoId?: string;
   createdAt: number;
 }
 
@@ -2155,6 +2157,77 @@ export function createHold(input: HoldInput): HoldResult {
   return result;
 }
 
+/**
+ * Two friends, two chairs, the same minute — booked as one act.
+ *
+ * The first seat goes through the normal hold; the second is then resolved
+ * against the REAL roster, not the thinned slot list: any colleague whose
+ * working window covers the interval and whose day has no overlap (the first
+ * hold already blocks its own stylist, so the pair can never share one). If
+ * no second chair exists, the first hold is rolled back entirely and the
+ * error carries the times where two chairs ARE free — a half-booked pair is
+ * worse than none. Vouchers, gift cards and points stay on the first seat:
+ * they belong to the device doing the paying.
+ */
+export function createDuoHold(
+  input: HoldInput,
+  friendName: string,
+): { first: HoldResult; second: HoldResult } {
+  if (input.prime) throw new Error('duo_prime'); // Prime is one squeezed-in seat, not two
+  const shop = shopById(input.shopId);
+  if (!shop) throw new Error('shop_not_found');
+
+  const first = createHold(input);
+  const firstBooking = state.bookings.get(first.bookingId)!;
+
+  const services = input.serviceIds
+    .map((id) => serviceOf(shop, id))
+    .filter((s): s is SeedService => Boolean(s));
+  const timing = aggregate(services);
+  const held = occupancyForBasket(input.startsAt, services, shop.rules);
+  const isoDate = isoDateOf(input.startsAt);
+  const now = Date.now();
+
+  let partnerId: string | null = null;
+  for (const st of effectiveStaff(input.shopId)) {
+    if (st.id === firstBooking.staffId) continue;
+    const day = staffDayOf(shop, st.id, isoDate, now);
+    const fits = day.working.some(
+      (w) => input.startsAt >= w.start && input.startsAt + timing.durationMin * MIN <= w.end,
+    );
+    if (fits && !held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
+      partnerId = st.id;
+      break;
+    }
+  }
+
+  if (!partnerId) {
+    deleteBooking(first.bookingId);
+    state.idempotency.delete(input.idempotencyKey);
+    // Offer only times where the pair actually fits.
+    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null);
+    throw new SlotTaken(
+      slots.filter((s) => s.staffIds.length >= 2 && s.start !== input.startsAt).slice(0, 6),
+    );
+  }
+
+  const second = createHold({
+    ...input,
+    staffId: partnerId,
+    guestName: friendName.trim() || 'Guest',
+    guestPhone: undefined,
+    guestNote: undefined,
+    voucherCode: undefined,
+    pointsToSpend: undefined,
+    idempotencyKey: `${input.idempotencyKey}-duo`,
+  });
+
+  firstBooking.duoId = first.bookingId;
+  state.bookings.get(second.bookingId)!.duoId = first.bookingId;
+  persist();
+  return { first, second };
+}
+
 export function confirmBooking(id: string, payment?: { method: PaymentMethod; label: string }): Booking {
   const b = state.bookings.get(id);
   if (!b) throw new Error('not_found');
@@ -2667,6 +2740,7 @@ export interface BookingView {
   payment: { method: PaymentMethod; label: string } | null;
   guestName: string;
   seriesId: string | null;
+  duoId: string | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -2702,6 +2776,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       payment: b.payment ?? null,
       guestName: b.guestName,
       seriesId: b.seriesId ?? null,
+      duoId: b.duoId ?? null,
       isPrime: b.isPrime ?? false,
     };
   });

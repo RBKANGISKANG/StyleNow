@@ -42,6 +42,7 @@ interface Bk {
   shopAddress: string;
   guestName: string;
   seriesId: string | null;
+  duoId: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   payment: { method: string; label: string } | null;
@@ -159,6 +160,7 @@ export default function BookingsPage() {
                   {b.shop?.emoji} {b.shop?.name ?? '—'}
                   {b.isPrime && <span className="prime-flag">★ {t('prime_flag')}</span>}
                   {b.seriesId && <span className="series-badge">🔁 {t('sr_badge')}</span>}
+                  {b.duoId && <span className="series-badge">👯 {t('duo_badge')}</span>}
                 </div>
                 <div className="svc">
                   {b.services.map((s) => `${s.emoji} ${s.name[lang]}`).join(' · ')}

@@ -2718,6 +2718,10 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   body.rc-open .gc-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* --- together bookings -------------------------------------------------------- */
+.duo-panel { padding: 12px 14px; }
+.duo-hint { margin: 8px 0 0; font-size: 0.76rem; color: var(--ink-soft); line-height: 1.5; }
+
 /* --- booking summary strip (step 0 may be skipped by a deep link) ------------ */
 .bk-sum-panel { padding: 12px 14px; }
 .bk-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

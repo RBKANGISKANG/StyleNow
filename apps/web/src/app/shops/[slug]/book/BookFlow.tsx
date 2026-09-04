@@ -16,7 +16,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows } from '@/lib/api';
 import { validateVoucher, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays, dayStart } from '@/core/time';
@@ -163,9 +163,14 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [hold, setHold] = useState<Hold | null>(null);
   const [pay, setPay] = useState<PaymentChoice | null>(null);
   const [holding, setHolding] = useState(false);
+  // Together: two chairs, the same minute. The second seat gets its own hold
+  // and its own guest name; the engine guarantees two different stylists.
+  const [duo, setDuo] = useState(false);
+  const [friendName, setFriendName] = useState('');
+  const [hold2, setHold2] = useState<Hold | null>(null);
   const [alternatives, setAlternatives] = useState<Slot[] | null>(null);
   const [expired, setExpired] = useState(false);
-  const [confirmed, setConfirmed] = useState<{ reference: string } | null>(null);
+  const [confirmed, setConfirmed] = useState<{ reference: string; reference2?: string } | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [voucherInput, setVoucherInput] = useState('');
   const [voucher, setVoucher] = useState<{ code: string; discountCents: number } | null>(null);
@@ -269,6 +274,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       setRemaining(left);
       if (left === 0 && !confirmed) {
         setHold(null);
+        setHold2(null);
         setExpired(true);
         setStep(1);
       }
@@ -280,11 +286,17 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     };
   }, [hold, confirmed]);
 
+  /** what must be paid now for one hold: the deposit, or everything */
+  const dueOf = (h: Hold) => (h.quote.depositCents > 0 ? h.quote.depositCents : h.quote.totalCents);
+
+  // Together mode only shows times where a second chair is genuinely free.
+  const shownSlots = slots === null ? null : duo ? slots.filter((s) => s.staffIds.length >= 2) : slots;
+
   const createHold = async (startsAt: number, chosenStaff: string | null) => {
     setHolding(true);
     setAlternatives(null);
     setExpired(false);
-    const outcome = await apiHold({
+    const input = {
       shopId: shop.id,
       serviceIds,
       staffId: chosenStaff,
@@ -294,8 +306,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       guestNote: note.trim() || undefined,
       voucherCode: voucher?.code,
       pointsToSpend: usePoints ? points : undefined,
-      prime,
-    });
+    };
+    const outcome = duo
+      ? await apiDuoHold(input, friendName)
+      : await apiHold({ ...input, prime });
     setHolding(false);
     if (!outcome.ok) {
       if (outcome.code === 'slot_taken') {
@@ -311,24 +325,39 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     } catch {
       // ignore
     }
-    setHold(outcome.hold);
+    if ('first' in outcome) {
+      setHold(outcome.first);
+      setHold2(outcome.second);
+    } else {
+      setHold(outcome.hold);
+    }
   };
 
   const confirm = async () => {
     if (!hold) return;
-    const dueNow = hold.quote.depositCents > 0 ? hold.quote.depositCents : hold.quote.totalCents;
-    if (dueNow > 0 && !pay) return; // the button is disabled, but belt and braces
-    const outcome = await apiConfirm(hold.bookingId, dueNow > 0 ? (pay ?? undefined) : undefined);
+    const due = dueOf(hold) + (hold2 ? dueOf(hold2) : 0);
+    if (due > 0 && !pay) return; // the button is disabled, but belt and braces
+    const method = due > 0 ? (pay ?? undefined) : undefined;
+    const outcome = await apiConfirm(hold.bookingId, method);
     if (!outcome.ok) {
       if (outcome.code === 'hold_expired') {
         setHold(null);
+        setHold2(null);
         setExpired(true);
         setStep(1);
       }
       return;
     }
-    if (dueNow > 0 && pay) rememberPayment(pay); // next checkout is one tap
-    setConfirmed({ reference: outcome.reference });
+    let reference2: string | undefined;
+    if (hold2) {
+      const second = await apiConfirm(hold2.bookingId, method);
+      // The pair held together, so a second-seat expiry here is next to
+      // impossible — but if it happens, the first booking still stands and
+      // the confirmation says so by simply not naming a second reference.
+      if (second.ok) reference2 = second.reference;
+    }
+    if (due > 0 && pay) rememberPayment(pay); // next checkout is one tap
+    setConfirmed({ reference: outcome.reference, reference2 });
   };
 
   // ---- confirmation screen ----------------------------------------------
@@ -343,6 +372,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
         <div className="confirm-body">
           <div style={{ color: 'var(--ink-soft)', fontSize: '0.85rem' }}>{t('booked_sub')}</div>
           <div className="ref">{confirmed.reference}</div>
+          {confirmed.reference2 && (
+            <div style={{ margin: '2px 0 6px', fontSize: '0.85rem', fontWeight: 700 }}>
+              👯 {friendName || t('duo_friend_name')}: <span style={{ fontFamily: 'ui-monospace, monospace' }}>{confirmed.reference2}</span>
+            </div>
+          )}
           <div style={{ fontWeight: 700 }}>
             {shop.emoji} {shop.name}
           </div>
@@ -524,8 +558,31 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </div>
           )}
 
+          {/* Together: one flow, two chairs, two friends. The engine will only
+              offer times where two stylists are simultaneously free. */}
+          {shop.staff.length > 1 && (
+            <div className="panel duo-panel">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    checked={duo}
+                    onChange={(e) => {
+                      setDuo(e.target.checked);
+                      if (e.target.checked) setPrime(false);
+                      setSlot(null);
+                    }}
+                  />
+                  <span className="knob" />
+                </span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>👯 {t('duo_toggle')}</span>
+              </label>
+              {duo && <p className="duo-hint">{t('duo_hint')}</p>}
+            </div>
+          )}
+
           <div className="panel">
-            <h3>{t('choose_staff')}</h3>
+            <h3>{duo ? t('duo_staff_first') : t('choose_staff')}</h3>
             <div className="filter-row" style={{ marginBottom: 0 }}>
               <button className={`chip ${staffId === null ? 'on-primary' : ''}`} onClick={() => setStaffId(null)}>
                 ✨ {t('any_staff')}
@@ -560,13 +617,17 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 </span>
               ))}
             </div>
-            {slots === null ? (
+            {shownSlots === null ? (
               <div className="spinner" />
             ) : serviceIds.length === 0 ? (
               <div className="empty" style={{ padding: '28px 16px' }}>
                 <p>{t('bk_pick_one')}</p>
               </div>
-            ) : slots.length === 0 ? (
+            ) : shownSlots.length === 0 && duo ? (
+              <div className="empty" style={{ padding: '28px 16px' }}>
+                <p>{t('duo_none')}</p>
+              </div>
+            ) : shownSlots.length === 0 ? (
               <div className="empty" style={{ padding: '28px 16px' }}>
                 <p>{t('no_slots')}</p>
                 {waitlisted.includes(date) ? (
@@ -587,7 +648,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             ) : (
               <>
                 <div className="slot-tools">
-                  {slots.some((s) => slotTone(s) !== 'base') ? (
+                  {shownSlots!.some((s) => slotTone(s) !== 'base') ? (
                     <p className="slot-legend">
                       <span className="tone-dot prime" /> {t('prime_legend')}
                       <span className="tone-dot saver" /> {t('saver_legend')}
@@ -601,7 +662,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 </div>
                 {slotView === 'list' ? (
                   <SlotList
-                    slots={slots}
+                    slots={shownSlots!}
                     selectedStart={slot?.start ?? null}
                     onPick={(s) => {
                       setSlot(s as Slot);
@@ -611,7 +672,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   />
                 ) : (
                 <div className="slot-grid">
-                  {slots.map((s, i) => {
+                  {shownSlots!.map((s, i) => {
                     const tone = slotTone(s);
                     const delta = slotDelta(s);
                     return (
@@ -656,7 +717,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               this list can be full when the grid above is empty and vice
               versa. Collapsed by default: the grid should stay the normal way
               to book, and Prime the deliberate exception. */}
-          {primeWindows !== null && primeWindows.length > 0 && (() => {
+          {!duo && primeWindows !== null && primeWindows.length > 0 && (() => {
             const durMin = selected.reduce((n, x) => n + x.durationMin, 0);
             const baseCents = selected.reduce((n, x) => n + x.basePriceCents, 0);
             const estCents = baseCents + primeSurcharge(baseCents);
@@ -765,9 +826,15 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   <span>{t('vat_incl')}</span>
                   <span>{money(hold.quote.vatCents, lang)}</span>
                 </div>
+                {hold2 && (
+                  <div className="quote-line">
+                    <span>👯 {friendName || t('duo_friend_name')}</span>
+                    <span>{money(hold2.quote.totalCents, lang)}</span>
+                  </div>
+                )}
                 <div className="quote-line total">
                   <span>{t('total')}</span>
-                  <span>{money(hold.quote.totalCents, lang)}</span>
+                  <span>{money(hold.quote.totalCents + (hold2?.quote.totalCents ?? 0), lang)}</span>
                 </div>
                 {hold.quote.depositCents > 0 && (
                   <>
@@ -808,6 +875,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
               />
+              {duo && (
+                <input
+                  className="input"
+                  style={{ marginTop: 8 }}
+                  placeholder={`👯 ${t('duo_friend_name')}`}
+                  value={friendName}
+                  onChange={(e) => setFriendName(e.target.value)}
+                  maxLength={60}
+                />
+              )}
               <input
                 className="input"
                 style={{ marginTop: 8 }}
@@ -868,9 +945,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </div>
           )}
 
-          {hold && (hold.quote.depositCents > 0 || hold.quote.totalCents > 0) && (
+          {hold && dueOf(hold) + (hold2 ? dueOf(hold2) : 0) > 0 && (
             <PayMethod
-              amountCents={hold.quote.depositCents > 0 ? hold.quote.depositCents : hold.quote.totalCents}
+              amountCents={dueOf(hold) + (hold2 ? dueOf(hold2) : 0)}
               onChange={setPay}
             />
           )}
@@ -883,7 +960,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <button
                 className="btn btn-primary"
                 style={{ flex: 1 }}
-                disabled={holding || name.trim().length === 0}
+                disabled={holding || name.trim().length === 0 || (duo && friendName.trim().length === 0)}
                 onClick={() => void createHold(slot.start, staffId)}
               >
                 {holding ? '…' : `${t('continue')} →`}
@@ -892,15 +969,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <button
                 className="btn btn-primary"
                 style={{ flex: 1 }}
-                disabled={(hold.quote.depositCents > 0 || hold.quote.totalCents > 0) && !pay}
+                disabled={dueOf(hold) + (hold2 ? dueOf(hold2) : 0) > 0 && !pay}
                 onClick={() => void confirm()}
               >
                 💳{' '}
-                {hold.quote.depositCents > 0
-                  ? `${t('pay_confirm')} · ${money(hold.quote.depositCents, lang)}`
-                  : hold.quote.totalCents > 0
-                    ? `${t('pay_confirm')} · ${money(hold.quote.totalCents, lang)}`
-                    : t('confirm_free')}
+                {dueOf(hold) + (hold2 ? dueOf(hold2) : 0) > 0
+                  ? `${t('pay_confirm')} · ${money(dueOf(hold) + (hold2 ? dueOf(hold2) : 0), lang)}${hold2 ? ` · 👯` : ''}`
+                  : t('confirm_free')}
               </button>
             )}
           </div>

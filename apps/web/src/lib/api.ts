@@ -243,6 +243,40 @@ export async function apiHold(input: Omit<HoldInput, 'idempotencyKey' | 'deviceI
   }
 }
 
+export type DuoHoldOutcome =
+  | { ok: true; first: HoldResult; second: HoldResult }
+  | { ok: false; code: 'slot_taken'; alternatives: ApiSlot[] }
+  | { ok: false; code: 'error' };
+
+/** Two chairs, the same minute, one act — see store.createDuoHold. */
+export async function apiDuoHold(
+  input: Omit<HoldInput, 'idempotencyKey' | 'deviceId'>,
+  friendName: string,
+): Promise<DuoHoldOutcome> {
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch('/api/bookings/hold-duo', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': newIdempotencyKey() },
+      body: JSON.stringify({ ...input, friendName, deviceId: deviceId() }),
+    });
+    if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
+    if (!res.ok) return { ok: false, code: 'error' };
+    const pair = await res.json();
+    return { ok: true, first: pair.first, second: pair.second };
+  }
+  await ready();
+  const full: HoldInput = { ...input, deviceId: deviceId(), idempotencyKey: newIdempotencyKey() };
+  try {
+    const pair =
+      backendMode() === 'supabase' ? await sb.createDuoHold(full, friendName) : store.createDuoHold(full, friendName);
+    return { ok: true, ...pair };
+  } catch (e) {
+    if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    return { ok: false, code: 'error' };
+  }
+}
+
 export type ConfirmOutcome =
   | { ok: true; reference: string }
   | { ok: false; code: 'hold_expired' | 'error' };
