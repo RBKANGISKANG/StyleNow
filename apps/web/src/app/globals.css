@@ -2718,6 +2718,29 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   body.rc-open .gc-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* --- the month picker: the real calendar in the booking flow -------------------- */
+.mp { margin-bottom: 12px; }
+.mp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.mp-head strong { font-size: 0.95rem; text-transform: capitalize; }
+.mp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.mp-dow { text-align: center; font-size: 0.66rem; font-weight: 800; color: var(--ink-soft); text-transform: uppercase; padding: 2px 0; }
+.mp-day {
+  aspect-ratio: 1; min-width: 0; border-radius: 10px; border: 1.5px solid var(--line);
+  background: var(--surface); font-weight: 700; font-size: 0.82rem; cursor: pointer;
+  display: grid; place-items: center; color: var(--ink);
+}
+.mp-day.cool { background: var(--teal-soft); border-color: var(--teal); }
+.mp-day.mid { background: var(--violet-soft); border-color: var(--violet); }
+.mp-day.hot { background: var(--amber-soft); border-color: var(--amber); }
+.mp-day.sel { outline: 2.5px solid var(--primary); outline-offset: 1px; }
+.mp-day.today { text-decoration: underline; }
+.mp-day:disabled { opacity: 0.35; cursor: default; }
+.mp-legend { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-size: 0.72rem; color: var(--ink-soft); }
+.mp-chip { width: 13px; height: 13px; border-radius: 4px; display: inline-block; }
+.mp-chip.cool { background: var(--teal-soft); border: 1px solid var(--teal); }
+.mp-chip.hot { background: var(--amber-soft); border: 1px solid var(--amber); }
+.mp-chip.off { width: auto; height: auto; font-weight: 800; }
+
 /* --- the Stempelkarte ----------------------------------------------------------- */
 .stamp-box {
   margin-top: 12px; padding: 10px 12px;

@@ -4196,15 +4196,27 @@ export function sendBookingMessage(bookingId: string, deviceId: string, text: st
   return sendMessage(b.shopId, customerKeyOf(b), 'customer', text);
 }
 
-/** 0–100 per day for the next week — the demand curve customers can plan by. */
-export function dayLoadForecast(shopId: string, days = 7): Array<{ iso: string; pct: number }> {
+/**
+ * 0–100 per day, or -1 for a day that cannot be booked at all — a closure, or
+ * simply nobody rostered that weekday. The heat behind every calendar cell.
+ */
+export function dayLoadRange(shopId: string, fromIso: string, count: number): Array<{ iso: string; pct: number }> {
   const shop = shopById(shopId);
   if (!shop) return [];
   const now = Date.now();
-  return Array.from({ length: days }, (_, i) => {
-    const iso = addDays(todayIso(), i);
-    return { iso, pct: isShopClosed(shopId, iso) ? -1 : occupancyPct(shop, iso, now) };
+  const team = effectiveStaff(shopId);
+  return Array.from({ length: Math.min(count, 92) }, (_, i) => {
+    const iso = addDays(fromIso, i);
+    const dow = isoDow(dayStart(iso));
+    const rostered = team.some((st) => (st.shifts[dow] ?? []).length > 0);
+    const closed = !rostered || isShopClosed(shopId, iso);
+    return { iso, pct: closed ? -1 : occupancyPct(shop, iso, now) };
   });
+}
+
+/** 0–100 per day for the next week — the demand curve customers can plan by. */
+export function dayLoadForecast(shopId: string, days = 7): Array<{ iso: string; pct: number }> {
+  return dayLoadRange(shopId, todayIso(), days);
 }
 
 /** Numbers a sceptical customer can check: all derived, none editable. */

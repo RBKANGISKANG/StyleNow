@@ -13,7 +13,7 @@ import {
   setLocalPersistence, effectiveStaff, setBookingStatus, dayCloseReport,
   buyGiftCard, giftCard, validateVoucher, giftCardsForShop, bookingLedger,
   myReferralCode, referralUsable, giftCardsForDevice, setCustomerMemo, getBooking,
-  sendMessage, addClosure, messageThread, dayLoadForecast, shopTrust, quietWindows,
+  sendMessage, addClosure, messageThread, dayLoadForecast, dayLoadRange, shopTrust, quietWindows,
   setShopAnnouncement, shopAnnouncement, toggleVip, customersForShop,
   setShopGoal, shopGoal, sellGiftCardAtCounter, noticesForShop,
   createShopBooking, stampStatus, setStampSettings, cancelBooking, SlotTaken,
@@ -204,6 +204,21 @@ assert.ok(autoReplies[0].text.includes(addDays(isoDateOf(Date.now()), 1)), 'it n
 
 // Derived panels return sane shapes.
 assert.equal(dayLoadForecast(shop.id).length, 7);
+
+// The month calendar's heat: closures and un-rostered weekdays read -1.
+{
+  const range = dayLoadRange(shop.id, todayIso(), 30);
+  assert.equal(range.length, 30);
+  const team = effectiveStaff(shop.id);
+  for (const d of range) {
+    const dow = isoDow(dayStart(d.iso));
+    const rostered = team.some((st) => (st.shifts[dow] ?? []).length > 0);
+    if (!rostered) assert.equal(d.pct, -1, `${d.iso} has nobody rostered and must be closed`);
+    else assert.ok(d.pct >= -1 && d.pct <= 100);
+  }
+  // the closure added earlier in this suite covers today
+  assert.equal(range[0].pct, -1, 'a closure day is unbookable in the calendar');
+}
 const trust = shopTrust(shop.id);
 assert.ok(trust.completed90 > 0 && (trust.avgRating === null || trust.avgRating <= 5));
 const qw = quietWindows(shop.id);

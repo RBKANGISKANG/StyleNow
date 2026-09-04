@@ -1082,6 +1082,12 @@ export async function apiDayForecast(shopId: string): Promise<Array<{ iso: strin
   return store.dayLoadForecast(shopId);
 }
 
+/** The heat behind a month of calendar cells — -1 marks unbookable days. */
+export async function apiDayLoadRange(shopId: string, fromIso: string, count: number): Promise<Array<{ iso: string; pct: number }>> {
+  await readyForRead();
+  return store.dayLoadRange(shopId, fromIso, count);
+}
+
 export async function apiShopTrust(shopId: string): Promise<ReturnType<typeof store.shopTrust>> {
   await readyForRead();
   return store.shopTrust(shopId);

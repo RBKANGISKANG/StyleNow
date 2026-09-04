@@ -11,6 +11,8 @@ import { useSearchParams } from 'next/navigation';
 import { icsHref } from '@/lib/ics';
 import { BookSeries } from '@/components/BookSeries';
 import { SlotList, SlotViewToggle, useSlotView } from '@/components/SlotPicker';
+import { MonthPicker } from '@/components/MonthPicker';
+import { GridIcon, ListIcon } from '@/components/ViewIcons';
 import { PayMethod } from '@/components/PayMethod';
 import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
@@ -124,6 +126,24 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [slot, setSlot] = useState<Slot | null>(null);
   // Grid on a laptop, day-part list on a phone — remembered either way.
   const [slotView, setSlotView] = useSlotView();
+  // Strip for "this week", the real calendar for "which day suits the month".
+  const [dateView, setDateView] = useState<'strip' | 'month'>('strip');
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('stylenow.datepick');
+      if (saved === 'month' || saved === 'strip') setDateView(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+  const chooseDateView = (v: 'strip' | 'month') => {
+    setDateView(v);
+    try {
+      window.localStorage.setItem('stylenow.datepick', v);
+    } catch {
+      // ignore
+    }
+  };
   // Prime: an extra appointment on top of the grid, any time the doors are
   // open, at a premium. Chosen instead of a slot, never alongside one.
   const [prime, setPrime] = useState(false);
@@ -645,7 +665,40 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           </div>
 
           <div className="panel">
-            <h3>{t('pick_time')}</h3>
+            <div className="slot-tools" style={{ marginBottom: 6 }}>
+              <h3 style={{ margin: 0 }}>{t('pick_time')}</h3>
+              <div className="seg view-seg">
+                <button
+                  className={dateView === 'strip' ? 'on' : ''}
+                  onClick={() => chooseDateView('strip')}
+                  aria-label={t('dp_strip')}
+                  title={t('dp_strip')}
+                  type="button"
+                >
+                  <ListIcon />
+                </button>
+                <button
+                  className={dateView === 'month' ? 'on' : ''}
+                  onClick={() => chooseDateView('month')}
+                  aria-label={t('dp_month')}
+                  title={t('dp_month')}
+                  type="button"
+                >
+                  <GridIcon />
+                </button>
+              </div>
+            </div>
+            {dateView === 'month' && (
+              <>
+                <MonthPicker shopId={shop.id} selected={date} horizonDays={days.length} onPick={setDate} />
+                <p className="mp-legend">
+                  <span className="mp-chip cool" /> {t('dp_quiet')}
+                  <span className="mp-chip hot" /> {t('dp_busy')}
+                  <span className="mp-chip off">—</span> {t('fc_closed')}
+                </p>
+              </>
+            )}
+            {dateView === 'strip' && (
             <div className="date-strip">
               {days.map((d, i) => (
                 <span key={d} style={{ display: 'contents' }}>
@@ -659,6 +712,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 </span>
               ))}
             </div>
+            )}
             {shownSlots === null ? (
               <div className="spinner" />
             ) : serviceIds.length === 0 ? (
