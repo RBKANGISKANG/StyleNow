@@ -16,7 +16,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import { deviceId } from '@/lib/device';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
@@ -186,10 +186,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [points, setPoints] = useState(0);
   const [usePoints, setUsePoints] = useState(false);
+  const [stamp, setStamp] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
+  const [useStamp, setUseStamp] = useState(false);
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
 
   useEffect(() => {
-    if (step === 2) void apiLoyaltyBalance().then(setPoints);
+    if (step === 2) {
+      void apiLoyaltyBalance().then(setPoints);
+      void apiStampStatus(shop.id).then(setStamp);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   const applyVoucher = () => {
@@ -337,8 +343,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       guestName: name.trim() || 'Guest',
       guestPhone: phone.trim() || undefined,
       guestNote: note.trim() || undefined,
-      voucherCode: voucher?.code,
-      pointsToSpend: usePoints ? points : undefined,
+      voucherCode: useStamp ? undefined : voucher?.code,
+      pointsToSpend: useStamp || !usePoints ? undefined : points,
+      useStampReward: useStamp || undefined,
     };
     const outcome = duo
       ? await apiDuoHold(input, friendName)
@@ -958,10 +965,42 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   </button>
                 ))}
               </div>
+              {stamp && stamp.enabled && !duo && (stamp.stamps > 0 || stamp.rewardsAvailable > 0) && (
+                <div className="stamp-box">
+                  <div className="stamp-row" aria-hidden>
+                    {Array.from({ length: stamp.required }, (_, i) => (
+                      <span key={i} className={`stamp-dot${i < stamp.stamps % stamp.required || (stamp.rewardsAvailable > 0 && stamp.stamps > 0) ? ' on' : ''}`} />
+                    ))}
+                  </div>
+                  {stamp.rewardsAvailable > 0 ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <span className="switch">
+                        <input type="checkbox" checked={useStamp} onChange={(e) => {
+                          setUseStamp(e.target.checked);
+                          if (e.target.checked) {
+                            setUsePoints(false);
+                            setVoucher(null);
+                            setVoucherInput('');
+                          }
+                        }} />
+                        <span className="knob" />
+                      </span>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>
+                        💮 {t('stamp_use', { n: String(stamp.required) })}
+                      </span>
+                    </label>
+                  ) : (
+                    <p style={{ fontSize: '0.8rem', fontWeight: 600, margin: 0 }}>
+                      💮 {t('stamp_progress', { have: String(stamp.stamps % stamp.required), need: String(stamp.required) })}
+                    </p>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <input
                   className="input"
                   style={{ flex: 1 }}
+                  disabled={useStamp}
                   placeholder={`🎟️ ${t('voucher_label')} — ${t('voucher_ph')}`}
                   value={voucherInput}
                   onChange={(e) => {
@@ -988,7 +1027,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               {pointsValueCents > 0 && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, cursor: 'pointer' }}>
                   <span className="switch">
-                    <input type="checkbox" checked={usePoints} onChange={(e) => setUsePoints(e.target.checked)} />
+                    <input type="checkbox" checked={usePoints} disabled={useStamp} onChange={(e) => setUsePoints(e.target.checked)} />
                     <span className="knob" />
                   </span>
                   <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>

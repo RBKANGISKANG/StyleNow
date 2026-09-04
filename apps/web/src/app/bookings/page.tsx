@@ -13,6 +13,7 @@ import {
   apiWaitlistLeave,
   apiMyUnread,
   apiMyGiftCards,
+  apiMyStampCards,
   apiSetCustomerMemo,
   apiSendBookingMessage,
   type GiftCard,
@@ -73,6 +74,7 @@ export default function BookingsPage() {
   const [waitlist, setWaitlist] = useState<Wl[]>([]);
   const [unread, setUnread] = useState(0);
   const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
+  const [stampCards, setStampCards] = useState<Awaited<ReturnType<typeof apiMyStampCards>>>([]);
   const [lateSent, setLateSent] = useState<string[]>([]);
 
   const load = useCallback(async () => {
@@ -81,6 +83,7 @@ export default function BookingsPage() {
     setWaitlist(await apiMyWaitlist());
     setUnread(await apiMyUnread());
     setGiftCards(await apiMyGiftCards());
+    setStampCards(await apiMyStampCards());
   }, []);
 
   useEffect(() => {
@@ -429,6 +432,33 @@ export default function BookingsPage() {
             </div>
           ))}
           <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('gc_mine_hint')}</p>
+        </section>
+      )}
+      {stampCards.length > 0 && (
+        <section className="section" style={{ marginTop: 24 }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>💮 {t('stamp_wallet')}</h2>
+          {stampCards.map((c) => (
+            <div key={c.shopId} className="gc-row">
+              <span style={{ fontSize: '1.2rem' }}>{c.shopEmoji}</span>
+              <span style={{ flex: 1, minWidth: 140 }}>
+                <strong>{c.shopName}</strong>
+                <span className="stamp-row" aria-label={`${c.stamps % c.required}/${c.required}`}>
+                  {Array.from({ length: c.required }, (_, i) => (
+                    <span key={i} className={`stamp-dot${i < c.stamps % c.required || (c.rewardsAvailable > 0 && c.stamps > 0) ? ' on' : ''}`} />
+                  ))}
+                </span>
+              </span>
+              {c.rewardsAvailable > 0 ? (
+                <Link className="btn btn-primary sm" href={`/shops/${c.shopSlug}/book`}>
+                  🎉 {t('stamp_reward_ready')}
+                </Link>
+              ) : (
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--ink-soft)' }}>
+                  {c.stamps % c.required}/{c.required}
+                </span>
+              )}
+            </div>
+          ))}
         </section>
       )}
       <ReferralPanel />

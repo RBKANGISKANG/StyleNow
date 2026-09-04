@@ -16,6 +16,7 @@ import {
   sendMessage, addClosure, messageThread, dayLoadForecast, shopTrust, quietWindows,
   setShopAnnouncement, shopAnnouncement, toggleVip, customersForShop,
   setShopGoal, shopGoal, sellGiftCardAtCounter, noticesForShop,
+  createShopBooking, stampStatus, setStampSettings, cancelBooking, SlotTaken,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -243,4 +244,72 @@ if (digests.length === 1) {
   assert.ok(Number(digests[0].preview) >= 1, 'it counts today’s appointments');
 }
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales and the digest all check out');
+// --- the Stempelkarte: ten stamps, one free visit -----------------------------
+
+// Fabricate ten completed visits inside the window for one device.
+let stamped = 0;
+for (let back = 7; back <= 120 && stamped < 10; back += 3) {
+  const isoDay = addDays(todayIso(), -back);
+  if (![1, 2, 3, 4, 5].includes(isoDow(dayStart(isoDay)))) continue;
+  try {
+    const past = createShopBooking(shop.id, [svc.id], staff.id, dayStart(isoDay) + 10 * 36e5, 'Stampy');
+    past.deviceId = 'dev-stamp';
+    stamped += 1;
+  } catch (e) {
+    if (!(e instanceof SlotTaken)) throw e; // a seeded block sat on 10:00 — try the next day
+  }
+}
+assert.equal(stamped, 10, 'fixture: ten completed past visits');
+
+const st0 = stampStatus(shop.id, 'dev-stamp');
+assert.ok(st0.enabled && st0.required === 10, 'on by default, ten by default');
+assert.equal(st0.stamps, 10);
+assert.equal(st0.rewardsAvailable, 1, 'a full card is one free visit');
+
+// The free visit: whole service subtotal off, engine-gated, hold reserves it.
+const fSlots = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-stamp', staff.id).slots;
+assert.ok(fSlots.length > 0, 'fixture needs a slot for the free visit');
+const fHold = createHold({
+  shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: fSlots[0].start,
+  deviceId: 'dev-stamp', guestName: 'Stampy', useStampReward: true, idempotencyKey: 'stamp-t-1',
+});
+assert.equal(fHold.quote.totalCents, 0, 'the visit is free');
+assert.ok(fHold.quote.breakdown.some((l) => l.label.includes('Stempelkarte')), 'and says why');
+assert.equal(stampStatus(shop.id, 'dev-stamp').rewardsAvailable, 0, 'the live hold reserves the reward');
+
+// A second free visit in parallel must bounce — on the reward, not the seat,
+// so ask availability again (it now excludes the held slot) for a free one.
+const fSlots2 = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-stamp', staff.id).slots;
+assert.ok(fSlots2.length > 0, 'fixture needs a second free slot');
+assert.throws(
+  () => createHold({
+    shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: fSlots2[0].start,
+    deviceId: 'dev-stamp', guestName: 'Stampy', useStampReward: true, idempotencyKey: 'stamp-t-2',
+  }),
+  /no_stamp_reward/,
+);
+
+const fBooking = confirmBooking(fHold.bookingId);
+setBookingStatus(shop.id, fBooking.id, 'completed');
+const st1 = stampStatus(shop.id, 'dev-stamp');
+assert.equal(st1.stamps, 10, 'the free visit itself earns no stamp');
+assert.equal(st1.rewardsAvailable, 0, 'and the reward is spent');
+
+// The shop cancelling the free visit hands the reward back — derived, not stored.
+cancelBooking(fBooking.id, { preview: false, by: 'shop' });
+assert.equal(stampStatus(shop.id, 'dev-stamp').rewardsAvailable, 1, 'a cancelled free visit returns the reward');
+
+// Managed by the company: off means off, and the threshold is theirs.
+setStampSettings(shop.id, { enabled: false, required: 10 });
+assert.equal(stampStatus(shop.id, 'dev-stamp').enabled, false);
+assert.throws(
+  () => createHold({
+    shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: fSlots[0].start,
+    deviceId: 'dev-stamp', guestName: 'Stampy', useStampReward: true, idempotencyKey: 'stamp-t-3',
+  }),
+  /no_stamp_reward/,
+);
+setStampSettings(shop.id, { enabled: true, required: 5 });
+assert.equal(stampStatus(shop.id, 'dev-stamp').rewardsAvailable, 2, 'a five-visit card doubles the rewards');
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest and the Stempelkarte all check out');

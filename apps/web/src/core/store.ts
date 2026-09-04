@@ -118,6 +118,8 @@ export interface Booking {
   duoId?: string;
   /** The customer's own note-to-self about this visit — never shown to the shop. */
   customerMemo?: string;
+  /** This visit was the stamp card's free one — it consumes a reward and earns no stamp. */
+  stampFree?: boolean;
   createdAt: number;
 }
 
@@ -216,6 +218,7 @@ interface State {
   giftCards: Map<string, GiftCard>; // code → the card (balance lives here)
   announcements: Map<string, string>; // shopId → the banner customers see
   vips: Map<string, string[]>; // shopId → customer keys the shop starred
+  stampSettings: Map<string, { enabled: boolean; required: number }>; // shopId → loyalty stamp card
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
@@ -277,6 +280,7 @@ const state: State =
     giftCards: new Map(),
     announcements: new Map(),
     vips: new Map(),
+    stampSettings: new Map(),
     goals: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
@@ -343,6 +347,7 @@ function persist(): boolean {
         giftCards: [...state.giftCards.entries()],
         announcements: [...state.announcements.entries()],
         vips: [...state.vips.entries()],
+        stampSettings: [...state.stampSettings.entries()],
         goals: [...state.goals.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
@@ -386,6 +391,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         giftCards?: Array<[string, GiftCard]>;
         announcements?: Array<[string, string]>;
         vips?: Array<[string, string[]]>;
+        stampSettings?: Array<[string, { enabled: boolean; required: number }]>;
         goals?: Array<[string, number]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
@@ -416,6 +422,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.giftCards = new Map(d.giftCards ?? []);
       state.announcements = new Map(d.announcements ?? []);
       state.vips = new Map(d.vips ?? []);
+      state.stampSettings = new Map(d.stampSettings ?? []);
       state.goals = new Map(d.goals ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
@@ -635,6 +642,7 @@ export interface ShopConfig {
   announcement?: string;
   vips?: string[];
   goalCents?: number;
+  stampCard?: { enabled: boolean; required: number };
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -683,6 +691,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     announcement: state.announcements.get(shopId),
     vips: state.vips.get(shopId) ?? [],
     goalCents: state.goals.get(shopId),
+    stampCard: state.stampSettings.get(shopId),
   };
 }
 
@@ -711,6 +720,7 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
     else state.announcements.delete(shopId);
   }
   if (doc.vips) state.vips.set(shopId, doc.vips);
+  if (doc.stampCard) state.stampSettings.set(shopId, doc.stampCard);
   if (doc.goalCents !== undefined) {
     if (doc.goalCents > 0) state.goals.set(shopId, doc.goalCents);
     else state.goals.delete(shopId);
@@ -2015,6 +2025,8 @@ export interface HoldInput {
   guestNote?: string;
   voucherCode?: string;
   pointsToSpend?: number;
+  /** Spend a stamp-card reward: this visit's services are free. */
+  useStampReward?: boolean;
   /** Book as a Prime flexible appointment — see primeWindowsFor(). */
   prime?: boolean;
   idempotencyKey: string;
@@ -2108,8 +2120,18 @@ export function createHold(input: HoldInput): HoldResult {
   // Discounts: voucher first, then loyalty points on the remainder.
   let discountCents = 0;
   let giftCents = 0;
+  let stampFree = false;
   const discountLines: Array<{ label: string; cents: number }> = [];
-  if (input.voucherCode) {
+  if (input.useStampReward) {
+    // The engine re-checks, not the UI: the reward must actually exist, and a
+    // free visit is a whole discount — it does not stack with codes or points.
+    const st = stampStatus(input.shopId, input.deviceId);
+    if (!st.enabled || st.rewardsAvailable < 1) throw new Error('no_stamp_reward');
+    stampFree = true;
+    discountCents += q.subtotalCents;
+    discountLines.push({ label: `Stempelkarte — ${st.required}. Besuch frei`, cents: -q.subtotalCents });
+  }
+  if (!stampFree && input.voucherCode) {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
     if (!v.ok) throw new Error('voucher_invalid');
     discountCents += v.discountCents;
@@ -2122,7 +2144,7 @@ export function createHold(input: HoldInput): HoldResult {
     discountLines.push({ label: `${isGift ? 'Gift card' : 'Voucher'} ${v.voucher.code}`, cents: -v.discountCents });
   }
   let pointsSpent = 0;
-  if (input.pointsToSpend && input.pointsToSpend > 0) {
+  if (!stampFree && input.pointsToSpend && input.pointsToSpend > 0) {
     const balance = loyaltyBalance(input.deviceId);
     const remainder = Math.max(q.subtotalCents + travelFeeCents - discountCents, 0);
     pointsSpent = Math.min(input.pointsToSpend, balance);
@@ -2178,8 +2200,9 @@ export function createHold(input: HoldInput): HoldResult {
     guestPhone: input.guestPhone?.trim() || undefined,
     guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
-    voucherCode: input.voucherCode || undefined,
+    voucherCode: stampFree ? undefined : input.voucherCode || undefined,
     giftCents: giftCents || undefined,
+    stampFree: stampFree || undefined,
     isPrime: input.prime || undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
@@ -4325,6 +4348,79 @@ export function setShopAnnouncement(shopId: string, text: string): void {
   if (clean) state.announcements.set(shopId, clean);
   else state.announcements.delete(shopId);
   persist();
+}
+
+// --- the Stempelkarte: ten visits in six months, the next one is free --------
+
+export const STAMP_WINDOW_DAYS = 183; // a rolling six months
+export const STAMP_DEFAULT_REQUIRED = 10;
+
+export interface StampStatus {
+  enabled: boolean;
+  required: number;
+  /** completed visits in the window that were not themselves free */
+  stamps: number;
+  /** free visits taken in the window (live holds count — no double-spending) */
+  redeemed: number;
+  rewardsAvailable: number;
+}
+
+function stampSettingsOf(shopId: string): { enabled: boolean; required: number } {
+  // On by default: a demo loyalty card nobody can see teaches nothing. The
+  // salon manages it — off switch and the required count live on the Shop tab.
+  return state.stampSettings.get(shopId) ?? { enabled: true, required: STAMP_DEFAULT_REQUIRED };
+}
+
+export function setStampSettings(shopId: string, settings: { enabled: boolean; required: number }): void {
+  const required = Math.min(Math.max(Math.round(settings.required), 3), 20);
+  state.stampSettings.set(shopId, { enabled: Boolean(settings.enabled), required });
+  persist();
+}
+
+/**
+ * Everything derived, nothing stored: stamps are completed visits of the last
+ * six months, rewards are stamps ÷ required minus free visits already taken.
+ * A cancelled free visit therefore hands the reward back by itself, and a
+ * stamp older than the window simply stops counting.
+ */
+export function stampStatus(shopId: string, deviceId: string): StampStatus {
+  const cfg = stampSettingsOf(shopId);
+  const now = Date.now();
+  const windowStart = now - STAMP_WINDOW_DAYS * 864e5;
+  let stamps = 0;
+  let redeemed = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.deviceId !== deviceId || b.startsAt < windowStart) continue;
+    if (b.stampFree) {
+      // live holds already reserve the reward, or two tabs could spend one twice
+      const live =
+        ['confirmed', 'completed'].includes(b.status) ||
+        (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) >= now);
+      if (live) redeemed += 1;
+    } else if (b.status === 'completed') {
+      stamps += 1;
+    }
+  }
+  return {
+    enabled: cfg.enabled,
+    required: cfg.required,
+    stamps,
+    redeemed,
+    rewardsAvailable: Math.max(Math.floor(stamps / cfg.required) - redeemed, 0),
+  };
+}
+
+/** Every shop where this device has stamps or rewards — the wallet view. */
+export function myStampCards(deviceId: string): Array<
+  StampStatus & { shopId: string; shopName: string; shopEmoji: string; shopSlug: string }
+> {
+  const out: Array<StampStatus & { shopId: string; shopName: string; shopEmoji: string; shopSlug: string }> = [];
+  for (const shop of allShops()) {
+    const st = stampStatus(shop.id, deviceId);
+    if (!st.enabled || (st.stamps === 0 && st.rewardsAvailable === 0)) continue;
+    out.push({ ...st, shopId: shop.id, shopName: shop.name, shopEmoji: shop.emoji, shopSlug: shop.slug });
+  }
+  return out.sort((a, b) => b.stamps - a.stamps);
 }
 
 // --- twenty-features batch: VIPs, goals, digest, counter gift sale ----------

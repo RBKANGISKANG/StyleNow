@@ -2718,6 +2718,19 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   body.rc-open .gc-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* --- the Stempelkarte ----------------------------------------------------------- */
+.stamp-box {
+  margin-top: 12px; padding: 10px 12px;
+  background: var(--violet-soft); border-radius: var(--r-md);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.stamp-row { display: flex; gap: 5px; margin-top: 4px; }
+.stamp-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px dashed var(--violet); background: transparent; flex: none;
+}
+.stamp-dot.on { background: var(--violet); border-style: solid; }
+
 /* --- twenty-features batch ----------------------------------------------------- */
 .fav-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

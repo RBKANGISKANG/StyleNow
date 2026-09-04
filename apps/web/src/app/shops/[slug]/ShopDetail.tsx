@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -313,11 +313,13 @@ function ShopPulse({ shopId }: { shopId: string }) {
   const [announcement, setAnnouncement] = useState('');
   const [trust, setTrust] = useState<Awaited<ReturnType<typeof apiShopTrust>> | null>(null);
   const [forecast, setForecast] = useState<Array<{ iso: string; pct: number }>>([]);
+  const [stampSt, setStampSt] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
 
   useEffect(() => {
     void apiShopAnnouncement(shopId).then(setAnnouncement);
     void apiShopTrust(shopId).then(setTrust);
     void apiDayForecast(shopId).then(setForecast);
+    void apiStampStatus(shopId).then(setStampSt);
   }, [shopId]);
 
   const open = forecast.filter((d) => d.pct >= 0);
@@ -335,6 +337,19 @@ function ShopPulse({ shopId }: { shopId: string }) {
             <span>★ {trust.avgRating.toFixed(1)} · {t('tr_reviews', { n: String(trust.reviewCount) })}</span>
           )}
           <em>{t('tr_derived')}</em>
+        </div>
+      )}
+
+      {stampSt?.enabled && (
+        <div className="trust-strip" style={{ marginTop: 8 }}>
+          <span>💮 {t('stamp_shop_badge', { n: String(stampSt.required) })}</span>
+          {(stampSt.stamps > 0 || stampSt.rewardsAvailable > 0) && (
+            <span>
+              {stampSt.rewardsAvailable > 0
+                ? `🎉 ${t('stamp_reward_ready')}`
+                : t('stamp_your', { have: String(stampSt.stamps % stampSt.required), need: String(stampSt.required) })}
+            </span>
+          )}
         </div>
       )}
 

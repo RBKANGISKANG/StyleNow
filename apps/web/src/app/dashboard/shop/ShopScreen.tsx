@@ -21,6 +21,8 @@ import {
   apiShopRestore,
   apiShopAnnouncement,
   apiSetShopAnnouncement,
+  apiStampStatus,
+  apiSetStampSettings,
   type ShopClosure,
 } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
@@ -148,6 +150,11 @@ function ShopTab({
       <section className="section">
         <h2>🚫 {t('cls_title')}</h2>
         <ClosureManager shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>💮 {t('st_title')}</h2>
+        <StampPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -331,6 +338,59 @@ function LocationManager({
           {t('loc_add')}
         </button>
       )}
+    </div>
+  );
+}
+
+/** The shop's own loyalty program: on/off and how many visits earn the free one. */
+function StampPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [enabled, setEnabled] = useState(true);
+  const [required, setRequired] = useState(10);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiStampStatus(shopId).then((st) => {
+      setEnabled(st.enabled);
+      setRequired(st.required);
+      setLoaded(true);
+    });
+  }, [shopId]);
+
+  const save = (nextEnabled: boolean, nextRequired: number) => {
+    setEnabled(nextEnabled);
+    setRequired(nextRequired);
+    void apiSetStampSettings(shopId, { enabled: nextEnabled, required: nextRequired }).then(() =>
+      onChanged('💮 ' + t('st_saved')),
+    );
+  };
+
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>
+        {t('st_hint', { n: String(required) })}
+      </p>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <span className="switch">
+            <input type="checkbox" checked={enabled} onChange={(e) => save(e.target.checked, required)} />
+            <span className="knob" />
+          </span>
+          <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{t('st_enabled')}</span>
+        </label>
+        {enabled && (
+          <label className="chip">
+            {t('st_required')}
+            <select value={required} onChange={(e) => save(enabled, Number(e.target.value))}>
+              {[5, 8, 10, 12, 15].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
     </div>
   );
 }

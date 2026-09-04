@@ -1005,6 +1005,24 @@ export async function apiShopRestore(shopId: string, doc: store.ShopConfig): Pro
   }
 }
 
+// ---- the Stempelkarte -----------------------------------------------------
+
+export async function apiStampStatus(shopId: string): Promise<store.StampStatus> {
+  await readyForRead();
+  return store.stampStatus(shopId, deviceId());
+}
+
+export async function apiMyStampCards(): Promise<ReturnType<typeof store.myStampCards>> {
+  await readyForRead();
+  return store.myStampCards(deviceId());
+}
+
+export async function apiSetStampSettings(shopId: string, settings: { enabled: boolean; required: number }): Promise<void> {
+  await localWrite();
+  store.setStampSettings(shopId, settings);
+  syncConfig(shopId);
+}
+
 // ---- twenty-features batch ------------------------------------------------
 
 export async function apiToggleVip(shopId: string, customerKey: string): Promise<boolean> {
