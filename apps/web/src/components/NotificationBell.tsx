@@ -193,6 +193,8 @@ const ICONS: Record<AppNotice['kind'], string> = {
   appt_moved: '🔀',
   staff_changed: '💇',
   digest: '☀️',
+  rebook_due: '💈',
+  goodwill: '🎁',
 };
 
 type T = ReturnType<typeof useI18n>['t'];
@@ -219,6 +221,12 @@ function noticeTitle(n: AppNotice, t: T, lang: 'en' | 'de'): string {
       return t('nt_staff_changed', { who: n.who });
     case 'digest':
       return t('nt_digest', { n: n.preview, time: timeOf(n.startsAt!, lang) });
+    case 'rebook_due':
+      return n.who
+        ? t('nt_rebook_for', { who: n.who, shop: n.shopName })
+        : t('nt_rebook', { shop: n.shopName });
+    case 'goodwill':
+      return t('nt_goodwill', { shop: n.shopName });
   }
 }
 
@@ -230,6 +238,12 @@ function noticeBody(n: AppNotice, lang: 'en' | 'de'): string {
     return from ? `${dateOf(from, lang)} ${timeOf(from, lang)} → ${dateOf(n.startsAt!, lang)} ${timeOf(n.startsAt!, lang)}` : '';
   }
   if (n.kind === 'timeoff') return n.preview.replace('→', ' → ');
+  // preview carries the median gap in days / the voucher code.
+  if (n.kind === 'rebook_due') {
+    const svc = n.serviceNames[0]?.[lang] ?? '';
+    return `${svc} · ~${n.preview} ${lang === 'de' ? 'Tage-Rhythmus' : 'day rhythm'}`;
+  }
+  if (n.kind === 'goodwill') return n.preview;
   const services = n.serviceNames.map((s) => s[lang]).join(', ');
   if ((n.kind === 'booking_new' || n.kind === 'staff_changed') && n.startsAt) {
     return `${dateOf(n.startsAt, lang)} · ${timeOf(n.startsAt, lang)}${services ? ` · ${services}` : ''}`;

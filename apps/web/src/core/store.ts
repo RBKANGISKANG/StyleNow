@@ -120,6 +120,10 @@ export interface Booking {
   customerMemo?: string;
   /** This visit was the stamp card's free one — it consumes a reward and earns no stamp. */
   stampFree?: boolean;
+  /** A saved person on the booking device this visit is for. */
+  forPersonId?: string;
+  /** Late shop-side cancel/move: the automatic sorry-voucher minted for it. */
+  goodwill?: { code: string; at: number };
   createdAt: number;
 }
 
@@ -183,6 +187,14 @@ export interface ShopClosure {
   reason: string;
 }
 
+/** Someone this device books for besides themselves — a child, a parent, a friend. */
+export interface SavedPerson {
+  id: string;
+  name: string;
+  emoji?: string;
+  note?: string;
+}
+
 export interface ShopApplication {
   id: string;
   deviceId: string;
@@ -221,6 +233,7 @@ interface State {
   stampSettings: Map<string, { enabled: boolean; required: number }>; // shopId → loyalty stamp card
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
   quietDiscounts: Map<string, number>; // shopId → percent off in the two emptiest day-parts
+  people: Map<string, SavedPerson[]>; // deviceId → family & friends the device books for
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -284,6 +297,7 @@ const state: State =
     stampSettings: new Map(),
     goals: new Map(),
     quietDiscounts: new Map(),
+    people: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -352,6 +366,7 @@ function persist(): boolean {
         stampSettings: [...state.stampSettings.entries()],
         goals: [...state.goals.entries()],
         quietDiscounts: [...state.quietDiscounts.entries()],
+        people: [...state.people.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -397,6 +412,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         stampSettings?: Array<[string, { enabled: boolean; required: number }]>;
         goals?: Array<[string, number]>;
         quietDiscounts?: Array<[string, number]>;
+        people?: Array<[string, SavedPerson[]]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -429,6 +445,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.stampSettings = new Map(d.stampSettings ?? []);
       state.goals = new Map(d.goals ?? []);
       state.quietDiscounts = new Map(d.quietDiscounts ?? []);
+      state.people = new Map(d.people ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -2280,6 +2297,8 @@ export interface HoldInput {
   useStampReward?: boolean;
   /** Book as a Prime flexible appointment — see primeWindowsFor(). */
   prime?: boolean;
+  /** A saved person on this device the visit is for ("Milo", "Mum"). */
+  forPersonId?: string;
   idempotencyKey: string;
 }
 
@@ -2455,6 +2474,7 @@ export function createHold(input: HoldInput): HoldResult {
     giftCents: giftCents || undefined,
     stampFree: stampFree || undefined,
     isPrime: input.prime || undefined,
+    forPersonId: input.forPersonId || undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -2577,6 +2597,7 @@ export function cancelBooking(
     cancelledBy: opts.by,
   });
   if (!opts.preview) {
+    const wasConfirmed = b.status === 'confirmed';
     b.status = opts.isNoShow
       ? 'no_show'
       : opts.by === 'customer'
@@ -2588,9 +2609,39 @@ export function cancelBooking(
     // showing the deposit as paid and the customer never got it back.
     b.refundedCents = (b.refundedCents ?? 0) + outcome.refundCents;
     b.paidCents = Math.max(b.paidCents - outcome.refundCents, 0);
+    // A shop cancelling on short notice ruined someone's plan. The apology is
+    // automatic and paid by the shop — policy, not mood.
+    if (opts.by === 'shop' && !opts.isNoShow && wasConfirmed) mintGoodwill(b);
     persist();
   }
   return { ...outcome, booking: b };
+}
+
+export const GOODWILL_CENTS = 500;
+export const GOODWILL_NOTICE_HOURS = 24;
+
+/** A €5 sorry-voucher, minted once per booking when the shop pulls the rug late. */
+function mintGoodwill(b: Booking): void {
+  if (b.goodwill) return;
+  if (b.startsAt - Date.now() >= GOODWILL_NOTICE_HOURS * 36e5) return;
+  if (b.startsAt <= Date.now()) return; // backfilled history is not a ruined plan
+  let code = '';
+  do {
+    const part = () =>
+      Array.from({ length: 4 }, () => GIFT_ALPHABET[Math.floor(Math.random() * GIFT_ALPHABET.length)]).join('');
+    code = `GC-${part()}-${part()}`;
+  } while (state.giftCards.has(code));
+  state.giftCards.set(code, {
+    code,
+    shopId: b.shopId,
+    initialCents: GOODWILL_CENTS,
+    balanceCents: GOODWILL_CENTS,
+    buyerDeviceId: b.deviceId,
+    fromName: 'Goodwill',
+    createdAt: Date.now(),
+    redemptions: [],
+  });
+  b.goodwill = { code, at: Date.now() };
 }
 
 /**
@@ -2663,6 +2714,9 @@ export function rescheduleBooking(
     if (newStartsAt !== movedFrom) {
       b.shopMovedAt = Date.now();
       b.movedFromStartsAt = movedFrom;
+      // Moving someone the same day is the small sibling of cancelling on
+      // them — same automatic apology.
+      if (b.status === 'confirmed' && movedFrom - Date.now() < GOODWILL_NOTICE_HOURS * 36e5) mintGoodwill(b);
     }
     if (staffId !== prevStaffId) b.reassignedAt = Date.now();
   }
@@ -3066,6 +3120,9 @@ export interface BookingView {
   seriesId: string | null;
   duoId: string | null;
   customerMemo: string | null;
+  forPersonId: string | null;
+  /** the automatic sorry-voucher a late shop cancel/move minted, if any */
+  goodwillCode: string | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -3103,6 +3160,8 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       seriesId: b.seriesId ?? null,
       duoId: b.duoId ?? null,
       customerMemo: b.customerMemo ?? null,
+      forPersonId: b.forPersonId ?? null,
+      goodwillCode: b.goodwill?.code ?? null,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -3833,7 +3892,11 @@ export interface AppNotice {
     | 'appt_moved'
     | 'staff_changed'
     // the operator's morning digest: today at a glance
-    | 'digest';
+    | 'digest'
+    // "you're usually due about now" — derived from the customer's own rhythm
+    | 'rebook_due'
+    // a late shop-side cancel/move minted an automatic sorry-voucher
+    | 'goodwill';
   /** when this became worth showing — the badge counts notices after the watermark */
   at: number;
   /** where tapping it goes */
@@ -3944,6 +4007,48 @@ export function noticesForDevice(deviceId: string): AppNotice[] {
       startsAt: offer.startsAt,
       serviceNames: w.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
       preview: '',
+      count: 0,
+    });
+  }
+
+  // The automatic apology: a late shop-side cancel/move minted a voucher.
+  const goodwillCutoff = now - 7 * 864e5;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || !b.goodwill || b.goodwill.at < goodwillCutoff) continue;
+    const shop = shopById(b.shopId);
+    if (!shop) continue;
+    out.push({
+      id: `gw-${b.id}`,
+      kind: 'goodwill',
+      at: b.goodwill.at,
+      href: '/bookings',
+      shopId: shop.id,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: '',
+      startsAt: b.startsAt,
+      serviceNames: b.serviceIds.map((id) => serviceOf(shop, id)?.name ?? { en: id, de: id }),
+      preview: b.goodwill.code,
+      count: 0,
+    });
+  }
+
+  // "You're usually due about now" — the customer's own rhythm, nobody else's.
+  for (const d of rebookCadence(deviceId).slice(0, 2)) {
+    const shop = shopById(d.shopId);
+    if (!shop) continue;
+    out.push({
+      id: `due-${d.shopId}-${d.serviceId}-${d.personId ?? 'me'}-${isoDateOf(d.dueSince)}`,
+      kind: 'rebook_due',
+      at: d.dueSince,
+      href: `/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}`,
+      shopId: shop.id,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      who: d.personName ?? '',
+      startsAt: null,
+      serviceNames: [d.serviceName],
+      preview: String(d.medianGapDays),
       count: 0,
     });
   }
@@ -4476,15 +4581,26 @@ export function shopTrust(shopId: string): {
   repeatPct: number | null;
   avgRating: number | null;
   reviewCount: number;
+  /** shop-side cancellations of the last 90 days — the customer's risk */
+  shopCancels90: number;
+  /** same-day/late shop-side moves of the last 90 days */
+  lateMoves90: number;
 } {
   const now = Date.now();
   const cutoff = now - 90 * 864e5;
   let completed90 = 0;
+  let shopCancels90 = 0;
+  let lateMoves90 = 0;
   const visitsByCustomer = new Map<string, number>();
   let ratingSum = 0;
   let reviewCount = 0;
   for (const b of state.bookings.values()) {
-    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (b.shopId !== shopId) continue;
+    if (b.startsAt >= cutoff) {
+      if (b.status === 'cancelled_by_shop') shopCancels90 += 1;
+      if (b.shopMovedAt && b.startsAt - b.shopMovedAt < GOODWILL_NOTICE_HOURS * 36e5) lateMoves90 += 1;
+    }
+    if (b.status !== 'completed') continue;
     if (b.startsAt >= cutoff) completed90 += 1;
     const key = customerKeyOf(b);
     visitsByCustomer.set(key, (visitsByCustomer.get(key) ?? 0) + 1);
@@ -4500,6 +4616,8 @@ export function shopTrust(shopId: string): {
     repeatPct: customers >= 5 ? Math.round((repeats / customers) * 100) : null,
     avgRating: reviewCount > 0 ? Math.round((ratingSum / reviewCount) * 10) / 10 : null,
     reviewCount,
+    shopCancels90,
+    lateMoves90,
   };
 }
 
@@ -5016,6 +5134,239 @@ export function waitlistForDevice(deviceId: string): WaitlistView[] {
         serviceNames: w.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
       };
     });
+}
+
+// ---------------------------------------------------------------------------
+// family & friends — people this device books for besides themselves
+// ---------------------------------------------------------------------------
+
+export function savedPeople(deviceId: string): SavedPerson[] {
+  return state.people.get(deviceId) ?? [];
+}
+
+export function addPerson(deviceId: string, input: { name: string; emoji?: string; note?: string }): SavedPerson {
+  const name = input.name.trim().slice(0, 40);
+  if (!name) throw new Error('bad_name');
+  const person: SavedPerson = {
+    id: `pp-${state.seq++}-${Date.now().toString(36)}`,
+    name,
+    emoji: input.emoji?.trim() || undefined,
+    note: input.note?.trim().slice(0, 120) || undefined,
+  };
+  state.people.set(deviceId, [...savedPeople(deviceId), person]);
+  persist();
+  return person;
+}
+
+export function removePerson(deviceId: string, personId: string): void {
+  state.people.set(deviceId, savedPeople(deviceId).filter((p) => p.id !== personId));
+  persist();
+}
+
+// ---------------------------------------------------------------------------
+// rebook cadence — "you're usually due about now", from the customer's own rhythm
+// ---------------------------------------------------------------------------
+
+export interface DueRebook {
+  shopId: string;
+  slug: string;
+  shopName: string;
+  shopEmoji: string;
+  serviceId: string;
+  serviceName: { en: string; de: string };
+  /** the stylist they saw last, for the "book again with" deep link */
+  staffId: string | null;
+  personId: string | null;
+  personName: string | null;
+  medianGapDays: number;
+  lastVisit: number;
+  /** the moment they crossed their own median gap */
+  dueSince: number;
+}
+
+/**
+ * Where this device has a real rhythm (≥3 completed visits of the same
+ * service at the same shop, per person), and that rhythm says a next visit
+ * is overdue — with nothing already booked to answer it.
+ */
+export function rebookCadence(deviceId: string): DueRebook[] {
+  const now = Date.now();
+  const groups = new Map<string, { starts: number[]; last: Booking }>();
+  const upcoming = new Set<string>();
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId) continue;
+    const key = `${b.shopId}:${b.serviceIds[0]}:${b.forPersonId ?? ''}`;
+    if (['confirmed', 'pending_payment'].includes(b.status) && b.startsAt > now) {
+      upcoming.add(key);
+      continue;
+    }
+    if (b.status !== 'completed') continue;
+    const g = groups.get(key);
+    if (!g) groups.set(key, { starts: [b.startsAt], last: b });
+    else {
+      g.starts.push(b.startsAt);
+      if (b.startsAt > g.last.startsAt) g.last = b;
+    }
+  }
+  const out: DueRebook[] = [];
+  for (const [key, g] of groups) {
+    if (g.starts.length < 3 || upcoming.has(key)) continue;
+    const sorted = g.starts.sort((a, b) => a - b);
+    const gaps = sorted.slice(1).map((s, i) => s - sorted[i]).sort((a, b) => a - b);
+    const median = gaps[Math.floor(gaps.length / 2)];
+    if (median < 7 * 864e5) continue; // sub-weekly noise is not a rhythm
+    const last = sorted[sorted.length - 1];
+    const dueSince = last + median;
+    // overdue, but not so stale the habit is clearly over
+    if (now < dueSince || now > last + median * 3) continue;
+    const shop = shopById(g.last.shopId);
+    if (!shop) continue;
+    const svc = serviceOf(shop, g.last.serviceIds[0]);
+    if (!svc || state.archivedServices.has(svc.id)) continue;
+    const staffAlive = effectiveStaff(shop.id).some((s) => s.id === g.last.staffId);
+    const person = g.last.forPersonId
+      ? savedPeople(deviceId).find((p) => p.id === g.last.forPersonId) ?? null
+      : null;
+    out.push({
+      shopId: shop.id,
+      slug: shop.slug,
+      shopName: shop.name,
+      shopEmoji: shop.emoji,
+      serviceId: svc.id,
+      serviceName: svc.name,
+      staffId: staffAlive ? g.last.staffId : null,
+      personId: g.last.forPersonId ?? null,
+      personName: person?.name ?? null,
+      medianGapDays: Math.round(median / 864e5),
+      lastVisit: last,
+      dueSince,
+    });
+  }
+  return out.sort((a, b) => a.dueSince - b.dueSince);
+}
+
+// ---------------------------------------------------------------------------
+// the year recap — computed on this device, from this device's own bookings
+// ---------------------------------------------------------------------------
+
+export interface YearRecap {
+  year: number;
+  visits: number;
+  spentCents: number;
+  savedCents: number;
+  tipCents: number;
+  topShop: { name: string; emoji: string; slug: string; visits: number } | null;
+  topStaff: { name: string; shopName: string; visits: number } | null;
+  /** 1=Mon … 7=Sun */
+  favDow: number | null;
+  favHour: number | null;
+  freeVisits: number;
+}
+
+export function customerRecap(deviceId: string, year: number): YearRecap {
+  const byShop = new Map<string, number>();
+  const byStaff = new Map<string, number>();
+  const byDow = new Map<number, number>();
+  const byHour = new Map<number, number>();
+  let visits = 0;
+  let spentCents = 0;
+  let savedCents = 0;
+  let tipCents = 0;
+  let freeVisits = 0;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || b.status !== 'completed') continue;
+    if (new Date(b.startsAt).getFullYear() !== year) continue;
+    visits += 1;
+    spentCents += b.quote.totalCents + (b.tipCents ?? 0);
+    savedCents += b.quote.discountCents;
+    tipCents += b.tipCents ?? 0;
+    if (b.stampFree) freeVisits += 1;
+    byShop.set(b.shopId, (byShop.get(b.shopId) ?? 0) + 1);
+    byStaff.set(`${b.shopId}:${b.staffId}`, (byStaff.get(`${b.shopId}:${b.staffId}`) ?? 0) + 1);
+    byDow.set(isoDow(b.startsAt), (byDow.get(isoDow(b.startsAt)) ?? 0) + 1);
+    byHour.set(new Date(b.startsAt).getHours(), (byHour.get(new Date(b.startsAt).getHours()) ?? 0) + 1);
+  }
+  const top = <K,>(m: Map<K, number>): K | null =>
+    [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const topShopId = top(byShop);
+  const topShop = topShopId ? shopById(topShopId) : null;
+  const topStaffKey = top(byStaff);
+  let topStaff: YearRecap['topStaff'] = null;
+  if (topStaffKey) {
+    const [shopId, staffId] = topStaffKey.split(':');
+    const shop = shopById(shopId);
+    const st = shop ? effectiveStaff(shopId).find((s) => s.id === staffId) : null;
+    if (shop && st) topStaff = { name: st.name, shopName: shop.name, visits: byStaff.get(topStaffKey)! };
+  }
+  return {
+    year,
+    visits,
+    spentCents,
+    savedCents,
+    tipCents,
+    topShop: topShop ? { name: topShop.name, emoji: topShop.emoji, slug: topShop.slug, visits: byShop.get(topShopId!)! } : null,
+    topStaff,
+    favDow: top(byDow),
+    favHour: top(byHour),
+    freeVisits,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// privacy center — export everything, or blank the personal parts in place
+// ---------------------------------------------------------------------------
+
+/** Everything this device's data amounts to, as one JSON document. */
+export function exportMyData(deviceId: string): Record<string, unknown> {
+  const keys = new Set<string>([`d:${deviceId}`]);
+  for (const b of state.bookings.values()) if (b.deviceId === deviceId) keys.add(customerKeyOf(b));
+  const messages: Record<string, Message[]> = {};
+  for (const [k, thread] of state.messages) {
+    const key = k.slice(k.indexOf(':') + 1);
+    if (keys.has(key)) messages[k] = thread;
+  }
+  return {
+    exportedAt: new Date().toISOString(),
+    deviceId,
+    bookings: bookingsForDevice(deviceId),
+    messages,
+    giftCards: giftCardsForDevice(deviceId),
+    stampCards: myStampCards(deviceId),
+    loyaltyPoints: loyaltyBalance(deviceId),
+    waitlist: waitlistForDevice(deviceId),
+    referralCode: myReferralCode(deviceId),
+    people: savedPeople(deviceId),
+  };
+}
+
+/**
+ * Art.-17-style erasure that keeps the shop's books lawful: names, phones,
+ * notes, memos and message bodies go; amounts, statuses and timestamps stay,
+ * because a Tagesabschluss must still add up after the person is gone.
+ * Returns how many bookings were touched.
+ */
+export function eraseMyData(deviceId: string): number {
+  const keys = new Set<string>([`d:${deviceId}`]);
+  let touched = 0;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId) continue;
+    keys.add(customerKeyOf(b));
+    b.guestName = '—';
+    delete b.guestPhone;
+    delete b.guestNote;
+    delete b.customerMemo;
+    if (b.review) b.review.text = '';
+    touched += 1;
+  }
+  for (const [k, thread] of state.messages) {
+    const key = k.slice(k.indexOf(':') + 1);
+    if (!keys.has(key)) continue;
+    for (const m of thread) if (m.from === 'customer') m.text = '—';
+  }
+  for (const [id, w] of state.waitlist) if (w.deviceId === deviceId) state.waitlist.delete(id);
+  state.people.delete(deviceId);
+  persist();
+  return touched;
 }
 
 // The demo history has to be written after the module has finished defining

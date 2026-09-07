@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
       pointsToSpend: typeof body.pointsToSpend === 'number' ? body.pointsToSpend : undefined,
       useStampReward: Boolean(body.useStampReward),
       prime: body.prime === true,
+      forPersonId: typeof body.forPersonId === 'string' ? body.forPersonId : undefined,
       idempotencyKey,
     });
     return NextResponse.json(result, { status: 201 });

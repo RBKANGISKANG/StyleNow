@@ -18,9 +18,9 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
-import type { SaverSlot, StaffInsight, NearbyAlternative } from '@/core/store';
+import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays, dayStart } from '@/core/time';
@@ -210,6 +210,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [stamp, setStamp] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
   const [useStamp, setUseStamp] = useState(false);
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
+
+  // Family & friends: who this visit is for ('' = the device owner).
+  const [people, setPeople] = useState<SavedPersonT[]>([]);
+  const [forPerson, setForPerson] = useState('');
+  const [addingPerson, setAddingPerson] = useState(false);
+  const [newPersonName, setNewPersonName] = useState('');
+  useEffect(() => {
+    if (step === 2) void apiSavedPeople().then(setPeople);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // Flexible saver: the five cheapest times of the coming week, on demand.
   const [flex, setFlex] = useState(false);
@@ -431,6 +441,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       voucherCode: useStamp ? undefined : voucher?.code,
       pointsToSpend: useStamp || !usePoints ? undefined : points,
       useStampReward: useStamp || undefined,
+      forPersonId: forPerson || undefined,
     };
     const outcome = duo
       ? await apiDuoHold(input, friendName)
@@ -1136,6 +1147,58 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           {!hold && (
             <div className="panel">
               <h3>{t('your_details')}</h3>
+              {/* Family & friends: the visit may not be for the person holding
+                  the phone. Each saved person keeps their own rhythm. */}
+              {(people.length > 0 || addingPerson) && (
+                <div className="addon-row" style={{ marginBottom: 10 }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, alignSelf: 'center' }}>{t('for_whom')}</span>
+                  <button className={`chip ${forPerson === '' ? 'on-primary' : ''}`} onClick={() => setForPerson('')}>
+                    {t('for_me')}
+                  </button>
+                  {people.map((pp) => (
+                    <button
+                      key={pp.id}
+                      className={`chip ${forPerson === pp.id ? 'on-primary' : ''}`}
+                      onClick={() => setForPerson(pp.id)}
+                    >
+                      {pp.emoji ?? '👤'} {pp.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {addingPerson ? (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <input
+                    className="input"
+                    placeholder={t('pp_name')}
+                    value={newPersonName}
+                    onChange={(e) => setNewPersonName(e.target.value)}
+                    maxLength={40}
+                  />
+                  <button
+                    className="btn btn-primary sm"
+                    disabled={!newPersonName.trim()}
+                    onClick={() => {
+                      void apiAddPerson({ name: newPersonName }).then((pp) => {
+                        setPeople((cur) => [...cur, pp]);
+                        setForPerson(pp.id);
+                        setNewPersonName('');
+                        setAddingPerson(false);
+                      });
+                    }}
+                  >
+                    ✓
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-soft sm"
+                  style={{ marginBottom: 10 }}
+                  onClick={() => setAddingPerson(true)}
+                >
+                  {t('pp_add')}
+                </button>
+              )}
               {/* the answer to "when am I out of here?" without mental math */}
               <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '2px 0 10px' }}>
                 ⏱ {t('done_by', { time: timeOf(slot.end, lang) })}

@@ -16,8 +16,12 @@ import {
   apiMyStampCards,
   apiSetCustomerMemo,
   apiSendBookingMessage,
+  apiRebookCadence,
+  apiSavedPeople,
+  apiCustomerRecap,
   type GiftCard,
 } from '@/lib/api';
+import type { DueRebook, SavedPerson, YearRecap } from '@/core/store';
 import { icsHref } from '@/lib/ics';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
@@ -48,6 +52,8 @@ interface Bk {
   seriesId: string | null;
   duoId: string | null;
   customerMemo: string | null;
+  forPersonId: string | null;
+  goodwillCode: string | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   payment: { method: string; label: string } | null;
@@ -76,14 +82,32 @@ export default function BookingsPage() {
   const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
   const [stampCards, setStampCards] = useState<Awaited<ReturnType<typeof apiMyStampCards>>>([]);
   const [lateSent, setLateSent] = useState<string[]>([]);
+  const [due, setDue] = useState<DueRebook[]>([]);
+  const [people, setPeople] = useState<SavedPerson[]>([]);
+  const [personFilter, setPersonFilter] = useState<string>('all');
+  const [recap, setRecap] = useState<YearRecap | null>(null);
 
   const load = useCallback(async () => {
-    setBookings(await apiMyBookings());
-    setPoints(await apiLoyaltyBalance());
-    setWaitlist(await apiMyWaitlist());
-    setUnread(await apiMyUnread());
-    setGiftCards(await apiMyGiftCards());
-    setStampCards(await apiMyStampCards());
+    // One round-trip's worth of waiting, not eight: these reads are
+    // independent, and each one pays the backend sync budget on its own.
+    const [bk, pts, wl, un, gc, st, du, pp] = await Promise.all([
+      apiMyBookings(),
+      apiLoyaltyBalance(),
+      apiMyWaitlist(),
+      apiMyUnread(),
+      apiMyGiftCards(),
+      apiMyStampCards(),
+      apiRebookCadence(),
+      apiSavedPeople(),
+    ]);
+    setBookings(bk);
+    setPoints(pts);
+    setWaitlist(wl);
+    setUnread(un);
+    setGiftCards(gc);
+    setStampCards(st);
+    setDue(du);
+    setPeople(pp);
   }, []);
 
   useEffect(() => {
@@ -97,11 +121,15 @@ export default function BookingsPage() {
   }, [toast]);
 
   const now = Date.now();
-  const upcoming = (bookings ?? []).filter(
+  const byPerson = (bookings ?? []).filter((b) =>
+    personFilter === 'all' ? true : personFilter === 'me' ? !b.forPersonId : b.forPersonId === personFilter,
+  );
+  const upcoming = byPerson.filter(
     (b) => b.startsAt > now && ['confirmed', 'pending_payment'].includes(b.status),
   );
-  const past = (bookings ?? []).filter((b) => !upcoming.includes(b));
+  const past = byPerson.filter((b) => !upcoming.includes(b));
   const list = tab === 'upcoming' ? upcoming : past;
+  const personName = (id: string | null) => people.find((p) => p.id === id)?.name ?? null;
 
   const previewCancel = async (id: string) => {
     const data = await apiCancel(id, true);
@@ -136,6 +164,53 @@ export default function BookingsPage() {
           </button>
         </div>
       </div>
+
+      {/* "You're due" — the customer's own rhythm noticed something. */}
+      {tab === 'upcoming' && due.length > 0 && (
+        <div className="due-strip">
+          {due.slice(0, 2).map((d) => (
+            <div className="due-card" key={`${d.shopId}-${d.serviceId}-${d.personId ?? 'me'}`}>
+              <span className="due-emoji">{d.shopEmoji}</span>
+              <span className="due-main">
+                <b>
+                  {t('due_title')}
+                  {d.personName ? ` — ${d.personName}` : ''}: {d.serviceName[lang]}
+                </b>
+                <span>
+                  {d.shopName} · {t('due_line', { n: d.medianGapDays, date: dateOf(d.lastVisit, lang) })}
+                </span>
+              </span>
+              <Link
+                className="btn btn-primary sm"
+                href={`/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}`}
+              >
+                {t('due_book')}
+              </Link>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Family & friends: one device, several rhythms. */}
+      {people.length > 0 && (
+        <div className="addon-row" style={{ marginBottom: 12 }}>
+          <button className={`chip ${personFilter === 'all' ? 'on-primary' : ''}`} onClick={() => setPersonFilter('all')}>
+            {t('for_all')}
+          </button>
+          <button className={`chip ${personFilter === 'me' ? 'on-primary' : ''}`} onClick={() => setPersonFilter('me')}>
+            {t('for_me')}
+          </button>
+          {people.map((p) => (
+            <button
+              key={p.id}
+              className={`chip ${personFilter === p.id ? 'on-primary' : ''}`}
+              onClick={() => setPersonFilter(p.id)}
+            >
+              {p.emoji ?? '👤'} {p.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {bookings === null ? (
         <div className="spinner" />
@@ -178,6 +253,12 @@ export default function BookingsPage() {
                   {b.isPrime && <span className="prime-flag">★ {t('prime_flag')}</span>}
                   {b.seriesId && <span className="series-badge">🔁 {t('sr_badge')}</span>}
                   {b.duoId && <span className="series-badge">👯 {t('duo_badge')}</span>}
+                  {b.forPersonId && personName(b.forPersonId) && (
+                    <span className="series-badge">👤 {t('bk_for', { name: personName(b.forPersonId)! })}</span>
+                  )}
+                  {b.goodwillCode && (
+                    <span className="series-badge" title={b.goodwillCode}>🎁 {b.goodwillCode}</span>
+                  )}
                 </div>
                 <div className="svc">
                   {b.services.map((s) => `${s.emoji} ${s.name[lang]}`).join(' · ')}
@@ -461,6 +542,47 @@ export default function BookingsPage() {
           ))}
         </section>
       )}
+      {/* The year, as this device saw it — computed locally, shared only if
+          the customer says so. */}
+      <section className="section" style={{ marginTop: 18 }}>
+        {recap === null ? (
+          <button
+            className="btn btn-soft"
+            onClick={() => void apiCustomerRecap(new Date().getFullYear()).then(setRecap)}
+          >
+            {t('recap_btn', { year: new Date().getFullYear() })}
+          </button>
+        ) : recap.visits === 0 ? (
+          <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('recap_none')}</p>
+        ) : (
+          <div className="recap-card">
+            <h2>{t('recap_title', { year: recap.year })}</h2>
+            <div className="recap-grid">
+              <div><b>{recap.visits}</b><span>{t('recap_visits')}</span></div>
+              <div><b>{money(recap.spentCents, lang)}</b><span>{t('recap_spent')}</span></div>
+              <div><b>{money(recap.savedCents, lang)}</b><span>{t('recap_saved')}</span></div>
+              {recap.freeVisits > 0 && <div><b>{recap.freeVisits}</b><span>{t('recap_free')}</span></div>}
+            </div>
+            {recap.topShop && (
+              <p className="recap-line">
+                🏆 {t('recap_top_shop')}: <b>{recap.topShop.emoji} {recap.topShop.name}</b> ({recap.topShop.visits}×)
+              </p>
+            )}
+            {recap.topStaff && (
+              <p className="recap-line">
+                💇 {t('recap_top_staff')} <b>{recap.topStaff.name}</b> ({recap.topStaff.visits}×)
+              </p>
+            )}
+            {recap.favDow !== null && recap.favHour !== null && (
+              <p className="recap-line">
+                🕐 {t('recap_fav_time')}: <b>{t(`dow_${recap.favDow}` as MsgKey)} {String(recap.favHour).padStart(2, '0')}:00</b>
+              </p>
+            )}
+            <p className="recap-note">{t('recap_device')}</p>
+          </div>
+        )}
+      </section>
+
       <ReferralPanel />
       {receiptFor && <Receipt data={receiptFor} onClose={() => setReceiptFor(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}

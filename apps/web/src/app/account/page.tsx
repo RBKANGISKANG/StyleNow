@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { useAuth, emptyProfile, type Profile } from '@/lib/auth';
-import { apiMyBookings, apiRecordExitFeedback } from '@/lib/api';
+import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData } from '@/lib/api';
 import { ReferralPanel } from '@/components/ReferralPanel';
 import { useConfirm } from '@/components/ConfirmDialog';
 
@@ -24,6 +24,8 @@ export default function AccountPage() {
         <h1>👤 {t('acc_title')}</h1>
       </div>
       {user ? <ProfileView /> : <AuthForms />}
+      {/* Device data exists with or without an account — so do its rights. */}
+      {!user && <GuestPrivacy />}
       <div className="panel" style={{ marginTop: 16, textAlign: 'center' }}>
         <p style={{ fontSize: '0.88rem', color: 'var(--ink-soft)' }}>💼 {t('partner_title')}</p>
         <Link href="/partner" className="btn btn-dark" style={{ marginTop: 10 }}>
@@ -324,15 +326,84 @@ function ProfileView() {
       <ReferralPanel />
 
       <div className="panel" style={{ marginTop: 14 }}>
-        <a className="btn btn-soft" href={exportData()} download="stylenow-my-data.json">
-          📦 {t('acc_export')}
-        </a>
+        <h3 style={{ marginBottom: 4 }}>{t('pv_title')}</h3>
+        <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('pv_hint')}</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <a className="btn btn-soft" href={exportData()} download="stylenow-my-data.json">
+            📦 {t('acc_export')}
+          </a>
+          <PrivacyActions onDone={(n) => setToast(t('pv_erased', { n }))} />
+        </div>
         <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('acc_export_hint')}</p>
         <button className="btn btn-ghost sm" style={{ color: 'var(--danger)', marginTop: 10 }} onClick={askDelete}>
           🗑 {t('acc_delete')}
         </button>
       </div>
       {toast && <div className="toast" role="status">✅ {toast}</div>}
+      {dialog}
+    </>
+  );
+}
+
+/** Guest bookings carry personal data too — export and erasure without login. */
+function GuestPrivacy() {
+  const { t } = useI18n();
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2400);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <h3 style={{ marginBottom: 4 }}>{t('pv_title')}</h3>
+      <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('pv_hint')}</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <PrivacyActions onDone={(n) => setToast(t('pv_erased', { n }))} />
+      </div>
+      {toast && <div className="toast" role="status">✅ {toast}</div>}
+    </div>
+  );
+}
+
+/**
+ * The engine-level half of the privacy story: everything the device's data
+ * amounts to as one JSON file, and an in-place anonymization that keeps the
+ * salons' books adding up (amounts and dates stay, the person goes).
+ */
+function PrivacyActions({ onDone }: { onDone: (n: number) => void }) {
+  const { t } = useI18n();
+  const { ask, dialog } = useConfirm();
+
+  const download = async () => {
+    const data = await apiExportMyData();
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'stylenow-everything.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const erase = () =>
+    ask({
+      title: t('pv_erase'),
+      body: t('pv_erase_hint'),
+      confirmLabel: t('pv_erase'),
+      run: async () => {
+        const n = await apiEraseMyData();
+        onDone(n);
+      },
+    });
+
+  return (
+    <>
+      <button className="btn btn-soft" onClick={() => void download()}>
+        {t('pv_export')}
+      </button>
+      <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={erase}>
+        🧹 {t('pv_erase')}
+      </button>
       {dialog}
     </>
   );

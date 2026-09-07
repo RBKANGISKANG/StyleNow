@@ -336,6 +336,14 @@ function ShopPulse({ shopId }: { shopId: string }) {
           {trust.avgRating !== null && (
             <span>★ {trust.avgRating.toFixed(1)} · {t('tr_reviews', { n: String(trust.reviewCount) })}</span>
           )}
+          {/* Reliability cuts both ways: a clean record is worth showing, a
+              spotty one is worth knowing — and the sorry-voucher is policy. */}
+          <span title={t('gw_policy')}>
+            🛡 {t('rel_title')}:{' '}
+            {trust.shopCancels90 === 0 && trust.lateMoves90 === 0
+              ? t('rel_clean')
+              : t('rel_counts', { n: String(trust.shopCancels90), m: String(trust.lateMoves90) })}
+          </span>
           <em>{t('tr_derived')}</em>
         </div>
       )}

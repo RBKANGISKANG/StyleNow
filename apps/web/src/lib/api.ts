@@ -1739,3 +1739,40 @@ export async function apiSetQuietDiscount(shopId: string, pct: number): Promise<
   store.setQuietDiscount(shopId, pct);
   syncConfig(shopId);
 }
+
+// ---- customer lifecycle batch: rhythm, people, recap, privacy, goodwill ----
+
+export async function apiRebookCadence(): Promise<store.DueRebook[]> {
+  await readyForRead();
+  return store.rebookCadence(deviceId());
+}
+
+export async function apiSavedPeople(): Promise<store.SavedPerson[]> {
+  await readyForRead();
+  return store.savedPeople(deviceId());
+}
+
+export async function apiAddPerson(input: { name: string; emoji?: string; note?: string }): Promise<store.SavedPerson> {
+  await localWrite();
+  return store.addPerson(deviceId(), input);
+}
+
+export async function apiRemovePerson(personId: string): Promise<void> {
+  await localWrite();
+  store.removePerson(deviceId(), personId);
+}
+
+export async function apiCustomerRecap(year: number): Promise<store.YearRecap> {
+  await readyForRead();
+  return store.customerRecap(deviceId(), year);
+}
+
+export async function apiExportMyData(): Promise<Record<string, unknown>> {
+  await readyForRead();
+  return store.exportMyData(deviceId());
+}
+
+export async function apiEraseMyData(): Promise<number> {
+  await localWrite();
+  return store.eraseMyData(deviceId());
+}

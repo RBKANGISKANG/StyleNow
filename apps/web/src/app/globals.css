@@ -3101,3 +3101,22 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .nb-main span { font-size: 0.75rem; color: var(--ink-soft); }
 .nb-side { display: flex; flex-direction: column; align-items: flex-end; font-size: 0.75rem; color: var(--ink-soft); }
 .nb-side b { font-size: 0.85rem; color: var(--ink); }
+
+/* --- customer lifecycle batch: due cards, recap ------------------------- */
+.due-strip { margin-bottom: 14px; }
+.due-card {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border: 1px solid var(--primary); border-radius: 14px; margin-bottom: 8px;
+  background: var(--surface);
+}
+.due-emoji { font-size: 1.4rem; }
+.due-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.due-main b { font-size: 0.88rem; }
+.due-main span { font-size: 0.75rem; color: var(--ink-soft); }
+.recap-card h2 { font-size: 1.15rem; margin-bottom: 10px; }
+.recap-grid { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+.recap-grid div { background: var(--surface); padding: 10px 14px; flex: 1 1 90px; display: flex; flex-direction: column; }
+.recap-grid b { font-size: 1.2rem; }
+.recap-grid span { font-size: 0.72rem; color: var(--ink-soft); }
+.recap-line { font-size: 0.85rem; margin: 4px 0; }
+.recap-note { font-size: 0.72rem; color: var(--ink-soft); margin-top: 8px; }

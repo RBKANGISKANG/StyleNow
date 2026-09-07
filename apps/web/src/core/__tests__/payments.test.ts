@@ -18,6 +18,8 @@ import {
   setShopGoal, shopGoal, sellGiftCardAtCounter, noticesForShop,
   createShopBooking, stampStatus, setStampSettings, cancelBooking, SlotTaken,
   setQuietDiscount, quietDiscountOf, cheapestSlots, suggestedAddOns, staffInsights, alternativesFor,
+  rebookCadence, savedPeople, addPerson, removePerson, customerRecap, exportMyData, eraseMyData,
+  shopTrust as trustOf, GOODWILL_CENTS, giftCardsForDevice as cardsOf, messageThread as threadOf, sendMessage as sendMsg,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -399,4 +401,101 @@ for (const a of alts) {
   assert.ok(a.start > Date.now(), 'and a real future seat');
 }
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte and the discovery batch all check out');
+// ---------------------------------------------------------------------------
+// lifecycle batch: rhythm, people, recap, privacy, goodwill
+// ---------------------------------------------------------------------------
+
+// Fixture: three completed visits of the same service, four weeks apart.
+const rhythmDev = 'dev-rhythm';
+const rhythmIds: string[] = [];
+{
+  let made = 0;
+  for (let d = 1; d <= 21 && made < 4; d++) {
+    const iso = addDays(todayIso(), d);
+    const s = availability(shop.id, [svc.id], iso, rhythmDev, staff.id).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({
+        shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: s.start,
+        deviceId: rhythmDev, guestName: 'Rhythm', idempotencyKey: `rhy-${made}`,
+      });
+      confirmBooking(h.bookingId);
+      rhythmIds.push(h.bookingId);
+      made += 1;
+    } catch { /* seeded block — next day */ }
+  }
+}
+assert.equal(rhythmIds.length, 4, 'fixture: four seats');
+// Backdate three into a clean 28-day rhythm; the fourth stays for later.
+const gaps = [84, 56, 28];
+for (let i = 0; i < 3; i++) {
+  const b = getBooking(rhythmIds[i])!;
+  b.startsAt = Date.now() - gaps[i] * 864e5;
+  b.endsAt = b.startsAt + 45 * 60000;
+  setBookingStatus(shop.id, b.id, 'completed');
+}
+
+// The fourth is still a *future confirmed* booking of the same service, so
+// the rhythm is answered — nothing is due.
+assert.ok(!rebookCadence(rhythmDev).some((d) => d.serviceId === svc.id), 'an upcoming booking silences the nudge');
+
+// Cancel it (customer, free window) — now the rhythm speaks.
+cancelBooking(rhythmIds[3], { preview: false, by: 'customer' });
+const dues = rebookCadence(rhythmDev);
+const due = dues.find((d) => d.serviceId === svc.id);
+assert.ok(due, 'three visits every four weeks, last one a month ago → due');
+assert.ok(Math.abs(due!.medianGapDays - 28) <= 1, `median ≈ 28, got ${due!.medianGapDays}`);
+
+// Family & friends: a person is saved, filters exist, removal sticks.
+assert.equal(savedPeople(rhythmDev).length, 0);
+const milo = addPerson(rhythmDev, { name: 'Milo', emoji: '🧒' });
+assert.equal(savedPeople(rhythmDev)[0].name, 'Milo');
+removePerson(rhythmDev, milo.id);
+assert.equal(savedPeople(rhythmDev).length, 0);
+
+// The year recap: computed, honest, local.
+const recap = customerRecap(rhythmDev, new Date().getFullYear());
+assert.equal(recap.visits, 3);
+assert.ok(recap.spentCents > 0);
+assert.equal(recap.topShop?.name, shop.name);
+
+// Goodwill: the shop cancelling a confirmed seat on short notice mints €5.
+const gwDev = 'dev-goodwill';
+let gwId = '';
+for (let d = 1; d <= 21 && !gwId; d++) {
+  const iso = addDays(todayIso(), d);
+  const s = availability(shop.id, [svc.id], iso, gwDev, staff.id).slots.find((x) => x.start > Date.now());
+  if (!s) continue;
+  try {
+    const h = createHold({
+      shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: s.start,
+      deviceId: gwDev, guestName: 'Gw', idempotencyKey: 'gw-1',
+    });
+    confirmBooking(h.bookingId);
+    gwId = h.bookingId;
+  } catch { /* next day */ }
+}
+assert.ok(gwId, 'fixture: a confirmed seat');
+const gwB = getBooking(gwId)!;
+gwB.startsAt = Date.now() + 2 * 36e5; // tonight — well inside the 24 h window
+gwB.endsAt = gwB.startsAt + 45 * 60000;
+const cardsBefore = cardsOf(gwDev).length;
+cancelBooking(gwId, { preview: false, by: 'shop' });
+assert.ok(gwB.goodwill, 'the apology is automatic');
+const gwCards = cardsOf(gwDev);
+assert.equal(gwCards.length, cardsBefore + 1);
+assert.equal(gwCards[0].balanceCents, GOODWILL_CENTS);
+assert.ok(trustOf(shop.id).shopCancels90 >= 1, 'and the trust strip counts it');
+
+// Privacy: export carries everything, erasure blanks the person, not the books.
+const dump = exportMyData(rhythmDev) as { bookings: unknown[] };
+assert.ok(dump.bookings.length >= 4, 'export sees all the device bookings');
+sendMsg(shop.id, `d:${rhythmDev}`, 'customer', 'my number is 0171…');
+const totalBefore = getBooking(rhythmIds[0])!.quote.totalCents;
+const touched = eraseMyData(rhythmDev);
+assert.ok(touched >= 4);
+assert.equal(getBooking(rhythmIds[0])!.guestName, '—');
+assert.equal(getBooking(rhythmIds[0])!.quote.totalCents, totalBefore, 'amounts survive erasure');
+assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer' || m.text === '—'), 'customer texts are gone');
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, the discovery batch and the lifecycle batch all check out');
