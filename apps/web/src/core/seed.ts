@@ -27,6 +27,8 @@ export interface SeedService {
   vatRateBps: number;
   dynamicPricing: boolean;
   popular?: boolean;
+  /** Colour/chemical services: a patch test within the last 6 months is expected. */
+  requiresPatchTest?: boolean;
 }
 
 export interface SeedStaff {
@@ -130,9 +132,9 @@ export const SHOPS: SeedShop[] = [
     services: [
       { id: 'svc-cm-cut', emoji: '✂️', name: { en: 'Cut & Finish', de: 'Schnitt & Styling' }, durationMin: 45, processingGapMin: 0, finishMin: 0, basePriceCents: 6500, vatRateBps: 1900, dynamicPricing: true, popular: true },
       { id: 'svc-cm-wcb', emoji: '🚿', name: { en: 'Wash, Cut & Blow-dry', de: 'Waschen, Schneiden & Föhnen' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 7800, vatRateBps: 1900, dynamicPricing: true },
-      { id: 'svc-cm-balayage', emoji: '🎨', name: { en: 'Balayage & Gloss', de: 'Balayage & Gloss' }, durationMin: 40, processingGapMin: 45, finishMin: 35, basePriceCents: 18900, vatRateBps: 1900, dynamicPricing: true },
-      { id: 'svc-cm-highlights', emoji: '✨', name: { en: 'Full Head Highlights', de: 'Komplette Foliensträhnen' }, durationMin: 40, processingGapMin: 45, finishMin: 35, basePriceCents: 15900, vatRateBps: 1900, dynamicPricing: true },
-      { id: 'svc-cm-roots', emoji: '🧴', name: { en: 'Root Colour', de: 'Ansatzfarbe' }, durationMin: 30, processingGapMin: 35, finishMin: 25, basePriceCents: 9800, vatRateBps: 1900, dynamicPricing: true },
+      { id: 'svc-cm-balayage', emoji: '🎨', name: { en: 'Balayage & Gloss', de: 'Balayage & Gloss' }, durationMin: 40, processingGapMin: 45, finishMin: 35, basePriceCents: 18900, vatRateBps: 1900, dynamicPricing: true, requiresPatchTest: true },
+      { id: 'svc-cm-highlights', emoji: '✨', name: { en: 'Full Head Highlights', de: 'Komplette Foliensträhnen' }, durationMin: 40, processingGapMin: 45, finishMin: 35, basePriceCents: 15900, vatRateBps: 1900, dynamicPricing: true, requiresPatchTest: true },
+      { id: 'svc-cm-roots', emoji: '🧴', name: { en: 'Root Colour', de: 'Ansatzfarbe' }, durationMin: 30, processingGapMin: 35, finishMin: 25, basePriceCents: 9800, vatRateBps: 1900, dynamicPricing: true, requiresPatchTest: true },
       { id: 'svc-cm-toner', emoji: '🫧', name: { en: 'Toner & Gloss Refresh', de: 'Toner & Gloss-Auffrischung' }, durationMin: 20, processingGapMin: 20, finishMin: 20, basePriceCents: 7400, vatRateBps: 1900, dynamicPricing: false },
       { id: 'svc-cm-olaplex', emoji: '💧', name: { en: 'Olaplex Bond Treatment', de: 'Olaplex-Aufbaukur' }, durationMin: 30, processingGapMin: 0, finishMin: 0, basePriceCents: 4900, vatRateBps: 1900, dynamicPricing: false },
       { id: 'svc-cm-blowdry', emoji: '💨', name: { en: 'Blow-dry & Style', de: 'Föhnen & Stylen' }, durationMin: 30, processingGapMin: 0, finishMin: 0, basePriceCents: 3900, vatRateBps: 1900, dynamicPricing: false },
@@ -282,7 +284,7 @@ export const SHOPS: SeedShop[] = [
     services: [
       { id: 'svc-al-signature', emoji: '🌿', name: { en: 'Signature Cut Ritual', de: 'Signature-Schnitt-Ritual' }, durationMin: 75, processingGapMin: 0, finishMin: 0, basePriceCents: 12500, vatRateBps: 1900, dynamicPricing: false, popular: true },
       { id: 'svc-al-silent', emoji: '🤫', name: { en: 'Silent Appointment Cut', de: 'Stiller Termin — Schnitt' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 11000, vatRateBps: 1900, dynamicPricing: false },
-      { id: 'svc-al-colour', emoji: '🍂', name: { en: 'Botanical Colour', de: 'Pflanzenfarbe' }, durationMin: 45, processingGapMin: 50, finishMin: 30, basePriceCents: 16800, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-al-colour', emoji: '🍂', name: { en: 'Botanical Colour', de: 'Pflanzenfarbe' }, durationMin: 45, processingGapMin: 50, finishMin: 30, basePriceCents: 16800, vatRateBps: 1900, dynamicPricing: false, requiresPatchTest: true },
       { id: 'svc-al-treatment', emoji: '💧', name: { en: 'Deep Repair Treatment', de: 'Intensiv-Repair-Kur' }, durationMin: 40, processingGapMin: 0, finishMin: 0, basePriceCents: 8900, vatRateBps: 1900, dynamicPricing: false },
       { id: 'svc-al-bridal', emoji: '👰', name: { en: 'Bridal Hair Trial', de: 'Brautfrisur-Probetermin' }, durationMin: 90, processingGapMin: 0, finishMin: 0, basePriceCents: 15000, vatRateBps: 1900, dynamicPricing: false },
     ],
@@ -519,7 +521,7 @@ export const SHOPS: SeedShop[] = [
     services: [
       { id: 'svc-sn-cut', emoji: '✂️', name: { en: 'Cut & Finish', de: 'Schnitt & Styling' }, durationMin: 45, processingGapMin: 0, finishMin: 0, basePriceCents: 4400, vatRateBps: 1900, dynamicPricing: true, popular: true },
       { id: 'svc-sn-wcb', emoji: '🚿', name: { en: 'Wash, Cut & Blow-dry', de: 'Waschen, Schneiden & Föhnen' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 5400, vatRateBps: 1900, dynamicPricing: true },
-      { id: 'svc-sn-colour', emoji: '🎨', name: { en: 'Full Colour', de: 'Komplettfärbung' }, durationMin: 35, processingGapMin: 35, finishMin: 25, basePriceCents: 8900, vatRateBps: 1900, dynamicPricing: true },
+      { id: 'svc-sn-colour', emoji: '🎨', name: { en: 'Full Colour', de: 'Komplettfärbung' }, durationMin: 35, processingGapMin: 35, finishMin: 25, basePriceCents: 8900, vatRateBps: 1900, dynamicPricing: true, requiresPatchTest: true },
       { id: 'svc-sn-student', emoji: '🎓', name: { en: 'Student Cut (with ID)', de: 'Studierendenschnitt (mit Ausweis)' }, durationMin: 40, processingGapMin: 0, finishMin: 0, basePriceCents: 3500, vatRateBps: 1900, dynamicPricing: false },
     ],
     staff: [

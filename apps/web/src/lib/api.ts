@@ -423,20 +423,25 @@ export async function apiShopReviews(shopId: string): Promise<UserReview[]> {
   return store.userReviewsForShop(shopId);
 }
 
-export async function apiSetReview(bookingId: string, rating: number, text: string): Promise<boolean> {
+export async function apiSetReview(
+  bookingId: string,
+  rating: number,
+  text: string,
+  tags?: store.ReviewTag[],
+): Promise<boolean> {
   const mode = backendMode();
   if (mode === 'server') {
     const res = await fetch(`/api/bookings/${bookingId}/review`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rating, text }),
+      body: JSON.stringify({ rating, text, tags }),
     });
     return res.ok;
   }
   await ready();
   try {
-    if (backendMode() === 'supabase') await sb.setReview(bookingId, rating, text);
-    else store.setReview(bookingId, rating, text);
+    if (backendMode() === 'supabase') await sb.setReview(bookingId, rating, text, tags);
+    else store.setReview(bookingId, rating, text, tags);
     return true;
   } catch {
     return false;
@@ -1907,4 +1912,67 @@ export async function apiLatestTechRecord(
 export async function apiPublicQueue(shopId: string): Promise<{ queued: number; waitMin: number | null }> {
   await readyForRead();
   return store.publicQueue(shopId);
+}
+
+// ---- records & reports batch: Kassenbuch, commission, utilization, tags, care
+
+export async function apiCashEntries(shopId: string, iso: string): Promise<store.CashEntry[]> {
+  await readyForRead();
+  return store.cashEntries(shopId, iso);
+}
+
+export async function apiAddCashEntry(
+  shopId: string,
+  iso: string,
+  input: { kind: store.CashEntry['kind']; amountCents: number; note?: string },
+): Promise<void> {
+  await localWrite();
+  store.addCashEntry(shopId, iso, input);
+  syncConfig(shopId);
+}
+
+export async function apiDeleteCashEntry(shopId: string, iso: string, id: string): Promise<void> {
+  await localWrite();
+  store.deleteCashEntry(shopId, iso, id);
+  syncConfig(shopId);
+}
+
+export async function apiDrawerReport(shopId: string, iso: string): Promise<store.DrawerReport> {
+  await readyForRead();
+  return store.drawerReport(shopId, iso);
+}
+
+export async function apiStaffEarnings(shopId: string, fromIso: string, toIso: string): Promise<store.StaffEarningsRow[]> {
+  await readyForRead();
+  return store.staffEarningsReport(shopId, fromIso, toIso);
+}
+
+export async function apiUtilizationReport(shopId: string, fromIso: string, toIso: string): Promise<store.UtilizationReport> {
+  await readyForRead();
+  return store.utilizationReport(shopId, fromIso, toIso);
+}
+
+export async function apiReviewTagStats(shopId: string): Promise<ReturnType<typeof store.reviewTagStats>> {
+  await readyForRead();
+  return store.reviewTagStats(shopId);
+}
+
+export async function apiCareProfile(): Promise<store.CareProfile> {
+  await readyForRead();
+  return store.careProfile(deviceId());
+}
+
+export async function apiSetAllergies(allergies: string[]): Promise<void> {
+  await localWrite();
+  store.setAllergies(deviceId(), allergies);
+}
+
+export async function apiRecordPatchTest(shopId: string): Promise<void> {
+  await localWrite();
+  store.recordPatchTest(deviceId(), shopId);
+}
+
+export async function apiPatchTestValid(shopId: string): Promise<boolean> {
+  await readyForRead();
+  return store.patchTestValid(deviceId(), shopId);
 }

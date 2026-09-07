@@ -33,6 +33,7 @@ export interface Overview {
       basePriceCents: number;
       dynamicPricing: boolean;
       categoryId?: string;
+      requiresPatchTest?: boolean;
     }>;
     pricingRules: Array<{ id: string; name: string; enabled: boolean }>;
     locations: Array<{ id: string; label: string; street: string; zip: string; city: string; district: string }>;
@@ -47,6 +48,7 @@ export interface Overview {
     role: { en: string; de: string };
     tier: 'senior' | 'stylist';
     locationId: string | null;
+    commissionPercent: number;
     shifts: Partial<Record<number, Array<{ startMin: number; endMin: number }>>>;
     working: Array<{ start: number; end: number }>;
     blocks: Array<{
@@ -78,6 +80,8 @@ export interface Overview {
     totalCents: number;
     checkedInAt: number | null;
     techFormula: string | null;
+    needsPatchTest: boolean;
+    allergies: string[];
   }>;
   week: Array<{ iso: string; revenueCents: number }>;
 }

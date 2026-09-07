@@ -413,6 +413,12 @@ function TodayTab({ shopId }: { shopId: string }) {
                           </a>
                         )}
                         {b.guestNote && <span className="bk-note" title={b.guestNote}>💬 {b.guestNote}</span>}
+                        {b.needsPatchTest && (
+                          <span className="cus-tag risk" title={t('pt_row_hint')} style={{ marginLeft: 4 }}>🧪</span>
+                        )}
+                        {b.allergies.length > 0 && (
+                          <span className="bk-note" title={b.allergies.join(', ')}>🚫 {b.allergies.join(', ')}</span>
+                        )}
                       </td>
                       <td>
                         {b.serviceNames.join(', ')}

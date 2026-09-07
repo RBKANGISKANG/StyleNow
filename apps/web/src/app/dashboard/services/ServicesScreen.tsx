@@ -36,7 +36,7 @@ function ServicesTab({ shopId }: { shopId: string }) {
 
   const patchService = async (
     sid: string,
-    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string },
+    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean },
   ) => {
     await apiPatchService(shopId, sid, patch);
     setToast('💾 OK');
@@ -63,6 +63,7 @@ function ServicesTab({ shopId }: { shopId: string }) {
               <th>{t('price')}</th>
               <th>{t('duration')}</th>
               <th>{t('smart_pricing')}</th>
+              <th title={t('pt_col_hint')}>🧪</th>
               <th />
             </tr>
           </thead>
@@ -119,6 +120,17 @@ function ServicesTab({ shopId }: { shopId: string }) {
                       type="checkbox"
                       checked={s.dynamicPricing}
                       onChange={(e) => void patchService(s.id, { dynamicPricing: e.target.checked })}
+                    />
+                    <span className="knob" />
+                  </label>
+                </td>
+                <td>
+                  {/* patch-test flag: colour chemistry asks for tested skin */}
+                  <label className="switch" title={t('pt_col_hint')}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(s.requiresPatchTest)}
+                      onChange={(e) => void patchService(s.id, { requiresPatchTest: e.target.checked })}
                     />
                     <span className="knob" />
                   </label>

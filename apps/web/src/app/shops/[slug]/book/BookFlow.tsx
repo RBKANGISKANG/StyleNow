@@ -18,7 +18,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -36,6 +36,7 @@ interface Svc {
   basePriceCents: number;
   dynamicPricing: boolean;
   popular: boolean;
+  requiresPatchTest?: boolean;
 }
 interface ShopInfo {
   id: string;
@@ -210,6 +211,27 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [stamp, setStamp] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
   const [useStamp, setUseStamp] = useState(false);
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
+
+  // Patch-test passport: a flagged service without a recent recorded test at
+  // this salon needs an explicit acknowledgement before the seat is held.
+  const [ptRequired, setPtRequired] = useState(false);
+  const [ptAck, setPtAck] = useState(false);
+  useEffect(() => {
+    if (step !== 2) return;
+    const flagged = menu.filter((s) => serviceIds.includes(s.id)).some((s) => s.requiresPatchTest);
+    if (!flagged) {
+      setPtRequired(false);
+      return;
+    }
+    let alive = true;
+    void apiPatchTestValid(shop.id).then((ok) => {
+      if (alive) setPtRequired(!ok);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, serviceIds, menu, shop.id]);
 
   // Family & friends: who this visit is for ('' = the device owner).
   const [people, setPeople] = useState<SavedPersonT[]>([]);
@@ -1206,6 +1228,14 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               {selected.some((s) => /colou?r|balayage|toner|blond|gloss|tint/i.test(s.name.en)) && (
                 <p className="patch-hint">🧪 {t('patch_hint')}</p>
               )}
+              {/* Not a hint but a gate: colour chemistry on untested skin is
+                  the one thing a booking tool should refuse to wave through. */}
+              {ptRequired && (
+                <label className="patch-hint" style={{ display: 'flex', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={ptAck} onChange={(e) => setPtAck(e.target.checked)} />
+                  <span>🧪 {t('pt_gate')}</span>
+                </label>
+              )}
               <input
                 className="input"
                 placeholder={t('your_name')}
@@ -1343,7 +1373,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <button
                 className="btn btn-primary"
                 style={{ flex: 1 }}
-                disabled={holding || name.trim().length === 0 || (duo && friendName.trim().length === 0)}
+                disabled={
+                  holding ||
+                  name.trim().length === 0 ||
+                  (duo && friendName.trim().length === 0) ||
+                  (ptRequired && !ptAck)
+                }
                 onClick={() => void createHold(slot.start, staffId)}
               >
                 {holding ? '…' : `${t('continue')} →`}

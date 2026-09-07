@@ -5,7 +5,7 @@ import { ShareShop } from '@/components/ShareShop';
 import { NextOpenings } from '@/components/NextOpenings';
 import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
 import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue } from '@/lib/api';
 import { Heart } from '@/components/Heart';
@@ -21,6 +21,7 @@ interface LiveReview {
   date: string;
   serviceNames: Array<{ en: string; de: string }>;
   reply: { text: string; at: string } | null;
+  tags?: string[];
 }
 
 const AVATAR_COLORS = ['#f0566e', '#12a594', '#8b6cf0', '#f6a53c'];
@@ -263,6 +264,21 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
 
       <section className="section">
         <h2>{t('reviews')}</h2>
+        {/* the countable compliments, shop-wide, before the individual voices */}
+        {(() => {
+          const counts = new Map<string, number>();
+          for (const r of liveReviews) for (const tg of r.tags ?? []) counts.set(tg, (counts.get(tg) ?? 0) + 1);
+          const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+          return top.length > 0 ? (
+            <div className="addon-row" style={{ marginBottom: 10 }}>
+              {top.map(([tg, n]) => (
+                <span className="chip" key={tg} style={{ cursor: 'default' }}>
+                  {t(`rt_${tg}` as MsgKey)} ×{n}
+                </span>
+              ))}
+            </div>
+          ) : null;
+        })()}
         {liveReviews.map((r, i) => (
           <div className="review-card" key={`live-${i}`}>
             <div className="review-head">
@@ -271,6 +287,13 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
                 <span className="star">{'★'.repeat(r.rating)}</span>
               </span>
             </div>
+            {(r.tags ?? []).length > 0 && (
+              <div className="addon-row" style={{ margin: '4px 0' }}>
+                {(r.tags ?? []).map((tg) => (
+                  <span className="chip sm" key={tg} style={{ cursor: 'default' }}>{t(`rt_${tg}` as MsgKey)}</span>
+                ))}
+              </div>
+            )}
             {r.text && <p>“{r.text}”</p>}
             <div className="svc">
               {r.serviceNames.map((n) => n[lang]).join(', ')} · {r.date}

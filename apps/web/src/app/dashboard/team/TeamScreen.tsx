@@ -252,6 +252,7 @@ function StaffDialog({
   const [role, setRole] = useState('');
   const [tier, setTier] = useState<'senior' | 'stylist'>('stylist');
   const [locationId, setLocationId] = useState('');
+  const [commission, setCommission] = useState(0);
 
   // every opening mirrors the person (or starts blank for a new one)
   useEffect(() => {
@@ -260,6 +261,7 @@ function StaffDialog({
     setRole(row?.role[lang] ?? '');
     setTier(row?.tier ?? 'stylist');
     setLocationId(row?.locationId ?? '');
+    setCommission(row?.commissionPercent ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.staffId]);
 
@@ -271,6 +273,7 @@ function StaffDialog({
         role: { en: role.trim() || 'Stylist', de: role.trim() || 'Stylist' },
         tier,
         locationId: locationId || undefined,
+        commissionPercent: commission || undefined,
       }).then(() => {
         onChanged('💾 ' + t('team_saved'));
         onClose();
@@ -359,6 +362,16 @@ function StaffDialog({
             ))}
           </select>
         </label>
+        {row && (
+          <label>
+            <span>{t('team_commission')}</span>
+            <select className="input" value={commission} onChange={(e) => setCommission(Number(e.target.value))}>
+              {[0, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((n) => (
+                <option key={n} value={n}>{n === 0 ? '—' : `${n} %`}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {row ? (

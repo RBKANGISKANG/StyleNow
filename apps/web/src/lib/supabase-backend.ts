@@ -342,8 +342,8 @@ export async function toggleRule(shopId: string, ruleId: string): Promise<void> 
   if (error) throw error;
 }
 
-export async function setReview(bookingId: string, rating: number, text: string): Promise<void> {
-  const b = store.setReview(bookingId, rating, text);
+export async function setReview(bookingId: string, rating: number, text: string, tags?: store.ReviewTag[]): Promise<void> {
+  const b = store.setReview(bookingId, rating, text, tags);
   const db = await sb();
   const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
   if (error) throw error;

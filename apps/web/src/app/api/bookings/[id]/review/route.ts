@@ -9,7 +9,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'invalid_review' }, { status: 400 });
   }
   try {
-    const b = setReview(params.id, body.rating, body.text);
+    const b = setReview(params.id, body.rating, body.text, Array.isArray(body.tags) ? body.tags : undefined);
     return NextResponse.json({ review: b.review });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 404 });

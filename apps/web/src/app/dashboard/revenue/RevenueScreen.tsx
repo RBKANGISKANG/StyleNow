@@ -6,10 +6,13 @@
  * monthly, not while you are running the floor, and it wants more room than a
  * seven-day strip at the bottom of the calendar.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, apiDrawerReport, apiAddCashEntry, apiDeleteCashEntry, apiStaffEarnings, apiUtilizationReport, type RevenueReport } from '@/lib/api';
+import type { DrawerReport as DrawerReportT, StaffEarningsRow as StaffEarningsRowT, UtilizationReport as UtilizationReportT, CashEntry } from '@/core/store';
+
+type CashKind = CashEntry['kind'];
 import { toCsv, eurDe } from '@/lib/csv';
 import { RevenueChart } from '@/components/RevenueChart';
 import { DayClose } from '@/components/DayClose';
@@ -336,6 +339,10 @@ function RevenueTab({ shopId }: { shopId: string }) {
           </section>
           {closeOpen && <DayClose shopId={shopId} iso={closeIso} onClose={() => setCloseOpen(false)} />}
 
+          <CashPanel shopId={shopId} />
+          <CommissionPanel shopId={shopId} />
+          <UtilizationPanel shopId={shopId} />
+
           <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)' }}>
             💡 {ahead ? t('rev_ahead_hint') : t('rev_hint')}
           </p>
@@ -374,5 +381,228 @@ function Ranked({
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Kassenbuch: the physical drawer, day by day. Float in, expenses and tip
+ * payouts out, and — once counted — the Differenz against what the day's
+ * bookings say should be in there.
+ */
+function CashPanel({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [iso, setIso] = useState(todayIso());
+  const [report, setReport] = useState<DrawerReportT | null>(null);
+  const [kind, setKind] = useState<CashKind>('float');
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiDrawerReport(shopId, iso).then(setReport);
+  }, [shopId, iso]);
+  useEffect(load, [load]);
+
+  const KINDS: CashKind[] = ['float', 'expense', 'tip_payout', 'correction', 'count'];
+  return (
+    <section className="section">
+      <h2>💶 {t('cb_title')}</h2>
+      <div className="panel">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+          <input type="date" className="input" style={{ width: 'auto' }} value={iso} max={todayIso()} onChange={(e) => setIso(e.target.value)} />
+          <label className="chip">
+            <select value={kind} onChange={(e) => setKind(e.target.value as CashKind)}>
+              {KINDS.map((k) => (
+                <option key={k} value={k}>{t(`cb_${k}` as MsgKey)}</option>
+              ))}
+            </select>
+          </label>
+          <input className="input" style={{ width: 90 }} inputMode="decimal" placeholder="€" value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d.,-]/g, ''))} />
+          <input className="input" style={{ flex: 1, minWidth: 120 }} placeholder={t('cb_note_ph')} value={note}
+            maxLength={80} onChange={(e) => setNote(e.target.value)} />
+          <button
+            className="btn btn-primary sm"
+            disabled={!amount}
+            onClick={() => {
+              const cents = Math.round(Number(amount.replace(',', '.')) * 100);
+              if (!Number.isFinite(cents)) return;
+              void apiAddCashEntry(shopId, iso, { kind, amountCents: cents, note: note || undefined }).then(() => {
+                setAmount('');
+                setNote('');
+                load();
+              });
+            }}
+          >
+            ＋
+          </button>
+        </div>
+        {report && (
+          <>
+            {report.entries.map((e) => (
+              <div className="wi-row" key={e.id}>
+                <span className="wi-name">{t(`cb_${e.kind}` as MsgKey)}</span>
+                <span className="wi-meta">{e.note ?? ''}</span>
+                <span style={{ fontWeight: 700 }}>
+                  {e.kind === 'expense' || e.kind === 'tip_payout' ? '−' : ''}{money(e.amountCents, lang)}
+                </span>
+                <button className="btn btn-ghost sm" onClick={() => void apiDeleteCashEntry(shopId, iso, e.id).then(load)}>✕</button>
+              </div>
+            ))}
+            <div className="wi-row" style={{ fontWeight: 800 }}>
+              <span className="wi-name">{t('cb_expected')}</span>
+              <span className="wi-meta" />
+              <span>{money(report.expectedCents, lang)}</span>
+            </div>
+            {report.differenceCents !== null && (
+              <div className="wi-row" style={{ fontWeight: 800, color: report.differenceCents === 0 ? 'var(--teal)' : 'var(--danger)' }}>
+                <span className="wi-name">{t('cb_diff')}</span>
+                <span className="wi-meta" />
+                <span>{report.differenceCents > 0 ? '+' : ''}{money(report.differenceCents, lang)}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Provisionsabrechnung: each stylist's completed revenue × their percent. */
+function CommissionPanel({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [from, setFrom] = useState(addDays(todayIso(), -27));
+  const [to, setTo] = useState(todayIso());
+  const [rows, setRows] = useState<StaffEarningsRowT[]>([]);
+
+  useEffect(() => {
+    if (!shopId || from > to) return;
+    void apiStaffEarnings(shopId, from, to).then(setRows);
+  }, [shopId, from, to]);
+
+  const exportCsv = () => {
+    const data = [
+      [t('team_name'), t('cm_bookings'), t('cm_revenue'), t('cm_tips'), '%', t('cm_commission')],
+      ...rows.map((r) => [r.name, String(r.bookingCount), eurDe(r.serviceCents), eurDe(r.tipCents), String(r.commissionPercent), eurDe(r.commissionCents)]),
+    ];
+    const url = URL.createObjectURL(new Blob([toCsv(data)], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `provisionen-${from}-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <section className="section">
+      <h2>🤝 {t('cm_title')}</h2>
+      <div className="panel">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+          <input type="date" className="input" style={{ width: 'auto' }} value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
+          <span>→</span>
+          <input type="date" className="input" style={{ width: 'auto' }} value={to} min={from} max={todayIso()} onChange={(e) => setTo(e.target.value)} />
+          <button className="btn btn-soft sm" onClick={exportCsv} disabled={rows.length === 0}>📑 {t('csv_export')}</button>
+          <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', flexBasis: '100%' }}>{t('cm_hint')}</span>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="dash-table">
+            <thead>
+              <tr>
+                <th>{t('team_name')}</th><th>{t('cm_bookings')}</th><th>{t('cm_revenue')}</th><th>{t('cm_tips')}</th><th>%</th><th>{t('cm_commission')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.staffId}>
+                  <td>{r.name}</td>
+                  <td>{r.bookingCount}</td>
+                  <td>{money(r.serviceCents, lang)}</td>
+                  <td>{money(r.tipCents, lang)}</td>
+                  <td>{r.commissionPercent > 0 ? `${r.commissionPercent} %` : '—'}</td>
+                  <td style={{ fontWeight: 700 }}>{r.commissionPercent > 0 ? money(r.commissionCents, lang) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Where the chairs stand empty and what fills them: a weekday × day-part heat
+ * grid of booked share, and each service's revenue per chair-hour.
+ */
+function UtilizationPanel({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [data, setData] = useState<UtilizationReportT | null>(null);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiUtilizationReport(shopId, addDays(todayIso(), -27), todayIso()).then(setData);
+  }, [shopId]);
+
+  if (!data || data.services.length === 0) return null;
+  const parts = ['morning', 'afternoon', 'evening'] as const;
+  const cellFor = (dow: number, part: string) => data.grid.find((g) => g.dow === dow && g.part === part);
+  const worst = [...data.grid].filter((g) => g.bookedPct !== null).sort((a, b) => (a.bookedPct ?? 0) - (b.bookedPct ?? 0))[0];
+  const top = data.services[0];
+  return (
+    <section className="section">
+      <h2>📊 {t('ut_title')}</h2>
+      <div className="panel">
+        <div style={{ overflowX: 'auto' }}>
+          <table className="dash-table ut-grid">
+            <thead>
+              <tr>
+                <th />
+                {[1, 2, 3, 4, 5, 6, 7].map((d) => (<th key={d}>{t(`dow_${d}` as MsgKey).slice(0, 2)}</th>))}
+              </tr>
+            </thead>
+            <tbody>
+              {parts.map((part) => (
+                <tr key={part}>
+                  <td style={{ fontWeight: 700 }}>{t(`qw_${part}` as MsgKey)}</td>
+                  {[1, 2, 3, 4, 5, 6, 7].map((d) => {
+                    const cell = cellFor(d, part);
+                    const p = cell?.bookedPct ?? null;
+                    return (
+                      <td key={d} className={`ut-cell ${p === null ? 'off' : p >= 70 ? 'hot' : p >= 35 ? 'mid' : 'cool'}`}>
+                        {p === null ? '—' : `${p}%`}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <table className="dash-table" style={{ marginTop: 12 }}>
+          <thead>
+            <tr><th>{t('services')}</th><th>#</th><th>{t('cm_revenue')}</th><th>{t('ut_per_hour')}</th></tr>
+          </thead>
+          <tbody>
+            {data.services.slice(0, 6).map((s) => (
+              <tr key={s.serviceId}>
+                <td>{s.emoji} {s.name[lang]}</td>
+                <td>{s.count}</td>
+                <td>{money(s.revenueCents, lang)}</td>
+                <td style={{ fontWeight: 700 }}>{money(s.perChairHourCents, lang)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {/* Two honest sentences instead of a dashboard nobody reads. */}
+        {top && top.count >= 8 && (
+          <p style={{ fontSize: '0.8rem', marginTop: 10 }}>💡 {t('ut_hint_top', { name: top.name[lang] })}</p>
+        )}
+        {worst && worst.bookedPct !== null && worst.bookedPct < 40 && (
+          <p style={{ fontSize: '0.8rem', marginTop: 4 }}>
+            💡 {t('ut_hint_quiet', { day: t(`dow_${worst.dow}` as MsgKey), part: t(`qw_${worst.part}` as MsgKey), pct: worst.bookedPct })}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }

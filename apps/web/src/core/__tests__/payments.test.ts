@@ -24,6 +24,9 @@ import {
   addLogEntry, ackLogEntry, logEntries, deleteLogEntry,
   saveChecklist, checklists, tickChecklistItem, checklistCompletion,
   setTechRecord, latestTechRecord,
+  addCashEntry, drawerReport, deleteCashEntry,
+  staffEarningsReport, patchStaff, utilizationReport,
+  setReview, reviewTagStats, recordPatchTest, patchTestValid, careProfile as careOf, setAllergies,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -584,4 +587,77 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.throws(() => setTechRecord(shop.id, rhythmIds[0], { formula: '', byStaffId: staff.id }), /bad_formula/);
 }
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, the discovery, lifecycle and shop-floor batches all check out');
+// ---------------------------------------------------------------------------
+// records & reports batch: Kassenbuch, commission, utilization, tags, care
+// ---------------------------------------------------------------------------
+
+// Kassenbuch: float in, expenses out, and the Differenz once counted.
+{
+  const iso = todayIso();
+  addCashEntry(shop.id, iso, { kind: 'float', amountCents: 15000 });
+  addCashEntry(shop.id, iso, { kind: 'expense', amountCents: 1200, note: 'Kaffee' });
+  const before = drawerReport(shop.id, iso);
+  assert.equal(before.countedCents, null, 'not counted yet');
+  const baseline = before.expectedCents;
+  addCashEntry(shop.id, iso, { kind: 'count', amountCents: baseline - 500 });
+  const after = drawerReport(shop.id, iso);
+  assert.equal(after.differenceCents, -500, 'the drawer is €5 short and says so');
+  assert.throws(() => addCashEntry(shop.id, iso, { kind: 'expense', amountCents: -100 }), /bad_amount/);
+  const cnt = after.entries.find((e) => e.kind === 'count')!;
+  deleteCashEntry(shop.id, iso, cnt.id);
+  assert.equal(drawerReport(shop.id, iso).differenceCents, null, 'deleting the count reopens it');
+}
+
+// Provisionsabrechnung: revenue × percent, tips never commissioned.
+{
+  patchStaff(shop.id, staff.id, { commissionPercent: 30 });
+  const rows = staffEarningsReport(shop.id, addDays(todayIso(), -120), todayIso());
+  const mine = rows.find((r) => r.staffId === staff.id)!;
+  assert.ok(mine.serviceCents > 0, 'the fixture months earned something');
+  assert.equal(mine.commissionCents, Math.round((mine.serviceCents * 30) / 100));
+  const other = rows.find((r) => r.commissionPercent === 0);
+  if (other) assert.equal(other.commissionCents, 0, 'no percent, no commission');
+}
+
+// Utilization: capacity grid is bounded, per-chair-hour is derived.
+{
+  const ut = utilizationReport(shop.id, addDays(todayIso(), -27), todayIso());
+  assert.equal(ut.grid.length, 21, '7 days × 3 parts');
+  for (const g of ut.grid) if (g.bookedPct !== null) assert.ok(g.bookedPct >= 0 && g.bookedPct <= 100);
+  assert.ok(ut.services.length > 0, 'the fixtures booked services');
+  for (const s of ut.services) assert.ok(s.perChairHourCents >= 0);
+}
+
+// Review tags: countable, per stylist, bogus tags dropped.
+{
+  const done = getBooking(rhythmIds[0])!;
+  setReview(done.id, 5, 'wunderbar', ['on_time', 'great_result', 'nope' as never]);
+  const stats = reviewTagStats(shop.id);
+  assert.ok((stats.total.on_time ?? 0) >= 1);
+  assert.ok((stats.byStaff[done.staffId]?.great_result ?? 0) >= 1);
+  assert.equal(done.review!.tags!.length, 2, 'the invented tag never landed');
+}
+
+// Patch-test passport: the flag rides the hold until a test is recorded.
+{
+  const dev = 'dev-patch';
+  const flagged = shop.services.find((s) => s.requiresPatchTest)!;
+  assert.ok(flagged, 'seed carries flagged colour services');
+  assert.equal(patchTestValid(dev, shop.id), false);
+  let held: string = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [flagged.id], addDays(todayIso(), d), dev).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [flagged.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Pt', idempotencyKey: 'pt-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a colour hold');
+  assert.equal(getBooking(held)!.needsPatchTest, true, 'no test on file → the floor sees it');
+  recordPatchTest(dev, shop.id);
+  assert.equal(patchTestValid(dev, shop.id), true);
+  setAllergies(dev, ['PPD', '  ', 'Ammoniak']);
+  assert.deepEqual(careOf(dev).allergies, ['PPD', 'Ammoniak'], 'blanks are dropped');
+}
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte and all four feature batches check out');

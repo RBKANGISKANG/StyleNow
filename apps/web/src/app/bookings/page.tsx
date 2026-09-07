@@ -20,9 +20,11 @@ import {
   apiSavedPeople,
   apiCustomerRecap,
   apiCheckIn,
+  apiRecordPatchTest,
   type GiftCard,
 } from '@/lib/api';
-import type { DueRebook, SavedPerson, YearRecap } from '@/core/store';
+import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
+import { REVIEW_TAGS } from '@/core/store';
 import { icsHref } from '@/lib/ics';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
@@ -56,6 +58,7 @@ interface Bk {
   forPersonId: string | null;
   goodwillCode: string | null;
   checkedInAt: number | null;
+  needsPatchTest: boolean;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   payment: { method: string; label: string } | null;
@@ -617,12 +620,14 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
   const { t, lang } = useI18n();
   const [rating, setRating] = useState(0);
   const [text, setText] = useState('');
+  const [tags, setTags] = useState<ReviewTag[]>([]);
   const [busy, setBusy] = useState(false);
+  const [ptDone, setPtDone] = useState(false);
 
   const submitReview = async () => {
     if (rating < 1) return;
     setBusy(true);
-    await apiSetReview(booking.id, rating, text.trim());
+    await apiSetReview(booking.id, rating, text.trim(), tags);
     setBusy(false);
     onChanged();
   };
@@ -657,6 +662,18 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
               </button>
             ))}
           </div>
+          {/* The countable half of the review — one tap per compliment. */}
+          <div className="addon-row" style={{ margin: '4px 0 8px' }}>
+            {REVIEW_TAGS.map((tg) => (
+              <button
+                key={tg}
+                className={`chip ${tags.includes(tg) ? 'on-primary' : ''}`}
+                onClick={() => setTags((cur) => (cur.includes(tg) ? cur.filter((x) => x !== tg) : [...cur, tg]))}
+              >
+                {t(`rt_${tg}` as MsgKey)}
+              </button>
+            ))}
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               className="input"
@@ -672,6 +689,20 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
           </div>
         </div>
       )}
+      {/* A colour visit means a patch test happened — record it once and the
+          next booking at this salon skips the warning. */}
+      {booking.needsPatchTest && booking.shop && !ptDone && (
+        <button
+          className="btn btn-soft sm"
+          style={{ marginTop: 10 }}
+          onClick={() => {
+            void apiRecordPatchTest(booking.shop!.id).then(() => setPtDone(true));
+          }}
+        >
+          🧪 {t('pt_record')}
+        </button>
+      )}
+      {ptDone && <p style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--teal)' }}>✅ {t('pt_recorded')}</p>}
       {booking.tipCents > 0 ? (
         <p style={{ marginTop: 10, fontSize: '0.85rem' }}>
           💶 <strong>{t('tip_label')}:</strong> {money(booking.tipCents, lang)} · {t('tip_added')}

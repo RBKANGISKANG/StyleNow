@@ -89,7 +89,7 @@ export interface Booking {
   guestNote?: string;
   policySnapshot: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
   cancellation?: { feeCents: number; refundCents: number; reason: string };
-  review?: { rating: number; text: string; date: string };
+  review?: { rating: number; text: string; date: string; tags?: ReviewTag[] };
   /** the shop's public answer to that review */
   reviewReply?: { text: string; at: string };
   tipCents?: number;
@@ -126,6 +126,8 @@ export interface Booking {
   goodwill?: { code: string; at: number };
   /** The customer tapped "I'm here" — the floor sees an arrived dot. */
   checkedInAt?: number;
+  /** A flagged service without a recent patch test at this shop — the floor sees it. */
+  needsPatchTest?: boolean;
   /** Rezeptkarte: the colour formula this visit used, written by the stylist. */
   techRecord?: TechRecord;
   createdAt: number;
@@ -175,6 +177,8 @@ export interface StaffMember {
   employedSince?: string; // YYYY-MM-DD
   weeklyHours?: number;   // contracted hours per week
   notes?: string;
+  /** share of own completed service revenue paid as commission */
+  commissionPercent?: number;
 }
 
 export type AbsenceKind = 'vacation' | 'sick' | 'training' | 'other';
@@ -199,6 +203,25 @@ export interface ShopClosure {
   from: string; // YYYY-MM-DD inclusive
   to: string;   // YYYY-MM-DD inclusive
   reason: string;
+}
+
+/** The structured half of a review — countable, comparable, per stylist. */
+export type ReviewTag = 'on_time' | 'great_result' | 'clean' | 'friendly' | 'would_return';
+export const REVIEW_TAGS: ReviewTag[] = ['on_time', 'great_result', 'clean', 'friendly', 'would_return'];
+
+/** One movement of physical money — the Kassenbuch line. */
+export interface CashEntry {
+  id: string;
+  kind: 'float' | 'expense' | 'tip_payout' | 'correction' | 'count';
+  amountCents: number;
+  note?: string;
+  at: number;
+}
+
+/** Allergies and patch tests travel with the person, not the booking. */
+export interface CareProfile {
+  allergies: string[];
+  patchTests: Array<{ shopId: string; iso: string }>;
 }
 
 /** A walk-in waiting for a chair — the paper list by the till, kept honestly. */
@@ -286,6 +309,8 @@ interface State {
   logEntries: Map<string, LogEntry[]>; // shopId → the Übergabebuch (team logbook)
   checklists: Map<string, ChecklistTemplate[]>; // shopId → opening/closing checklists
   checklistTicks: Map<string, ChecklistTick[]>; // `${shopId}:${iso}` → what got done that day
+  cashEntries: Map<string, CashEntry[]>; // `${shopId}:${iso}` → the day's Kassenbuch
+  careProfiles: Map<string, CareProfile>; // deviceId → allergies & patch tests
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -354,6 +379,8 @@ const state: State =
     logEntries: new Map(),
     checklists: new Map(),
     checklistTicks: new Map(),
+    cashEntries: new Map(),
+    careProfiles: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -427,6 +454,8 @@ function persist(): boolean {
         logEntries: [...state.logEntries.entries()],
         checklists: [...state.checklists.entries()],
         checklistTicks: [...state.checklistTicks.entries()],
+        cashEntries: [...state.cashEntries.entries()],
+        careProfiles: [...state.careProfiles.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -477,6 +506,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
         logEntries?: Array<[string, LogEntry[]]>;
         checklists?: Array<[string, ChecklistTemplate[]]>;
         checklistTicks?: Array<[string, ChecklistTick[]]>;
+        cashEntries?: Array<[string, CashEntry[]]>;
+        careProfiles?: Array<[string, CareProfile]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -514,6 +545,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.logEntries = new Map(d.logEntries ?? []);
       state.checklists = new Map(d.checklists ?? []);
       state.checklistTicks = new Map(d.checklistTicks ?? []);
+      state.cashEntries = new Map(d.cashEntries ?? []);
+      state.careProfiles = new Map(d.careProfiles ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -737,6 +770,7 @@ export interface ShopConfig {
   logEntries?: LogEntry[];
   checklists?: ChecklistTemplate[];
   checklistTicks?: Array<[string, ChecklistTick[]]>;
+  cashEntries?: Array<[string, CashEntry[]]>;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -790,6 +824,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     logEntries: state.logEntries.get(shopId) ?? [],
     checklists: state.checklists.get(shopId) ?? [],
     checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
+    cashEntries: [...state.cashEntries.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
   };
 }
 
@@ -832,6 +867,10 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.checklistTicks) {
     for (const k of [...state.checklistTicks.keys()]) if (k.startsWith(`${shopId}:`)) state.checklistTicks.delete(k);
     for (const [k, v] of doc.checklistTicks) state.checklistTicks.set(k, v);
+  }
+  if (doc.cashEntries) {
+    for (const k of [...state.cashEntries.keys()]) if (k.startsWith(`${shopId}:`)) state.cashEntries.delete(k);
+    for (const [k, v] of doc.cashEntries) state.cashEntries.set(k, v);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -2555,6 +2594,10 @@ export function createHold(input: HoldInput): HoldResult {
     stampFree: stampFree || undefined,
     isPrime: input.prime || undefined,
     forPersonId: input.forPersonId || undefined,
+    needsPatchTest:
+      services.some((s) => s.requiresPatchTest) && !patchTestValid(input.deviceId, input.shopId)
+        ? true
+        : undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -3052,7 +3095,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       });
     }
     blocks.sort((a, b) => a.start - b.start);
-    return { staffId: st.id, name: st.name, role: st.role, tier: st.tier, locationId: st.locationId ?? null, shifts: st.shifts, working, blocks };
+    return { staffId: st.id, name: st.name, role: st.role, tier: st.tier, locationId: st.locationId ?? null, commissionPercent: st.commissionPercent ?? 0, shifts: st.shifts, working, blocks };
   });
 
   const todaysBookings = [...state.bookings.values()]
@@ -3122,6 +3165,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       checkedInAt: b.checkedInAt ?? null,
       // the last colour formula on file for this customer — for the stand-in
       techFormula: latestTechRecord(shopId, customerKeyOf(b))?.record.formula ?? null,
+      needsPatchTest: b.needsPatchTest ?? false,
+      allergies: careProfile(b.deviceId).allergies,
     })),
     week,
   };
@@ -3207,6 +3252,7 @@ export interface BookingView {
   /** the automatic sorry-voucher a late shop cancel/move minted, if any */
   goodwillCode: string | null;
   checkedInAt: number | null;
+  needsPatchTest: boolean;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -3247,6 +3293,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       forPersonId: b.forPersonId ?? null,
       goodwillCode: b.goodwill?.code ?? null,
       checkedInAt: b.checkedInAt ?? null,
+      needsPatchTest: b.needsPatchTest ?? false,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -3434,13 +3481,37 @@ export function loyaltyBalance(deviceId: string): number {
 // reviews & tips (stored on the booking → sync through Supabase for free)
 // ---------------------------------------------------------------------------
 
-export function setReview(bookingId: string, rating: number, text: string): Booking {
+export function setReview(bookingId: string, rating: number, text: string, tags?: ReviewTag[]): Booking {
   const b = state.bookings.get(bookingId);
   if (!b) throw new Error('not_found');
   if (b.status !== 'completed') throw new Error('not_completed');
-  b.review = { rating: Math.min(Math.max(Math.round(rating), 1), 5), text: text.slice(0, 500), date: isoDateOf(Date.now()) };
+  const clean = (tags ?? []).filter((tg) => REVIEW_TAGS.includes(tg)).slice(0, REVIEW_TAGS.length);
+  b.review = {
+    rating: Math.min(Math.max(Math.round(rating), 1), 5),
+    text: text.slice(0, 500),
+    date: isoDateOf(Date.now()),
+    tags: clean.length > 0 ? clean : undefined,
+  };
   persist();
   return b;
+}
+
+/** How often each tag was picked — for the shop, and per stylist. */
+export function reviewTagStats(shopId: string): {
+  total: Partial<Record<ReviewTag, number>>;
+  byStaff: Record<string, Partial<Record<ReviewTag, number>>>;
+} {
+  const total: Partial<Record<ReviewTag, number>> = {};
+  const byStaff: Record<string, Partial<Record<ReviewTag, number>>> = {};
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !b.review?.tags) continue;
+    for (const tg of b.review.tags) {
+      total[tg] = (total[tg] ?? 0) + 1;
+      const per = byStaff[b.staffId] ?? (byStaff[b.staffId] = {});
+      per[tg] = (per[tg] ?? 0) + 1;
+    }
+  }
+  return { total, byStaff };
 }
 
 export function setTip(bookingId: string, tipCents: number): Booking {
@@ -3459,6 +3530,7 @@ export interface UserReview {
   date: string;
   serviceNames: Array<{ en: string; de: string }>;
   reply: { text: string; at: string } | null;
+  tags: ReviewTag[];
 }
 
 /** Same reviews, plus what the shop needs to answer them. */
@@ -3479,6 +3551,7 @@ export function userReviewsForShop(shopId: string): UserReview[] {
       date: b.review.date,
       serviceNames: b.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
       reply: b.reviewReply ?? null,
+      tags: b.review.tags ?? [],
     });
   }
   return out.sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -3498,6 +3571,7 @@ export function shopReviews(shopId: string): ShopReview[] {
       date: b.review.date,
       serviceNames: b.serviceIds.map((id) => (shop ? serviceOf(shop, id)?.name : undefined) ?? { en: id, de: id }),
       reply: b.reviewReply ?? null,
+      tags: b.review.tags ?? [],
       staffName: effectiveStaff(shopId).find((s) => s.id === b.staffId)?.name ?? null,
     });
   }
@@ -5698,6 +5772,252 @@ export function latestTechRecord(
     }
   }
   return best;
+}
+
+// ---------------------------------------------------------------------------
+// Kassenbuch — physical money, day by day
+// ---------------------------------------------------------------------------
+
+export function cashEntries(shopId: string, iso: string): CashEntry[] {
+  return state.cashEntries.get(`${shopId}:${iso}`) ?? [];
+}
+
+export function addCashEntry(
+  shopId: string,
+  iso: string,
+  input: { kind: CashEntry['kind']; amountCents: number; note?: string },
+): CashEntry {
+  if (!['float', 'expense', 'tip_payout', 'correction', 'count'].includes(input.kind)) throw new Error('bad_kind');
+  const cents = Math.round(input.amountCents);
+  if (!Number.isFinite(cents)) throw new Error('bad_amount');
+  if (input.kind !== 'correction' && cents < 0) throw new Error('bad_amount');
+  if (cents === 0 && input.kind !== 'count') throw new Error('bad_amount');
+  const entry: CashEntry = {
+    id: `ce-${state.seq++}-${Date.now().toString(36)}`,
+    kind: input.kind,
+    amountCents: cents,
+    note: input.note?.trim().slice(0, 80) || undefined,
+    at: Date.now(),
+  };
+  const key = `${shopId}:${iso}`;
+  state.cashEntries.set(key, [...(state.cashEntries.get(key) ?? []), entry]);
+  persist();
+  return entry;
+}
+
+export function deleteCashEntry(shopId: string, iso: string, id: string): void {
+  const key = `${shopId}:${iso}`;
+  state.cashEntries.set(key, (state.cashEntries.get(key) ?? []).filter((e) => e.id !== id));
+  persist();
+}
+
+export interface DrawerReport {
+  entries: CashEntry[];
+  /** float + cash takings + counter gift sales − expenses − tip payouts ± corrections */
+  expectedCents: number;
+  /** the last 'count' entry, if the drawer was counted */
+  countedCents: number | null;
+  differenceCents: number | null;
+}
+
+/** What should be in the drawer tonight, and — once counted — the Differenz. */
+export function drawerReport(shopId: string, iso: string): DrawerReport {
+  const entries = cashEntries(shopId, iso);
+  const close = dayCloseReport(shopId, iso);
+  const atSalon = close.byMethod.find((m) => m.method === 'at_salon')?.cents ?? 0;
+  const dStart = dayStart(iso);
+  const dEnd = dStart + 24 * 60 * MIN;
+  // Counter gift sales are cash in the drawer; online-paid cards are not.
+  let giftCash = 0;
+  for (const c of state.giftCards.values()) {
+    if (c.shopId !== shopId || c.payment || c.fromName === 'Goodwill') continue;
+    if (c.createdAt >= dStart && c.createdAt < dEnd) giftCash += c.initialCents;
+  }
+  let expected = atSalon + giftCash;
+  let counted: number | null = null;
+  for (const e of entries) {
+    if (e.kind === 'float') expected += e.amountCents;
+    else if (e.kind === 'expense' || e.kind === 'tip_payout') expected -= e.amountCents;
+    else if (e.kind === 'correction') expected += e.amountCents;
+    else if (e.kind === 'count') counted = e.amountCents; // the last count wins
+  }
+  return {
+    entries,
+    expectedCents: expected,
+    countedCents: counted,
+    differenceCents: counted === null ? null : counted - expected,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Provisionsabrechnung — per-stylist earnings over a range
+// ---------------------------------------------------------------------------
+
+export interface StaffEarningsRow {
+  staffId: string;
+  name: string;
+  bookingCount: number;
+  serviceCents: number;
+  tipCents: number;
+  commissionPercent: number;
+  commissionCents: number;
+}
+
+export function staffEarningsReport(shopId: string, fromIso: string, toIso: string): StaffEarningsRow[] {
+  const from = dayStart(fromIso);
+  const to = dayStart(toIso) + 24 * 60 * MIN;
+  const byStaff = new Map<string, { count: number; serviceCents: number; tipCents: number }>();
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (b.startsAt < from || b.startsAt >= to) continue;
+    const row = byStaff.get(b.staffId) ?? { count: 0, serviceCents: 0, tipCents: 0 };
+    row.count += 1;
+    row.serviceCents += b.quote.totalCents;
+    row.tipCents += b.tipCents ?? 0;
+    byStaff.set(b.staffId, row);
+  }
+  return effectiveStaff(shopId)
+    .map((st) => {
+      const row = byStaff.get(st.id) ?? { count: 0, serviceCents: 0, tipCents: 0 };
+      const pct = st.commissionPercent ?? 0;
+      return {
+        staffId: st.id,
+        name: st.name,
+        bookingCount: row.count,
+        serviceCents: row.serviceCents,
+        tipCents: row.tipCents,
+        commissionPercent: pct,
+        commissionCents: Math.round((row.serviceCents * pct) / 100),
+      };
+    })
+    .sort((a, b) => b.serviceCents - a.serviceCents);
+}
+
+// ---------------------------------------------------------------------------
+// utilization & price fit — where the chairs stand empty, what fills them
+// ---------------------------------------------------------------------------
+
+export interface UtilizationReport {
+  /** booked share of rostered minutes per weekday/day-part; null = never open */
+  grid: Array<{ dow: number; part: 'morning' | 'afternoon' | 'evening'; bookedPct: number | null }>;
+  services: Array<{
+    serviceId: string;
+    name: { en: string; de: string };
+    emoji: string;
+    count: number;
+    revenueCents: number;
+    perChairHourCents: number;
+  }>;
+}
+
+export function utilizationReport(shopId: string, fromIso: string, toIso: string): UtilizationReport {
+  const shop = shopById(shopId);
+  if (!shop) return { grid: [], services: [] };
+  const PARTS = { morning: [0, 12 * 60], afternoon: [12 * 60, 17 * 60], evening: [17 * 60, 24 * 60] } as const;
+  const capacity = new Map<string, number>();
+  const booked = new Map<string, number>();
+
+  for (let iso = fromIso; iso <= toIso; iso = addDays(iso, 1)) {
+    const dow = isoDow(dayStart(iso) + 12 * 60 * MIN);
+    for (const st of effectiveStaff(shopId)) {
+      for (const w of staffWindows(shop, st.id, iso)) {
+        for (const part of ['morning', 'afternoon', 'evening'] as const) {
+          const a = dayStart(iso) + PARTS[part][0] * MIN;
+          const z = dayStart(iso) + PARTS[part][1] * MIN;
+          const overlap = Math.max(0, Math.min(w.end, z) - Math.max(w.start, a));
+          if (overlap > 0) {
+            const key = `${dow}:${part}`;
+            capacity.set(key, (capacity.get(key) ?? 0) + overlap / MIN);
+          }
+        }
+      }
+    }
+  }
+  const from = dayStart(fromIso);
+  const to = dayStart(toIso) + 24 * 60 * MIN;
+  const svcCount = new Map<string, { count: number; revenueCents: number; minutes: number }>();
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.startsAt < from || b.startsAt >= to) continue;
+    if (!['confirmed', 'completed'].includes(b.status)) continue;
+    const dow = isoDow(b.startsAt);
+    for (const part of ['morning', 'afternoon', 'evening'] as const) {
+      const a = dayStart(isoDateOf(b.startsAt)) + PARTS[part][0] * MIN;
+      const z = dayStart(isoDateOf(b.startsAt)) + PARTS[part][1] * MIN;
+      const overlap = Math.max(0, Math.min(b.endsAt, z) - Math.max(b.startsAt, a));
+      if (overlap > 0) {
+        const key = `${dow}:${part}`;
+        booked.set(key, (booked.get(key) ?? 0) + overlap / MIN);
+      }
+    }
+    const share = b.serviceIds.length;
+    for (const sid of b.serviceIds) {
+      const svc = serviceOf(shop, sid);
+      if (!svc) continue;
+      const row = svcCount.get(sid) ?? { count: 0, revenueCents: 0, minutes: 0 };
+      row.count += 1;
+      row.revenueCents += Math.round(b.quote.totalCents / share);
+      row.minutes += svc.durationMin;
+      svcCount.set(sid, row);
+    }
+  }
+
+  const grid: UtilizationReport['grid'] = [];
+  for (let dow = 1; dow <= 7; dow++) {
+    for (const part of ['morning', 'afternoon', 'evening'] as const) {
+      const cap = capacity.get(`${dow}:${part}`) ?? 0;
+      grid.push({
+        dow,
+        part,
+        bookedPct: cap === 0 ? null : Math.min(100, Math.round(((booked.get(`${dow}:${part}`) ?? 0) / cap) * 100)),
+      });
+    }
+  }
+  const services = [...svcCount.entries()]
+    .map(([serviceId, row]) => {
+      const svc = serviceOf(shop, serviceId)!;
+      return {
+        serviceId,
+        name: svc.name,
+        emoji: svc.emoji,
+        count: row.count,
+        revenueCents: row.revenueCents,
+        perChairHourCents: row.minutes === 0 ? 0 : Math.round((row.revenueCents / row.minutes) * 60),
+      };
+    })
+    .sort((a, b) => b.revenueCents - a.revenueCents);
+  return { grid, services };
+}
+
+// ---------------------------------------------------------------------------
+// patch-test passport — allergies and tests travel with the person
+// ---------------------------------------------------------------------------
+
+export const PATCH_TEST_VALID_DAYS = 183;
+
+export function careProfile(deviceId: string): CareProfile {
+  return state.careProfiles.get(deviceId) ?? { allergies: [], patchTests: [] };
+}
+
+export function setAllergies(deviceId: string, allergies: string[]): void {
+  const clean = allergies.map((a) => a.trim().slice(0, 40)).filter(Boolean).slice(0, 10);
+  const profile = careProfile(deviceId);
+  state.careProfiles.set(deviceId, { ...profile, allergies: clean });
+  persist();
+}
+
+export function recordPatchTest(deviceId: string, shopId: string): void {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  const profile = careProfile(deviceId);
+  const iso = isoDateOf(Date.now());
+  const rest = profile.patchTests.filter((pt) => pt.shopId !== shopId);
+  state.careProfiles.set(deviceId, { ...profile, patchTests: [...rest, { shopId, iso }] });
+  persist();
+}
+
+export function patchTestValid(deviceId: string, shopId: string): boolean {
+  const pt = careProfile(deviceId).patchTests.find((x) => x.shopId === shopId);
+  if (!pt) return false;
+  return dayStart(pt.iso) >= Date.now() - PATCH_TEST_VALID_DAYS * 864e5;
 }
 
 // The demo history has to be written after the module has finished defining
