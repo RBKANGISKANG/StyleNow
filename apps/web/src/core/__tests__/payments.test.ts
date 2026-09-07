@@ -24,7 +24,7 @@ import {
   addLogEntry, ackLogEntry, logEntries, deleteLogEntry,
   saveChecklist, checklists, tickChecklistItem, checklistCompletion,
   setTechRecord, latestTechRecord,
-  addCashEntry, drawerReport, deleteCashEntry,
+  addCashEntry, drawerReport, deleteCashEntry, rescheduleBooking, checklistTicks as checklistTicksOf,
   staffEarningsReport, patchStaff, utilizationReport,
   setReview, reviewTagStats, recordPatchTest, patchTestValid, careProfile as careOf, setAllergies,
 } from '../store';
@@ -660,4 +660,100 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.deepEqual(careOf(dev).allergies, ['PPD', 'Ammoniak'], 'blanks are dropped');
 }
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte and all four feature batches check out');
+// ---------------------------------------------------------------------------
+// regressions the adversarial review caught
+// ---------------------------------------------------------------------------
+
+// Drawer: a counter gift sale is cash in the drawer; an online one is not.
+{
+  const iso = todayIso();
+  const before = drawerReport(shop.id, iso).expectedCents;
+  sellGiftCardAtCounter(shop.id, 2500, 'Bar-Kundin');
+  assert.equal(drawerReport(shop.id, iso).expectedCents, before + 2500, 'counter sale lands in expected cash');
+  buyGiftCard(shop.id, 'dev-online', 3000, {}, { method: 'card', label: 'Visa ····4242' });
+  assert.equal(drawerReport(shop.id, iso).expectedCents, before + 2500, 'online sale does not');
+}
+
+// Goodwill: moving tonight's seat to NEXT WEEK is the big rug-pull — it mints.
+{
+  const dev = 'dev-bigmove';
+  let id = '';
+  for (let d = 1; d <= 21 && !id; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, staff.id).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: s.start, deviceId: dev, guestName: 'Bm', idempotencyKey: 'bm-1' });
+      confirmBooking(h.bookingId);
+      id = h.bookingId;
+    } catch { /* next day */ }
+  }
+  const b = getBooking(id)!;
+  b.startsAt = Date.now() + 3 * 36e5; // tonight
+  b.endsAt = b.startsAt + 45 * 60000;
+  // find a seat far out and move the booking there
+  let moved = false;
+  for (let d = 25; d <= 40 && !moved; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, staff.id).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      rescheduleBooking(shop.id, id, s.start, staff.id);
+      moved = true;
+    } catch { /* next day */ }
+  }
+  assert.ok(moved, 'fixture: the move happened');
+  assert.ok(b.goodwill, 'a late move far out still ruined tonight — voucher minted');
+  // and the trust strip counts it against the RUINED slot, not the new one
+  assert.ok(trustOf(shop.id).lateMoves90 >= 1);
+}
+
+// Tagesabschluss: a weekly list ticked another day must not reopen today.
+{
+  saveChecklist(shop.id, { kind: 'weekly', items: [{ id: '', label: 'Fenster putzen' }] });
+  const iso = todayIso();
+  assert.equal(dayCloseReport(shop.id, iso).checklistsComplete, false, 'the closing list from earlier was unticked again');
+  // re-tick the closing list fully → complete despite the untouched weekly one
+  const closing = checklists(shop.id).find((c) => c.kind === 'closing')!;
+  const ticked = new Set(checklistTicksOf(shop.id, iso).map((tk) => tk.itemId));
+  for (const item of closing.items) if (!ticked.has(item.id)) tickChecklistItem(shop.id, iso, item.id, staff.id);
+  assert.equal(dayCloseReport(shop.id, iso).checklistsComplete, true, 'weekly lists never gate the day-close');
+}
+
+// Walk-in: a double tap on "seat now" books once, not twice.
+{
+  const shop2 = allShops()[1];
+  const w2 = addWalkIn(shop2.id, 'Doppel', [shop2.services[0].id]);
+  convertWalkIn(shop2.id, w2.id);
+  assert.throws(() => convertWalkIn(shop2.id, w2.id), /already_seated/);
+  setWalkInState(shop2.id, w2.id, 'done');
+}
+
+// Privacy: erasure kills the care profile; export carries it while it lives.
+{
+  const dev = 'dev-care-erase';
+  setAllergies(dev, ['PPD']);
+  recordPatchTest(dev, shop.id);
+  const dump = exportMyData(dev) as { careProfile: { allergies: string[] } };
+  assert.deepEqual(dump.careProfile.allergies, ['PPD'], 'export includes health data');
+  eraseMyData(dev);
+  assert.deepEqual(careOf(dev).allergies, [], 'erasure removes it');
+  assert.equal(patchTestValid(dev, shop.id), false);
+}
+
+// Family bookings: the owner's patch test never vouches for Milo's skin.
+{
+  const dev = 'dev-family-pt';
+  recordPatchTest(dev, shop.id);
+  const flagged = shop.services.find((s) => s.requiresPatchTest)!;
+  const milo2 = addPerson(dev, { name: 'Milo' });
+  let id = '';
+  for (let d = 1; d <= 21 && !id; d++) {
+    const s = availability(shop.id, [flagged.id], addDays(todayIso(), d), dev).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      id = createHold({ shopId: shop.id, serviceIds: [flagged.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'M', forPersonId: milo2.id, idempotencyKey: 'fpt-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.equal(getBooking(id)!.needsPatchTest, true, 'booking for a saved person always flags');
+}
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, all four feature batches and the review regressions check out');

@@ -1779,7 +1779,15 @@ export async function apiExportMyData(): Promise<Record<string, unknown>> {
 
 export async function apiEraseMyData(): Promise<number> {
   await localWrite();
-  return store.eraseMyData(deviceId());
+  const n = store.eraseMyData(deviceId());
+  // Erasure that only scrubs the local mirror would resurrect on the next
+  // sync — push every touched booking to the source of truth as well.
+  if (backendMode() === 'supabase') {
+    for (const b of store.bookingsForDevice(deviceId())) {
+      await sb.pushBooking(b).catch(() => {});
+    }
+  }
+  return n;
 }
 
 // ---- shop-floor batch: check-in, walk-ins, logbook, checklists, tech cards -
@@ -1787,7 +1795,9 @@ export async function apiEraseMyData(): Promise<number> {
 export async function apiCheckIn(bookingId: string): Promise<boolean> {
   await localWrite();
   try {
-    store.checkIn(bookingId, deviceId());
+    const b = store.checkIn(bookingId, deviceId());
+    // the whole point is that the SHOP's device sees the arrival
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
     return true;
   } catch {
     return false;
@@ -1898,7 +1908,9 @@ export async function apiSetTechRecord(
   rec: { formula: string; developer?: string; processingMin?: number; note?: string; byStaffId: string },
 ): Promise<void> {
   await localWrite();
-  store.setTechRecord(shopId, bookingId, rec);
+  const b = store.setTechRecord(shopId, bookingId, rec);
+  // a formula card only helps if the tablet at the backwash sees it too
+  if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
 }
 
 export async function apiLatestTechRecord(

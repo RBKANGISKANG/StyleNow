@@ -2594,8 +2594,11 @@ export function createHold(input: HoldInput): HoldResult {
     stampFree: stampFree || undefined,
     isPrime: input.prime || undefined,
     forPersonId: input.forPersonId || undefined,
+    // The test belongs to a person's skin, and the device only vouches for
+    // its owner: booking for a saved person never inherits the owner's test.
     needsPatchTest:
-      services.some((s) => s.requiresPatchTest) && !patchTestValid(input.deviceId, input.shopId)
+      services.some((s) => s.requiresPatchTest) &&
+      (input.forPersonId ? true : !patchTestValid(input.deviceId, input.shopId))
         ? true
         : undefined,
     policySnapshot: { ...shop.policy },
@@ -2681,7 +2684,11 @@ export function createDuoHold(
   });
 
   firstBooking.duoId = first.bookingId;
-  state.bookings.get(second.bookingId)!.duoId = first.bookingId;
+  const secondBooking = state.bookings.get(second.bookingId)!;
+  secondBooking.duoId = first.bookingId;
+  // The friend's skin is unknown to this device — a flagged service on the
+  // second chair always warrants the patch-test flag.
+  if (services.some((s) => s.requiresPatchTest)) secondBooking.needsPatchTest = true;
   persist();
   return { first, second };
 }
@@ -2743,11 +2750,16 @@ export function cancelBooking(
 export const GOODWILL_CENTS = 500;
 export const GOODWILL_NOTICE_HOURS = 24;
 
-/** A €5 sorry-voucher, minted once per booking when the shop pulls the rug late. */
-function mintGoodwill(b: Booking): void {
+/**
+ * A €5 sorry-voucher, minted once per booking when the shop pulls the rug
+ * late. `ruinedStartsAt` is the slot the customer had planned around — on a
+ * reschedule the booking's startsAt already holds the NEW time by the time
+ * this runs, and gating on that would apologise for the wrong thing.
+ */
+function mintGoodwill(b: Booking, ruinedStartsAt = b.startsAt): void {
   if (b.goodwill) return;
-  if (b.startsAt - Date.now() >= GOODWILL_NOTICE_HOURS * 36e5) return;
-  if (b.startsAt <= Date.now()) return; // backfilled history is not a ruined plan
+  if (ruinedStartsAt - Date.now() >= GOODWILL_NOTICE_HOURS * 36e5) return;
+  if (ruinedStartsAt <= Date.now()) return; // backfilled history is not a ruined plan
   let code = '';
   do {
     const part = () =>
@@ -2838,8 +2850,8 @@ export function rescheduleBooking(
       b.shopMovedAt = Date.now();
       b.movedFromStartsAt = movedFrom;
       // Moving someone the same day is the small sibling of cancelling on
-      // them — same automatic apology.
-      if (b.status === 'confirmed' && movedFrom - Date.now() < GOODWILL_NOTICE_HOURS * 36e5) mintGoodwill(b);
+      // them — same automatic apology, gated on the slot they lost.
+      if (b.status === 'confirmed' && movedFrom - Date.now() < GOODWILL_NOTICE_HOURS * 36e5) mintGoodwill(b, movedFrom);
     }
     if (staffId !== prevStaffId) b.reassignedAt = Date.now();
   }
@@ -4200,7 +4212,7 @@ export function noticesForDevice(deviceId: string): AppNotice[] {
       id: `due-${d.shopId}-${d.serviceId}-${d.personId ?? 'me'}-${isoDateOf(d.dueSince)}`,
       kind: 'rebook_due',
       at: d.dueSince,
-      href: `/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}`,
+      href: `/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}${d.personId ? `&for=${d.personId}` : ''}`,
       shopId: shop.id,
       shopName: shop.name,
       shopEmoji: shop.emoji,
@@ -4607,7 +4619,9 @@ export function dayCloseReport(shopId: string, isoDate: string): DayCloseReport 
     checklistsComplete: null,
   };
   if (!shop) return report;
-  const completion = checklistCompletion(shopId, isoDate);
+  // Only daily routines close a day — a weekly deep-clean ticked on Monday
+  // must not flag Tuesday's Tagesabschluss as incomplete.
+  const completion = checklistCompletion(shopId, isoDate).filter((c) => c.template.kind !== 'weekly');
   if (completion.length > 0) report.checklistsComplete = completion.every((c) => c.done === c.total);
   const start = dayStart(isoDate);
   const end = start + 24 * 60 * MIN;
@@ -4762,7 +4776,9 @@ export function shopTrust(shopId: string): {
     if (b.shopId !== shopId) continue;
     if (b.startsAt >= cutoff) {
       if (b.status === 'cancelled_by_shop') shopCancels90 += 1;
-      if (b.shopMovedAt && b.startsAt - b.shopMovedAt < GOODWILL_NOTICE_HOURS * 36e5) lateMoves90 += 1;
+      // notice is measured against the slot that was lost, not the new one
+      const ruined = b.movedFromStartsAt ?? b.startsAt;
+      if (b.shopMovedAt && ruined - b.shopMovedAt < GOODWILL_NOTICE_HOURS * 36e5) lateMoves90 += 1;
     }
     if (b.status !== 'completed') continue;
     if (b.startsAt >= cutoff) completed90 += 1;
@@ -5500,6 +5516,7 @@ export function exportMyData(deviceId: string): Record<string, unknown> {
     waitlist: waitlistForDevice(deviceId),
     referralCode: myReferralCode(deviceId),
     people: savedPeople(deviceId),
+    careProfile: careProfile(deviceId),
   };
 }
 
@@ -5520,6 +5537,9 @@ export function eraseMyData(deviceId: string): number {
     delete b.guestNote;
     delete b.customerMemo;
     if (b.review) b.review.text = '';
+    // the formula stays (the shop's business record); the free-text about
+    // the person does not
+    if (b.techRecord) delete b.techRecord.note;
     touched += 1;
   }
   for (const [k, thread] of state.messages) {
@@ -5529,6 +5549,8 @@ export function eraseMyData(deviceId: string): number {
   }
   for (const [id, w] of state.waitlist) if (w.deviceId === deviceId) state.waitlist.delete(id);
   state.people.delete(deviceId);
+  // health data is the most sensitive record in the system — it goes first
+  state.careProfiles.delete(deviceId);
   persist();
   return touched;
 }
@@ -5594,6 +5616,7 @@ export function removeWalkIn(shopId: string, id: string): void {
 export function convertWalkIn(shopId: string, id: string): Booking {
   const entry = (state.walkIns.get(shopId) ?? []).find((w) => w.id === id);
   if (!entry) throw new Error('not_found');
+  if (entry.state !== 'queued') throw new Error('already_seated'); // a double tap must not book twice
   const iso = isoDateOf(Date.now());
   const { slots } = availability(shopId, entry.serviceIds, iso, `shop:${shopId}`, null, { backfill: true });
   // the nearest seat to *now*, past or future
@@ -5828,12 +5851,26 @@ export function drawerReport(shopId: string, iso: string): DrawerReport {
   const dStart = dayStart(iso);
   const dEnd = dStart + 24 * 60 * MIN;
   // Counter gift sales are cash in the drawer; online-paid cards are not.
+  // Counter sales carry payment.method 'at_salon'; goodwill mints are free.
   let giftCash = 0;
   for (const c of state.giftCards.values()) {
-    if (c.shopId !== shopId || c.payment || c.fromName === 'Goodwill') continue;
+    if (c.shopId !== shopId || c.fromName === 'Goodwill') continue;
+    if (c.payment && c.payment.method !== 'at_salon') continue;
     if (c.createdAt >= dStart && c.createdAt < dEnd) giftCash += c.initialCents;
   }
-  let expected = atSalon + giftCash;
+  // A deposit booking pays the deposit online and settles the rest at the
+  // till — that remainder belongs in the drawer even though the booking's
+  // payment method says "card".
+  let remainderCash = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (b.startsAt < dStart || b.startsAt >= dEnd) continue;
+    if (!b.payment || b.payment.method === 'at_salon') continue;
+    if (b.quote.depositCents > 0 && b.quote.depositCents < b.quote.totalCents) {
+      remainderCash += b.quote.totalCents - b.quote.depositCents + (b.tipCents ?? 0);
+    }
+  }
+  let expected = atSalon + giftCash + remainderCash;
   let counted: number | null = null;
   for (const e of entries) {
     if (e.kind === 'float') expected += e.amountCents;
@@ -5872,11 +5909,24 @@ export function staffEarningsReport(shopId: string, fromIso: string, toIso: stri
     if (b.startsAt < from || b.startsAt >= to) continue;
     const row = byStaff.get(b.staffId) ?? { count: 0, serviceCents: 0, tipCents: 0 };
     row.count += 1;
-    row.serviceCents += b.quote.totalCents;
+    // Commission is earned on the work done, not on how it was funded: a
+    // stamp-free or gift-covered visit still filled the chair, so the
+    // pre-discount service value is what the percent applies to.
+    row.serviceCents += b.quote.subtotalCents;
     row.tipCents += b.tipCents ?? 0;
     byStaff.set(b.staffId, row);
   }
-  return effectiveStaff(shopId)
+  // Archived colleagues keep their history — a Provisionsabrechnung that
+  // silently drops someone who left mid-month pays them nothing for it.
+  const shop = shopById(shopId);
+  const everyone = new Map<string, StaffMember>();
+  for (const s of shop?.staff ?? []) {
+    everyone.set(s.id, { id: s.id, name: s.name, role: s.role, tier: s.tier, shifts: s.shifts });
+  }
+  for (const s of state.customStaff.get(shopId) ?? []) everyone.set(s.id, s);
+  for (const [id, base] of everyone) everyone.set(id, { ...base, ...(state.staffOverrides.get(id) ?? {}) });
+  return [...everyone.values()]
+    .filter((st) => !state.archivedStaff.has(st.id) || byStaff.has(st.id))
     .map((st) => {
       const row = byStaff.get(st.id) ?? { count: 0, serviceCents: 0, tipCents: 0 };
       const pct = st.commissionPercent ?? 0;
@@ -5940,10 +5990,14 @@ export function utilizationReport(shopId: string, fromIso: string, toIso: string
     if (b.shopId !== shopId || b.startsAt < from || b.startsAt >= to) continue;
     if (!['confirmed', 'completed'].includes(b.status)) continue;
     const dow = isoDow(b.startsAt);
+    // The chair's real occupancy is staffRanges (the processing gap is
+    // released and sellable); startsAt..endsAt would overstate utilization.
+    const occupied = b.staffRanges.length > 0 ? b.staffRanges : [{ start: b.startsAt, end: b.endsAt }];
     for (const part of ['morning', 'afternoon', 'evening'] as const) {
       const a = dayStart(isoDateOf(b.startsAt)) + PARTS[part][0] * MIN;
       const z = dayStart(isoDateOf(b.startsAt)) + PARTS[part][1] * MIN;
-      const overlap = Math.max(0, Math.min(b.endsAt, z) - Math.max(b.startsAt, a));
+      let overlap = 0;
+      for (const r of occupied) overlap += Math.max(0, Math.min(r.end, z) - Math.max(r.start, a));
       if (overlap > 0) {
         const key = `${dow}:${part}`;
         booked.set(key, (booked.get(key) ?? 0) + overlap / MIN);

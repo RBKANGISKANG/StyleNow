@@ -187,7 +187,7 @@ export default function BookingsPage() {
               </span>
               <Link
                 className="btn btn-primary sm"
-                href={`/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}`}
+                href={`/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}${d.personId ? `&for=${d.personId}` : ''}`}
               >
                 {t('due_book')}
               </Link>

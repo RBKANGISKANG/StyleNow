@@ -349,6 +349,13 @@ export async function setReview(bookingId: string, rating: number, text: string,
   if (error) throw error;
 }
 
+/** Mirror a booking the local engine just mutated (check-in, formula card, erasure). */
+export async function pushBooking(b: store.Booking): Promise<void> {
+  const db = await sb();
+  const { error } = await deadline(db.rpc('set_booking', { p_id: b.id, p_data: b }));
+  if (error) throw error;
+}
+
 export async function setTip(bookingId: string, tipCents: number): Promise<void> {
   const b = store.setTip(bookingId, tipCents);
   const db = await sb();

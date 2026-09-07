@@ -63,7 +63,7 @@ function ServicesTab({ shopId }: { shopId: string }) {
               <th>{t('price')}</th>
               <th>{t('duration')}</th>
               <th>{t('smart_pricing')}</th>
-              <th title={t('pt_col_hint')}>🧪</th>
+              <th title={t('pt_col_hint')}><span role="img" aria-label={t('pt_col_hint')}>🧪</span></th>
               <th />
             </tr>
           </thead>
@@ -129,6 +129,7 @@ function ServicesTab({ shopId }: { shopId: string }) {
                   <label className="switch" title={t('pt_col_hint')}>
                     <input
                       type="checkbox"
+                      aria-label={t('pt_col_hint')}
                       checked={Boolean(s.requiresPatchTest)}
                       onChange={(e) => void patchService(s.id, { requiresPatchTest: e.target.checked })}
                     />

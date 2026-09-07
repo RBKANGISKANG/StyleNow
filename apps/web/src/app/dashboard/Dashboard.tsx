@@ -398,9 +398,9 @@ function TodayTab({ shopId }: { shopId: string }) {
                         {timeOf(b.startsAt, lang)}
                         {/* arrived / overdue — the state of the doorway */}
                         {b.checkedInAt ? (
-                          <span className="ci-dot on" title={t('ci_arrived', { time: timeOf(b.checkedInAt, lang) })} />
+                          <span className="ci-dot on" role="img" aria-label={t('ci_arrived', { time: timeOf(b.checkedInAt, lang) })} title={t('ci_arrived', { time: timeOf(b.checkedInAt, lang) })} />
                         ) : b.status === 'confirmed' && Date.now() > b.startsAt + 10 * 60000 && Date.now() < b.startsAt + 3 * 36e5 ? (
-                          <span className="ci-dot late" title={t('ci_overdue')} />
+                          <span className="ci-dot late" role="img" aria-label={t('ci_overdue')} title={t('ci_overdue')} />
                         ) : null}
                       </td>
                       <td>
@@ -487,7 +487,7 @@ function TodayTab({ shopId }: { shopId: string }) {
       {data && (
         <WalkInQueue
           shopId={shopId}
-          services={data.shop.services.map((s) => ({ id: s.id, name: s.name.en, durationMin: s.durationMin }))}
+          services={data.shop.services.map((s) => ({ id: s.id, name: s.name, durationMin: s.durationMin }))}
           onToast={setToast}
         />
       )}
@@ -897,10 +897,10 @@ function WalkInQueue({
   onToast,
 }: {
   shopId: string;
-  services: Array<{ id: string; name: string; durationMin: number }>;
+  services: Array<{ id: string; name: { en: string; de: string }; durationMin: number }>;
   onToast: (msg: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [rows, setRows] = useState<WalkInEntry[]>([]);
   const [wait, setWait] = useState<number | null>(null);
   const [name, setName] = useState('');
@@ -937,7 +937,7 @@ function WalkInQueue({
           <label className="chip">
             <select value={svcId} onChange={(e) => setSvcId(e.target.value)}>
               {services.map((s) => (
-                <option key={s.id} value={s.id}>{s.name} · {s.durationMin} min</option>
+                <option key={s.id} value={s.id}>{s.name[lang]} · {s.durationMin} min</option>
               ))}
             </select>
           </label>
@@ -959,9 +959,9 @@ function WalkInQueue({
             <span className={`wi-state ${r.state}`} />
             <span className="wi-name">{r.name}</span>
             <span className="wi-meta">
-              {new Date(r.arrivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {timeOf(r.arrivedAt, lang)}
               {' · '}
-              {r.serviceIds.map((id) => services.find((s) => s.id === id)?.name ?? id).join(', ')}
+              {r.serviceIds.map((id) => services.find((s) => s.id === id)?.name[lang] ?? id).join(', ')}
             </span>
             <span style={{ display: 'flex', gap: 6 }}>
               {r.state === 'queued' && (
@@ -980,12 +980,13 @@ function WalkInQueue({
               {r.state !== 'done' && (
                 <button
                   className="btn btn-ghost sm"
+                  aria-label={t('a11y_done')}
                   onClick={() => void apiSetWalkInState(shopId, r.id, 'done').then(load)}
                 >
                   ✓
                 </button>
               )}
-              <button className="btn btn-ghost sm" onClick={() => void apiRemoveWalkIn(shopId, r.id).then(load)}>
+              <button className="btn btn-ghost sm" aria-label={t('a11y_delete')} onClick={() => void apiRemoveWalkIn(shopId, r.id).then(load)}>
                 ✕
               </button>
             </span>
@@ -1036,8 +1037,8 @@ function Logbook({ shopId, staff }: { shopId: string; staff: Array<{ id: string;
               ))}
             </select>
           </label>
-          <label className="chip" style={{ cursor: 'pointer' }}>
-            <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> 📌
+          <label className="chip" style={{ cursor: 'pointer' }} title={t('lb_pin')}>
+            <input type="checkbox" checked={pinned} aria-label={t('lb_pin')} onChange={(e) => setPinned(e.target.checked)} /> 📌
           </label>
           <button
             className="btn btn-primary sm"
@@ -1059,7 +1060,7 @@ function Logbook({ shopId, staff }: { shopId: string; staff: Array<{ id: string;
               {e.pinned && <span>📌</span>}
               <b>{nameOf(e.authorStaffId)}</b>
               <span>{dateOf(e.at, lang)}</span>
-              <button className="btn btn-ghost sm" onClick={() => void apiDeleteLogEntry(shopId, e.id).then(load)}>
+              <button className="btn btn-ghost sm" aria-label={t('a11y_delete')} onClick={() => void apiDeleteLogEntry(shopId, e.id).then(load)}>
                 ✕
               </button>
             </div>

@@ -363,7 +363,7 @@ function ShopPulse({ shopId }: { shopId: string }) {
           )}
           {/* Reliability cuts both ways: a clean record is worth showing, a
               spotty one is worth knowing — and the sorry-voucher is policy. */}
-          <span title={t('gw_policy')}>
+          <span>
             🛡 {t('rel_title')}:{' '}
             {trust.shopCancels90 === 0 && trust.lateMoves90 === 0
               ? t('rel_clean')
@@ -371,6 +371,10 @@ function ShopPulse({ shopId }: { shopId: string }) {
           </span>
           <em>{t('tr_derived')}</em>
         </div>
+      )}
+      {trust && (trust.completed90 > 0 || trust.reviewCount > 0) && (
+        /* the policy customers can rely on — visible, not a hover secret */
+        <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', margin: '6px 2px 0' }}>🎁 {t('gw_policy')}</p>
       )}
 
       {/* Laufkundschaft: if there is a live queue, say so before someone

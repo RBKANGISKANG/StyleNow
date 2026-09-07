@@ -199,18 +199,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [duo, setDuo] = useState(false);
   const [friendName, setFriendName] = useState('');
   const [hold2, setHold2] = useState<Hold | null>(null);
-  const [alternatives, setAlternatives] = useState<Slot[] | null>(null);
-  const [expired, setExpired] = useState(false);
-  const [confirmed, setConfirmed] = useState<{ reference: string; reference2?: string } | null>(null);
-  const [remaining, setRemaining] = useState(0);
-  const [voucherInput, setVoucherInput] = useState('');
-  const [voucher, setVoucher] = useState<{ code: string; discountCents: number } | null>(null);
-  const [voucherError, setVoucherError] = useState<string | null>(null);
-  const [points, setPoints] = useState(0);
-  const [usePoints, setUsePoints] = useState(false);
-  const [stamp, setStamp] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
-  const [useStamp, setUseStamp] = useState(false);
-  const [waitlisted, setWaitlisted] = useState<string[]>([]);
+  // Family & friends: who this visit is for ('' = the device owner). A
+  // ?for= deep link (the "Milo is due" nudge) arrives with the person chosen.
+  const [people, setPeople] = useState<SavedPersonT[]>([]);
+  const [forPerson, setForPerson] = useState(params.get('for') ?? '');
+  const [addingPerson, setAddingPerson] = useState(false);
+  const [newPersonName, setNewPersonName] = useState('');
+  useEffect(() => {
+    if (step === 2) void apiSavedPeople().then(setPeople);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // Patch-test passport: a flagged service without a recent recorded test at
   // this salon needs an explicit acknowledgement before the seat is held.
@@ -223,6 +221,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       setPtRequired(false);
       return;
     }
+    // A saved person's skin is not the device owner's — their booking always
+    // gates, whatever tests the owner has recorded. Same for duo friends.
+    if (forPerson || duo) {
+      setPtRequired(true);
+      return;
+    }
     let alive = true;
     void apiPatchTestValid(shop.id).then((ok) => {
       if (alive) setPtRequired(!ok);
@@ -231,17 +235,20 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, serviceIds, menu, shop.id]);
+  }, [step, serviceIds, menu, shop.id, forPerson, duo]);
 
-  // Family & friends: who this visit is for ('' = the device owner).
-  const [people, setPeople] = useState<SavedPersonT[]>([]);
-  const [forPerson, setForPerson] = useState('');
-  const [addingPerson, setAddingPerson] = useState(false);
-  const [newPersonName, setNewPersonName] = useState('');
-  useEffect(() => {
-    if (step === 2) void apiSavedPeople().then(setPeople);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  const [alternatives, setAlternatives] = useState<Slot[] | null>(null);
+  const [expired, setExpired] = useState(false);
+  const [confirmed, setConfirmed] = useState<{ reference: string; reference2?: string } | null>(null);
+  const [remaining, setRemaining] = useState(0);
+  const [voucherInput, setVoucherInput] = useState('');
+  const [voucher, setVoucher] = useState<{ code: string; discountCents: number } | null>(null);
+  const [voucherError, setVoucherError] = useState<string | null>(null);
+  const [points, setPoints] = useState(0);
+  const [usePoints, setUsePoints] = useState(false);
+  const [stamp, setStamp] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
+  const [useStamp, setUseStamp] = useState(false);
+  const [waitlisted, setWaitlisted] = useState<string[]>([]);
 
   // Flexible saver: the five cheapest times of the coming week, on demand.
   const [flex, setFlex] = useState(false);
@@ -929,7 +936,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     {nearby.map((n) => (
                       <Link
                         key={n.shopId}
-                        href={`/shops/${n.slug}/book?service=${n.serviceId}&at=${date}`}
+                        href={`/shops/${n.slug}/book?service=${n.serviceId}&date=${date}&at=${n.start}`}
                         className="nb-card"
                       >
                         <span className="nb-emoji">{n.emoji}</span>
@@ -1199,6 +1206,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   />
                   <button
                     className="btn btn-primary sm"
+                    aria-label={t('pp_add')}
                     disabled={!newPersonName.trim()}
                     onClick={() => {
                       void apiAddPerson({ name: newPersonName }).then((pp) => {

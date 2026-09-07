@@ -491,11 +491,12 @@ function ChecklistEditor({ shopId, onChanged }: { shopId: string; onChanged: (ms
           <span style={{ display: 'flex', gap: 6 }}>
             <button
               className="btn btn-soft sm"
+              aria-label={t('a11y_edit')}
               onClick={() => setEditing({ id: tpl.id, kind: tpl.kind, text: tpl.items.map((i) => i.label).join('\n') })}
             >
               ✏️
             </button>
-            <button className="btn btn-ghost sm" onClick={() => void apiDeleteChecklist(shopId, tpl.id).then(load)}>
+            <button className="btn btn-ghost sm" aria-label={t('a11y_delete')} onClick={() => void apiDeleteChecklist(shopId, tpl.id).then(load)}>
               ✕
             </button>
           </span>
@@ -525,10 +526,15 @@ function ChecklistEditor({ shopId, onChanged }: { shopId: string; onChanged: (ms
               className="btn btn-primary sm"
               disabled={!editing.text.trim()}
               onClick={() => {
+                // Re-saving must not orphan today's ticks: an unchanged line
+                // keeps its item id, only genuinely new lines get fresh ones.
+                const prev = new Map(
+                  (lists.find((l) => l.id === editing.id)?.items ?? []).map((i) => [i.label, i.id]),
+                );
                 void apiSaveChecklist(shopId, {
                   id: editing.id,
                   kind: editing.kind,
-                  items: editing.text.split('\n').map((l) => ({ id: '', label: l })),
+                  items: editing.text.split('\n').map((l) => ({ id: prev.get(l.trim()) ?? '', label: l })),
                 }).then(() => {
                   setEditing(null);
                   onChanged('🧽 ' + t('cl_saved'));

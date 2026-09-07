@@ -385,6 +385,22 @@ function Ranked({
 }
 
 /**
+ * "1.000", "1.234,56", "12,50" and "12.50" must all mean what a German till
+ * operator means by them. Both separators present → '.' is thousands; a lone
+ * ',' is the decimal; a lone '.' is a decimal only with 1–2 digits after it.
+ */
+function parseEuroCents(raw: string): number | null {
+  let s = raw.trim().replace(/\s/g, '');
+  if (!s) return null;
+  if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (s.includes(',')) s = s.replace(',', '.');
+  else if (/\.\d{3}(\.|$)/.test(s)) s = s.replace(/\./g, '');
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+/**
  * Kassenbuch: the physical drawer, day by day. Float in, expenses and tip
  * payouts out, and — once counted — the Differenz against what the day's
  * bookings say should be in there.
@@ -425,8 +441,8 @@ function CashPanel({ shopId }: { shopId: string }) {
             className="btn btn-primary sm"
             disabled={!amount}
             onClick={() => {
-              const cents = Math.round(Number(amount.replace(',', '.')) * 100);
-              if (!Number.isFinite(cents)) return;
+              const cents = parseEuroCents(amount);
+              if (cents === null) return;
               void apiAddCashEntry(shopId, iso, { kind, amountCents: cents, note: note || undefined }).then(() => {
                 setAmount('');
                 setNote('');

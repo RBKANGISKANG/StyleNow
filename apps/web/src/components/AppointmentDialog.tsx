@@ -312,6 +312,7 @@ function TechRecordJot({
         />
         <button
           className="btn btn-soft sm"
+          aria-label={t('tc_saved').replace('…', '')}
           disabled={!formula.trim()}
           onClick={() => {
             void apiSetTechRecord(shopId, booking.id, { formula, byStaffId: booking.staffId }).then(() => {
