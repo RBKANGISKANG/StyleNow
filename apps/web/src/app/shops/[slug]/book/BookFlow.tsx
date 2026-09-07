@@ -18,8 +18,9 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
+import type { SaverSlot, StaffInsight, NearbyAlternative } from '@/core/store';
 import { deviceId } from '@/lib/device';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays, dayStart } from '@/core/time';
@@ -210,6 +211,42 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [useStamp, setUseStamp] = useState(false);
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
 
+  // Flexible saver: the five cheapest times of the coming week, on demand.
+  const [flex, setFlex] = useState(false);
+  const [saver, setSaver] = useState<SaverSlot[] | null>(null);
+  // A tapped saver chip on another day: remember the time, select it once
+  // that day's slots have loaded.
+  const flexTarget = useRef<number | null>(null);
+  useEffect(() => {
+    if (!flex || serviceIds.length === 0) return;
+    setSaver(null);
+    let alive = true;
+    void apiCheapestSlots(shop.id, serviceIds).then((s) => {
+      if (alive) setSaver(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [flex, shop.id, serviceIds]);
+
+  // Frequently-booked-together and per-stylist facts — both derived from the
+  // shop's own completed history, refreshed when the basket changes.
+  const [addOns, setAddOns] = useState<Awaited<ReturnType<typeof apiSuggestedAddOns>>>([]);
+  const [insights, setInsights] = useState<Record<string, StaffInsight>>({});
+  useEffect(() => {
+    if (step !== 1 || serviceIds.length === 0) return;
+    let alive = true;
+    void apiSuggestedAddOns(shop.id, serviceIds).then((a) => {
+      if (alive) setAddOns(a);
+    });
+    void apiStaffInsights(shop.id, serviceIds).then((i) => {
+      if (alive) setInsights(i);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [step, shop.id, serviceIds]);
+
   useEffect(() => {
     if (step === 2) {
       void apiLoyaltyBalance().then(setPoints);
@@ -350,6 +387,34 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   // Together mode only shows times where a second chair is genuinely free.
   const shownSlots = slots === null ? null : duo ? slots.filter((s) => s.staffIds.length >= 2) : slots;
+
+  // A saver chip picked on another day: the day's slots just arrived —
+  // select the promised time and move on, exactly like tapping it directly.
+  useEffect(() => {
+    if (flexTarget.current === null || slots === null) return;
+    const match = slots.find((s) => s.start === flexTarget.current);
+    flexTarget.current = null;
+    if (match) {
+      setSlot(match);
+      setPrime(false);
+      setStep(2);
+    }
+  }, [slots]);
+
+  // Fully booked day (solo mode): look for a comparable seat at other shops.
+  const [nearby, setNearby] = useState<NearbyAlternative[]>([]);
+  useEffect(() => {
+    setNearby([]);
+    if (shownSlots === null || shownSlots.length > 0 || duo || serviceIds.length === 0) return;
+    let alive = true;
+    void apiAlternativesFor(shop.id, serviceIds, date).then((n) => {
+      if (alive) setNearby(n);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownSlots === null ? -1 : shownSlots.length, duo, shop.id, serviceIds, date]);
 
   const createHold = async (startsAt: number, chosenStaff: string | null) => {
     setHolding(true);
@@ -594,6 +659,22 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 </button>
               </div>
             )}
+            {/* What other customers actually book alongside this basket —
+                one tap appends to it, and the times below re-derive. */}
+            {!editServices && addOns.length > 0 && (
+              <div className="addon-row">
+                {addOns.map(({ service: s, attachPct }) => (
+                  <button
+                    key={s.id}
+                    className="chip addon-chip"
+                    onClick={() => setServiceIds((cur) => [...cur, s.id])}
+                  >
+                    ＋ {s.emoji} {s.name[lang]} · {money(s.basePriceCents, lang)}
+                    <span className="addon-pct">{t('addon_pct', { pct: attachPct })}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {expired && <div className="alert">⏱ {t('hold_expired')}</div>}
           {alternatives && (
@@ -655,12 +736,31 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   className={`chip ${staffId === s.id ? 'on-primary' : ''}`}
                   onClick={() => setStaffId(s.id)}
                 >
+                  {insights[s.id]?.mostBooked ? '⭐ ' : ''}
                   {s.name}
                 </button>
               ))}
             </div>
             {staffId === null && (
               <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', marginTop: 8 }}>{t('any_staff_hint')}</p>
+            )}
+            {/* The honest facts behind the chosen name: derived from this
+                shop's completed bookings, never typed in. */}
+            {staffId !== null && insights[staffId] && (
+              <p className="ins-line">
+                {insights[staffId].mostBooked && <span className="ins-chip">⭐ {t('ins_top')}</span>}
+                {insights[staffId].rebookPct !== null && insights[staffId].rebookPct! >= 30 && (
+                  <span className="ins-chip">🔁 {t('ins_rebook', { pct: insights[staffId].rebookPct! })}</span>
+                )}
+                {insights[staffId].nextFree && (
+                  <span className="ins-chip">
+                    🕐 {t('ins_free_at', {
+                      when: insights[staffId].nextFree!.iso === todayIso() ? t('today') : t('nu_tomorrow'),
+                      time: timeOf(insights[staffId].nextFree!.start, lang),
+                    })}
+                  </span>
+                )}
+              </p>
             )}
           </div>
 
@@ -687,6 +787,55 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   <GridIcon />
                 </button>
               </div>
+            </div>
+            {/* "I'm flexible": the five cheapest times of the coming week,
+                so price-first customers stop scanning day by day. */}
+            <div className="flex-block">
+              <button
+                className={`chip flex-chip ${flex ? 'on-primary' : ''}`}
+                onClick={() => setFlex(!flex)}
+                aria-expanded={flex}
+              >
+                💶 {t('flex_toggle')}
+              </button>
+              {flex && (
+                saver === null ? (
+                  <div className="spinner" />
+                ) : saver.length === 0 ? (
+                  <p className="flex-hint">{t('flex_none')}</p>
+                ) : (
+                  <>
+                    <div className="slot-grid flex-row">
+                      {saver.map((s) => (
+                        <button
+                          key={s.start}
+                          className="slot-chip saver"
+                          onClick={() => {
+                            flexTarget.current = s.start;
+                            if (s.iso !== date) {
+                              setDate(s.iso);
+                            } else {
+                              const m = slots?.find((x) => x.start === s.start);
+                              flexTarget.current = null;
+                              if (m) {
+                                setSlot(m);
+                                setPrime(false);
+                                setStep(2);
+                              }
+                            }
+                          }}
+                        >
+                          <div className="t">
+                            {weekdayShort(s.iso, lang)} {dayNum(s.iso)} · {timeOf(s.start, lang)}
+                          </div>
+                          <div className="p deal">{money(s.priceCents, lang)}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="flex-hint">{t('flex_hint')}</p>
+                  </>
+                )
+              )}
             </div>
             {dateView === 'month' && (
               <>
@@ -739,6 +888,29 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   >
                     {t('waitlist_join')}
                   </button>
+                )}
+                {/* The day is gone here — but maybe not around the corner. */}
+                {nearby.length > 0 && (
+                  <div className="nb-strip">
+                    <p className="nb-title">{t('nb_title')}</p>
+                    {nearby.map((n) => (
+                      <Link
+                        key={n.shopId}
+                        href={`/shops/${n.slug}/book?service=${n.serviceId}&at=${date}`}
+                        className="nb-card"
+                      >
+                        <span className="nb-emoji">{n.emoji}</span>
+                        <span className="nb-main">
+                          <b>{n.shopName}</b>
+                          <span>{n.serviceName[lang]} · {n.district}</span>
+                        </span>
+                        <span className="nb-side">
+                          {timeOf(n.start, lang)}
+                          <b>{money(n.priceCents, lang)}</b>
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
                 )}
               </div>
             ) : (

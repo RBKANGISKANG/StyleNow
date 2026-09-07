@@ -23,8 +23,12 @@ import {
   apiSetShopAnnouncement,
   apiStampStatus,
   apiSetStampSettings,
+  apiQuietDiscount,
+  apiSetQuietDiscount,
+  apiQuietWindows,
   type ShopClosure,
 } from '@/lib/api';
+import { weekdayShort } from '@/lib/format';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
 import { BillingSettings } from '@/components/BillingSettings';
@@ -33,7 +37,7 @@ import { ConflictGuard } from '@/components/ConflictGuard';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
 import type { ShopRef } from '@/lib/owned-shops';
-import { todayIso } from '@/core/time';
+import { todayIso, addDays } from '@/core/time';
 
 export function ShopScreen({ shops }: { shops: ShopRef[] }) {
   return (
@@ -155,6 +159,11 @@ function ShopTab({
       <section className="section">
         <h2>💮 {t('st_title')}</h2>
         <StampPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🌙 {t('qd_title')}</h2>
+        <QuietDiscountPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -393,6 +402,64 @@ function StampPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: st
       </div>
     </div>
   );
+}
+
+/**
+ * A flat percent off in the shop's two historically emptiest day-parts.
+ * The engine decides *where* it applies (quietWindows), the shop only says
+ * how much — so the discount always sits exactly where chairs stand empty.
+ */
+function QuietDiscountPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t, lang } = useI18n();
+  const [pct, setPct] = useState(0);
+  const [windows, setWindows] = useState<Array<{ dow: number; part: string }>>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiQuietDiscount(shopId).then((p) => {
+      setPct(p);
+      setLoaded(true);
+    });
+    void apiQuietWindows(shopId).then((w) => setWindows(w.slice(0, 2)));
+  }, [shopId]);
+
+  const save = (next: number) => {
+    setPct(next);
+    void apiSetQuietDiscount(shopId, next).then(() => onChanged('🌙 ' + t('qd_saved')));
+  };
+
+  if (!loaded) return <div className="spinner" />;
+  const partName = (p: string) => t(p === 'morning' ? 'qw_morning' : p === 'afternoon' ? 'qw_afternoon' : 'qw_evening');
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('qd_hint')}</p>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label className="chip">
+          {t('qd_pct')}
+          <select value={pct} onChange={(e) => save(Number(e.target.value))}>
+            {[0, 5, 10, 15, 20, 25, 30].map((n) => (
+              <option key={n} value={n}>{n === 0 ? t('qd_off') : `−${n}%`}</option>
+            ))}
+          </select>
+        </label>
+        {pct > 0 && windows.length > 0 && (
+          <span style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
+            {t('qd_where')}{' '}
+            {windows
+              .map((w) => `${weekdayShort(addDays(todayIso(), ((w.dow - isoDowToday() + 7) % 7)), lang)} ${partName(w.part)}`)
+              .join(' · ')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** iso weekday (1=Mon…7=Sun) of today, for turning a stored dow into a date. */
+function isoDowToday(): number {
+  const d = new Date().getDay();
+  return d === 0 ? 7 : d;
 }
 
 /**

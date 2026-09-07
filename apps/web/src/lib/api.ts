@@ -1693,3 +1693,49 @@ export async function apiBookingConflicts(
   await readyForRead();
   return store.bookingConflicts(shopId, { staffId, fromIso: from, toIso: to });
 }
+
+// ---- discovery batch: flexible saver, add-ons, insights, nearby -----------
+
+export async function apiCheapestSlots(
+  shopId: string,
+  serviceIds: string[],
+): Promise<store.SaverSlot[]> {
+  await readyForRead();
+  return store.cheapestSlots(shopId, serviceIds, deviceId());
+}
+
+export async function apiSuggestedAddOns(
+  shopId: string,
+  serviceIds: string[],
+): Promise<ReturnType<typeof store.suggestedAddOns>> {
+  await readyForRead();
+  return store.suggestedAddOns(shopId, serviceIds);
+}
+
+export async function apiStaffInsights(
+  shopId: string,
+  serviceIds: string[],
+): Promise<Record<string, store.StaffInsight>> {
+  await readyForRead();
+  return store.staffInsights(shopId, serviceIds, deviceId());
+}
+
+export async function apiAlternativesFor(
+  shopId: string,
+  serviceIds: string[],
+  isoDate: string,
+): Promise<store.NearbyAlternative[]> {
+  await readyForRead();
+  return store.alternativesFor(shopId, serviceIds, isoDate, deviceId());
+}
+
+export async function apiQuietDiscount(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.quietDiscountOf(shopId);
+}
+
+export async function apiSetQuietDiscount(shopId: string, pct: number): Promise<void> {
+  await localWrite();
+  store.setQuietDiscount(shopId, pct);
+  syncConfig(shopId);
+}

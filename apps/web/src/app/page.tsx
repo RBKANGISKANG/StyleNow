@@ -227,7 +227,7 @@ export default function Explore() {
 
       {sheetOpen && <div className="sheet-backdrop" onClick={() => setSheetOpen(false)} />}
 
-      <div className={`filter-row ${sheetOpen ? 'open' : ''}`} role={sheetOpen ? 'dialog' : undefined} aria-modal={sheetOpen || undefined}>
+      <div className={`filter-row filters-sheet ${sheetOpen ? 'open' : ''}`} role={sheetOpen ? 'dialog' : undefined} aria-modal={sheetOpen || undefined}>
         <div className="sheet-head">
           <strong>{t('f_filters')}</strong>
           <button className="btn btn-ghost sm" onClick={() => setSheetOpen(false)} aria-label={t('f_close')}>✕</button>

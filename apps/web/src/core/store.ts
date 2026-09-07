@@ -220,6 +220,7 @@ interface State {
   vips: Map<string, string[]>; // shopId → customer keys the shop starred
   stampSettings: Map<string, { enabled: boolean; required: number }>; // shopId → loyalty stamp card
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
+  quietDiscounts: Map<string, number>; // shopId → percent off in the two emptiest day-parts
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -282,6 +283,7 @@ const state: State =
     vips: new Map(),
     stampSettings: new Map(),
     goals: new Map(),
+    quietDiscounts: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -349,6 +351,7 @@ function persist(): boolean {
         vips: [...state.vips.entries()],
         stampSettings: [...state.stampSettings.entries()],
         goals: [...state.goals.entries()],
+        quietDiscounts: [...state.quietDiscounts.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -393,6 +396,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         vips?: Array<[string, string[]]>;
         stampSettings?: Array<[string, { enabled: boolean; required: number }]>;
         goals?: Array<[string, number]>;
+        quietDiscounts?: Array<[string, number]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -424,6 +428,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.vips = new Map(d.vips ?? []);
       state.stampSettings = new Map(d.stampSettings ?? []);
       state.goals = new Map(d.goals ?? []);
+      state.quietDiscounts = new Map(d.quietDiscounts ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -643,6 +648,7 @@ export interface ShopConfig {
   vips?: string[];
   goalCents?: number;
   stampCard?: { enabled: boolean; required: number };
+  quietDiscountPct?: number;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -692,6 +698,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     vips: state.vips.get(shopId) ?? [],
     goalCents: state.goals.get(shopId),
     stampCard: state.stampSettings.get(shopId),
+    quietDiscountPct: state.quietDiscounts.get(shopId),
   };
 }
 
@@ -724,6 +731,10 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.goalCents !== undefined) {
     if (doc.goalCents > 0) state.goals.set(shopId, doc.goalCents);
     else state.goals.delete(shopId);
+  }
+  if (doc.quietDiscountPct !== undefined) {
+    if (doc.quietDiscountPct > 0) state.quietDiscounts.set(shopId, doc.quietDiscountPct);
+    else state.quietDiscounts.delete(shopId);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -1634,6 +1645,29 @@ export interface SlotQuote {
   applied: Array<{ name: string; deltaCents: number }>;
 }
 
+// --- quiet-time discount: a flat percent off in the two emptiest day-parts --
+
+export const QUIET_DISCOUNT_MAX_PCT = 50;
+
+export function quietDiscountOf(shopId: string): number {
+  return state.quietDiscounts.get(shopId) ?? 0;
+}
+
+export function setQuietDiscount(shopId: string, pct: number): void {
+  if (!Number.isInteger(pct) || pct < 0 || pct > QUIET_DISCOUNT_MAX_PCT) throw new Error('bad_percent');
+  if (pct > 0) state.quietDiscounts.set(shopId, pct);
+  else state.quietDiscounts.delete(shopId);
+  persist();
+}
+
+/**
+ * The two emptiest open day-parts, as `${dow}:${part}` keys. Memoised because
+ * priceBasket consults this once per slot and quietWindows walks every booking.
+ */
+const quietPartsOf = memoByShop(
+  (shopId: string): Set<string> => new Set(quietWindows(shopId).slice(0, 2).map((w) => `${w.dow}:${w.part}`)),
+);
+
 function priceBasket(
   shop: SeedShop,
   services: SeedService[],
@@ -1673,6 +1707,22 @@ function priceBasket(
     const r = evaluatePrice(rules, ctx);
     subtotal += r.finalPriceCents;
     for (const a of r.applied) applied.push({ name: a.name, deltaCents: a.deltaCents });
+  }
+
+  // Quiet-time discount: only when the shop turned it on, and only in its two
+  // historically emptiest day-parts. Applied after the rules so the badge
+  // shows what the shop's own setting contributed.
+  const quietPct = state.quietDiscounts.get(shop.id) ?? 0;
+  if (quietPct > 0 && subtotal > 0) {
+    const minute = minuteOfDay(slotStart);
+    const part = minute < 12 * 60 ? 'morning' : minute < 17 * 60 ? 'afternoon' : 'evening';
+    if (quietPartsOf(shop.id).has(`${isoDow(slotStart)}:${part}`)) {
+      const delta = -Math.round((subtotal * quietPct) / 100);
+      if (delta !== 0) {
+        subtotal += delta;
+        applied.push({ name: `Quiet time −${quietPct}%`, deltaCents: delta });
+      }
+    }
   }
   return { subtotalCents: subtotal, baseCents: base, applied };
 }
@@ -1824,6 +1874,207 @@ export function nextOpenings(
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// discovery helpers — everything below is derived, nothing is stored
+// ---------------------------------------------------------------------------
+
+export interface SaverSlot {
+  iso: string;
+  start: number;
+  end: number;
+  priceCents: number;
+  staffId: string;
+}
+
+/**
+ * The cheapest bookable times over the next week, for the "I'm flexible"
+ * toggle. At most two per day so the list answers "when is it cheap?" rather
+ * than listing one empty Tuesday five times.
+ */
+export function cheapestSlots(
+  shopId: string,
+  serviceIds: string[],
+  deviceId: string,
+  days = 7,
+): SaverSlot[] {
+  const now = Date.now();
+  const all: SaverSlot[] = [];
+  for (let d = 0; d < days; d++) {
+    const iso = addDays(isoDateOf(now), d);
+    let slots: ApiSlot[];
+    try {
+      slots = availability(shopId, serviceIds, iso, deviceId).slots;
+    } catch {
+      break; // service archived mid-flight
+    }
+    for (const s of slots) {
+      if (s.start <= now) continue;
+      all.push({ iso, start: s.start, end: s.end, priceCents: s.priceCents, staffId: s.suggestedStaffId });
+    }
+  }
+  all.sort((a, b) => a.priceCents - b.priceCents || a.start - b.start);
+  const perDay = new Map<string, number>();
+  const picked: SaverSlot[] = [];
+  for (const s of all) {
+    const n = perDay.get(s.iso) ?? 0;
+    if (n >= 2) continue;
+    perDay.set(s.iso, n + 1);
+    picked.push(s);
+    if (picked.length >= 5) break;
+  }
+  return picked;
+}
+
+/**
+ * Services people actually book alongside this basket, from the shop's own
+ * completed history. Below five co-bookings there is no percentage worth
+ * advertising, so the answer is empty rather than noisy.
+ */
+export function suggestedAddOns(
+  shopId: string,
+  serviceIds: string[],
+): Array<{ service: SeedService; attachPct: number }> {
+  if (serviceIds.length === 0) return [];
+  const basket = new Set(serviceIds);
+  const counts = new Map<string, number>();
+  let withBasket = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (!b.serviceIds.some((id) => basket.has(id))) continue;
+    withBasket += 1;
+    for (const id of b.serviceIds) if (!basket.has(id)) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  if (withBasket < 5) return [];
+  const menu = new Map(effectiveServices(shopId).map((s) => [s.id, s]));
+  return [...counts.entries()]
+    .filter(([id]) => menu.has(id))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([id, n]) => ({ service: menu.get(id)!, attachPct: Math.round((n / withBasket) * 100) }))
+    .filter((x) => x.attachPct >= 10);
+}
+
+export interface StaffInsight {
+  /** completed bookings containing a basket service — leader gets the badge */
+  mostBooked: boolean;
+  /** share of this stylist's customers who came back to them (≥5 customers) */
+  rebookPct: number | null;
+  /** first free slot today or tomorrow with this stylist, if any */
+  nextFree: { iso: string; start: number } | null;
+}
+
+/** What the staff picker can honestly say about each stylist. */
+export function staffInsights(
+  shopId: string,
+  serviceIds: string[],
+  deviceId: string,
+): Record<string, StaffInsight> {
+  const team = effectiveStaff(shopId);
+  const bookedCount = new Map<string, number>();
+  const customersByStaff = new Map<string, Map<string, number>>();
+  const basket = new Set(serviceIds);
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (b.serviceIds.some((id) => basket.has(id))) {
+      bookedCount.set(b.staffId, (bookedCount.get(b.staffId) ?? 0) + 1);
+    }
+    const per = customersByStaff.get(b.staffId) ?? new Map<string, number>();
+    const key = customerKeyOf(b);
+    per.set(key, (per.get(key) ?? 0) + 1);
+    customersByStaff.set(b.staffId, per);
+  }
+  const leader = [...bookedCount.entries()].sort((a, b) => b[1] - a[1])[0];
+  const now = Date.now();
+  const out: Record<string, StaffInsight> = {};
+  for (const st of team) {
+    const per = customersByStaff.get(st.id);
+    let rebookPct: number | null = null;
+    if (per && per.size >= 5) {
+      const repeats = [...per.values()].filter((n) => n >= 2).length;
+      rebookPct = Math.round((repeats / per.size) * 100);
+    }
+    let nextFree: { iso: string; start: number } | null = null;
+    for (let d = 0; d < 2 && !nextFree; d++) {
+      const iso = addDays(isoDateOf(now), d);
+      try {
+        const first = availability(shopId, serviceIds, iso, deviceId, st.id).slots.find((s) => s.start > now);
+        if (first) nextFree = { iso, start: first.start };
+      } catch {
+        break;
+      }
+    }
+    out[st.id] = {
+      mostBooked: Boolean(leader && leader[0] === st.id && leader[1] >= 3),
+      rebookPct,
+      nextFree,
+    };
+  }
+  return out;
+}
+
+export interface NearbyAlternative {
+  shopId: string;
+  slug: string;
+  shopName: string;
+  emoji: string;
+  district: string;
+  serviceId: string;
+  serviceName: { en: string; de: string };
+  start: number;
+  priceCents: number;
+}
+
+/**
+ * When the chosen day is fully booked: comparable services at other shops
+ * that still have a seat that day — same district first, best-rated next.
+ */
+export function alternativesFor(
+  shopId: string,
+  serviceIds: string[],
+  isoDate: string,
+  deviceId: string,
+): NearbyAlternative[] {
+  const here = shopById(shopId);
+  const wanted = effectiveServices(shopId).find((s) => s.id === serviceIds[0]);
+  if (!here || !wanted) return [];
+  const now = Date.now();
+  const out: Array<NearbyAlternative & { sameDistrict: boolean; rating: number }> = [];
+  for (const shop of allShops()) {
+    if (shop.id === shopId) continue;
+    const menu = effectiveServices(shop.id);
+    const match =
+      menu.find((s) => s.name.en.toLowerCase() === wanted.name.en.toLowerCase()) ??
+      menu
+        .filter((s) => s.categoryId === wanted.categoryId)
+        .sort((a, b) => Math.abs(a.basePriceCents - wanted.basePriceCents) - Math.abs(b.basePriceCents - wanted.basePriceCents))[0];
+    if (!match) continue;
+    let first: ApiSlot | undefined;
+    try {
+      first = availability(shop.id, [match.id], isoDate, deviceId).slots.find((s) => s.start > now);
+    } catch {
+      continue;
+    }
+    if (!first) continue;
+    out.push({
+      shopId: shop.id,
+      slug: shop.slug,
+      shopName: shop.name,
+      emoji: shop.emoji,
+      district: shop.district,
+      serviceId: match.id,
+      serviceName: match.name,
+      start: first.start,
+      priceCents: first.priceCents,
+      sameDistrict: shop.district === here.district,
+      rating: shopTrust(shop.id).avgRating ?? 0,
+    });
+  }
+  return out
+    .sort((a, b) => Number(b.sameDistrict) - Number(a.sameDistrict) || b.rating - a.rating)
+    .slice(0, 3)
+    .map(({ sameDistrict: _s, rating: _r, ...rest }) => rest);
 }
 
 const firstSlotCache = new Map<string, { v: number; val: number | null }>();

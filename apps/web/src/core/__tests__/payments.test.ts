@@ -17,6 +17,7 @@ import {
   setShopAnnouncement, shopAnnouncement, toggleVip, customersForShop,
   setShopGoal, shopGoal, sellGiftCardAtCounter, noticesForShop,
   createShopBooking, stampStatus, setStampSettings, cancelBooking, SlotTaken,
+  setQuietDiscount, quietDiscountOf, cheapestSlots, suggestedAddOns, staffInsights, alternativesFor,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -327,4 +328,75 @@ assert.throws(
 setStampSettings(shop.id, { enabled: true, required: 5 });
 assert.equal(stampStatus(shop.id, 'dev-stamp').rewardsAvailable, 2, 'a five-visit card doubles the rewards');
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest and the Stempelkarte all check out');
+// ---------------------------------------------------------------------------
+// discovery batch: flexible saver, quiet discount, add-ons, insights, nearby
+// ---------------------------------------------------------------------------
+
+// Flexible saver: at most five, cheapest first, never in the past, ≤2 per day.
+const savers = cheapestSlots(shop.id, [svc.id], 'dev-flex');
+assert.ok(savers.length > 0 && savers.length <= 5, 'saver list is short');
+for (let i = 1; i < savers.length; i++) {
+  assert.ok(savers[i].priceCents >= savers[i - 1].priceCents, 'sorted by price');
+}
+assert.ok(savers.every((s) => s.start > Date.now()), 'no past times');
+const perDay = new Map<string, number>();
+for (const s of savers) perDay.set(s.iso, (perDay.get(s.iso) ?? 0) + 1);
+assert.ok([...perDay.values()].every((n) => n <= 2), 'at most two per day');
+
+// Quiet-time discount: only in the two emptiest day-parts, badge says why.
+assert.equal(quietDiscountOf(shop.id), 0, 'off by default');
+setQuietDiscount(shop.id, 20);
+assert.equal(quietDiscountOf(shop.id), 20);
+const quiet2 = new Set(quietWindows(shop.id).slice(0, 2).map((w) => `${w.dow}:${w.part}`));
+let sawQuiet = 0;
+let sawLoud = 0;
+// Four weeks, not one: the quiet parts may sit on a single weekday, and this
+// week's instance of it can already be fully booked by the fixtures above.
+for (let d = 0; d < 28; d++) {
+  const iso = addDays(todayIso(), d);
+  for (const s of availability(shop.id, [svc.id], iso, 'dev-quiet').slots) {
+    const minute = Math.floor((s.start - dayStart(iso)) / 60000);
+    const part = minute < 720 ? 'morning' : minute < 1020 ? 'afternoon' : 'evening';
+    const inQuiet = quiet2.has(`${isoDow(s.start)}:${part}`);
+    const badged = s.appliedNames.some((n) => n.includes('Quiet time'));
+    if (inQuiet && badged) sawQuiet += 1;
+    if (!inQuiet) {
+      assert.ok(!badged, 'never applies outside the quiet parts');
+      sawLoud += 1;
+    }
+  }
+}
+assert.ok(sawQuiet > 0, 'the discount actually lands somewhere');
+assert.ok(sawLoud > 0, 'and somewhere it does not');
+assert.throws(() => setQuietDiscount(shop.id, 80), /bad_percent/);
+setQuietDiscount(shop.id, 0);
+assert.equal(quietDiscountOf(shop.id), 0, 'off is off');
+
+// Frequently booked together: derived from completed co-bookings only.
+const twoSvc = shop.services.slice(0, 2);
+if (twoSvc.length === 2) {
+  const addons = suggestedAddOns(shop.id, [twoSvc[0].id]);
+  for (const a of addons) {
+    assert.notEqual(a.service.id, twoSvc[0].id, 'never suggests the basket itself');
+    assert.ok(a.attachPct >= 10 && a.attachPct <= 100, 'an honest percentage');
+  }
+}
+assert.deepEqual(suggestedAddOns(shop.id, []), [], 'empty basket, empty answer');
+
+// Stylist insights: at most one leader; rebook needs a real customer base.
+const ins = staffInsights(shop.id, [svc.id], 'dev-ins');
+const leaders = Object.values(ins).filter((i) => i.mostBooked).length;
+assert.ok(leaders <= 1, 'one leader at most');
+for (const i of Object.values(ins)) {
+  if (i.rebookPct !== null) assert.ok(i.rebookPct >= 0 && i.rebookPct <= 100);
+}
+
+// Fully booked here → seats elsewhere: never the same shop, three at most.
+const alts = alternativesFor(shop.id, [svc.id], todayIso(), 'dev-alt');
+assert.ok(alts.length <= 3);
+for (const a of alts) {
+  assert.notEqual(a.shopId, shop.id, 'an alternative is another shop');
+  assert.ok(a.start > Date.now(), 'and a real future seat');
+}
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte and the discovery batch all check out');
