@@ -16,6 +16,8 @@ import {
   apiRescheduleBooking,
   apiSetStatus,
   apiSetCustomerNote,
+  apiSetTechRecord,
+  apiLatestTechRecord,
 } from '@/lib/api';
 import { Modal } from './Modal';
 import { useConfirm } from './ConfirmDialog';
@@ -262,9 +264,66 @@ export function AppointmentDialog({
                 }}
               />
             </label>
+
+            {/* Rezeptkarte: the formula this visit used — written once, found
+                by every stand-in who ever serves this customer again. */}
+            {['confirmed', 'completed'].includes(booking.status) && (
+              <TechRecordJot shopId={shopId} booking={booking} onChanged={onChanged} />
+            )}
           </div>
         )}
       </Modal>
     </>
+  );
+}
+
+function TechRecordJot({
+  shopId,
+  booking,
+  onChanged,
+}: {
+  shopId: string;
+  booking: DialogBooking;
+  onChanged: (msg: string) => void;
+}) {
+  const { t } = useI18n();
+  const [prev, setPrev] = useState<Awaited<ReturnType<typeof apiLatestTechRecord>>>(null);
+  const [formula, setFormula] = useState('');
+  useEffect(() => {
+    void apiLatestTechRecord(shopId, booking.customerKey).then(setPrev);
+  }, [shopId, booking.customerKey]);
+  return (
+    <div className="md-jot" style={{ marginTop: 12 }}>
+      <span>🧪 {t('tc_title')}</span>
+      {prev && (
+        <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', margin: '2px 0 6px' }}>
+          {t('tc_last')}: <b>{prev.record.formula}</b>
+          {prev.record.developer ? ` · ${prev.record.developer}` : ''}
+          {prev.record.processingMin ? ` · ${prev.record.processingMin} min` : ''}
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          className="input"
+          placeholder={t('tc_ph')}
+          value={formula}
+          maxLength={120}
+          onChange={(e) => setFormula(e.target.value)}
+        />
+        <button
+          className="btn btn-soft sm"
+          disabled={!formula.trim()}
+          onClick={() => {
+            void apiSetTechRecord(shopId, booking.id, { formula, byStaffId: booking.staffId }).then(() => {
+              setFormula('');
+              onChanged('🧪 ' + t('tc_saved'));
+              void apiLatestTechRecord(shopId, booking.customerKey).then(setPrev);
+            });
+          }}
+        >
+          💾
+        </button>
+      </div>
+    </div>
   );
 }

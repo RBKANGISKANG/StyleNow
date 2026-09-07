@@ -1776,3 +1776,135 @@ export async function apiEraseMyData(): Promise<number> {
   await localWrite();
   return store.eraseMyData(deviceId());
 }
+
+// ---- shop-floor batch: check-in, walk-ins, logbook, checklists, tech cards -
+
+export async function apiCheckIn(bookingId: string): Promise<boolean> {
+  await localWrite();
+  try {
+    store.checkIn(bookingId, deviceId());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiWalkIns(shopId: string): Promise<store.WalkInEntry[]> {
+  await readyForRead();
+  return store.walkIns(shopId);
+}
+
+export async function apiAddWalkIn(shopId: string, name: string, serviceIds: string[]): Promise<store.WalkInEntry> {
+  await localWrite();
+  return store.addWalkIn(shopId, name, serviceIds);
+}
+
+export async function apiSetWalkInState(shopId: string, id: string, next: store.WalkInEntry['state']): Promise<void> {
+  await localWrite();
+  store.setWalkInState(shopId, id, next);
+}
+
+export async function apiRemoveWalkIn(shopId: string, id: string): Promise<void> {
+  await localWrite();
+  store.removeWalkIn(shopId, id);
+}
+
+export async function apiConvertWalkIn(shopId: string, id: string): Promise<{ ok: boolean; reference?: string }> {
+  await localWrite();
+  try {
+    const b = store.convertWalkIn(shopId, id);
+    return { ok: true, reference: b.reference };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export async function apiEstimatedWait(shopId: string): Promise<number | null> {
+  await readyForRead();
+  return store.estimatedWaitMin(shopId);
+}
+
+export async function apiLogEntries(shopId: string): Promise<store.LogEntry[]> {
+  await readyForRead();
+  return store.logEntries(shopId);
+}
+
+export async function apiAddLogEntry(shopId: string, authorStaffId: string, text: string, pinned?: boolean): Promise<void> {
+  await localWrite();
+  store.addLogEntry(shopId, authorStaffId, text, pinned);
+  syncConfig(shopId);
+}
+
+export async function apiAckLogEntry(shopId: string, entryId: string, staffId: string): Promise<void> {
+  await localWrite();
+  store.ackLogEntry(shopId, entryId, staffId);
+  syncConfig(shopId);
+}
+
+export async function apiDeleteLogEntry(shopId: string, entryId: string): Promise<void> {
+  await localWrite();
+  store.deleteLogEntry(shopId, entryId);
+  syncConfig(shopId);
+}
+
+export async function apiChecklists(shopId: string): Promise<store.ChecklistTemplate[]> {
+  await readyForRead();
+  return store.checklists(shopId);
+}
+
+export async function apiSaveChecklist(
+  shopId: string,
+  tpl: Omit<store.ChecklistTemplate, 'id'> & { id?: string },
+): Promise<store.ChecklistTemplate> {
+  await localWrite();
+  const saved = store.saveChecklist(shopId, tpl);
+  syncConfig(shopId);
+  return saved;
+}
+
+export async function apiDeleteChecklist(shopId: string, id: string): Promise<void> {
+  await localWrite();
+  store.deleteChecklist(shopId, id);
+  syncConfig(shopId);
+}
+
+export async function apiChecklistCompletion(
+  shopId: string,
+  iso: string,
+): Promise<ReturnType<typeof store.checklistCompletion>> {
+  await readyForRead();
+  return store.checklistCompletion(shopId, iso);
+}
+
+export async function apiChecklistTicks(shopId: string, iso: string): Promise<store.ChecklistTick[]> {
+  await readyForRead();
+  return store.checklistTicks(shopId, iso);
+}
+
+export async function apiTickChecklistItem(shopId: string, iso: string, itemId: string, staffId: string): Promise<void> {
+  await localWrite();
+  store.tickChecklistItem(shopId, iso, itemId, staffId);
+  syncConfig(shopId);
+}
+
+export async function apiSetTechRecord(
+  shopId: string,
+  bookingId: string,
+  rec: { formula: string; developer?: string; processingMin?: number; note?: string; byStaffId: string },
+): Promise<void> {
+  await localWrite();
+  store.setTechRecord(shopId, bookingId, rec);
+}
+
+export async function apiLatestTechRecord(
+  shopId: string,
+  customerKey: string,
+): Promise<ReturnType<typeof store.latestTechRecord>> {
+  await readyForRead();
+  return store.latestTechRecord(shopId, customerKey);
+}
+
+export async function apiPublicQueue(shopId: string): Promise<{ queued: number; waitMin: number | null }> {
+  await readyForRead();
+  return store.publicQueue(shopId);
+}

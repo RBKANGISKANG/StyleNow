@@ -20,6 +20,10 @@ import {
   setQuietDiscount, quietDiscountOf, cheapestSlots, suggestedAddOns, staffInsights, alternativesFor,
   rebookCadence, savedPeople, addPerson, removePerson, customerRecap, exportMyData, eraseMyData,
   shopTrust as trustOf, GOODWILL_CENTS, giftCardsForDevice as cardsOf, messageThread as threadOf, sendMessage as sendMsg,
+  checkIn, addWalkIn, walkIns, convertWalkIn, setWalkInState, estimatedWaitMin, publicQueue,
+  addLogEntry, ackLogEntry, logEntries, deleteLogEntry,
+  saveChecklist, checklists, tickChecklistItem, checklistCompletion,
+  setTechRecord, latestTechRecord,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -498,4 +502,86 @@ assert.equal(getBooking(rhythmIds[0])!.guestName, '—');
 assert.equal(getBooking(rhythmIds[0])!.quote.totalCents, totalBefore, 'amounts survive erasure');
 assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer' || m.text === '—'), 'customer texts are gone');
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, the discovery batch and the lifecycle batch all check out');
+// ---------------------------------------------------------------------------
+// shop-floor batch: check-in, walk-ins, logbook, checklists, Rezeptkarten
+// ---------------------------------------------------------------------------
+
+// Check-in: owner-only, confirmed-only, and only near the start.
+{
+  const ciDev = 'dev-checkin';
+  let ciId = '';
+  for (let d = 1; d <= 21 && !ciId; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), ciDev, staff.id).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: s.start, deviceId: ciDev, guestName: 'Ci', idempotencyKey: 'ci-1' });
+      confirmBooking(h.bookingId);
+      ciId = h.bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(ciId, 'fixture: a confirmed seat');
+  assert.throws(() => checkIn(ciId, ciDev), /too_early/, 'days away is not "here"');
+  assert.throws(() => checkIn(ciId, 'someone-else'), /not_yours/);
+  const cb = getBooking(ciId)!;
+  cb.startsAt = Date.now() + 10 * 60000;
+  cb.endsAt = cb.startsAt + 45 * 60000;
+  checkIn(ciId, ciDev);
+  assert.ok(cb.checkedInAt, 'checked in inside the window');
+}
+
+// Walk-ins: queue, honest wait, and a real seat through the real contract.
+// On a fresh shop — the suite above has booked today at shop #1 solid.
+{
+  const shop2 = allShops()[1];
+  const svc2 = shop2.services[0];
+  const w = addWalkIn(shop2.id, 'Frau Weber', [svc2.id]);
+  assert.equal(walkIns(shop2.id).filter((x) => x.state === 'queued').length, 1);
+  assert.equal(publicQueue(shop2.id).queued, 1);
+  const est = estimatedWaitMin(shop2.id);
+  assert.ok(est === null || est >= 0, 'the estimate is honest: a number, or none when today is full');
+  const seated = convertWalkIn(shop2.id, w.id);
+  assert.ok(['confirmed', 'completed'].includes(seated.status), 'the walk-in got a real booking');
+  assert.equal(walkIns(shop2.id).find((x) => x.id === w.id)!.state, 'serving');
+  setWalkInState(shop2.id, w.id, 'done');
+  assert.equal(publicQueue(shop2.id).queued, 0, 'an empty queue advertises no wait');
+}
+
+// Übergabebuch: pinned first, acks carry names, deletion is final.
+{
+  const a = addLogEntry(shop.id, staff.id, 'Farbe für Frau M. ist bestellt');
+  const b2 = addLogEntry(shop.id, staff.id, 'Kasse klemmt — Schlüssel im Büro', true);
+  assert.equal(logEntries(shop.id)[0].id, b2.id, 'pinned floats to the top');
+  ackLogEntry(shop.id, a.id, staff.id);
+  ackLogEntry(shop.id, a.id, staff.id);
+  assert.deepEqual(logEntries(shop.id).find((e) => e.id === a.id)!.ackBy, [staff.id], 'acks are idempotent');
+  deleteLogEntry(shop.id, a.id);
+  deleteLogEntry(shop.id, b2.id);
+  assert.equal(logEntries(shop.id).length, 0);
+}
+
+// Checklists: written once, ticked daily, and the Tagesabschluss knows.
+{
+  const tpl = saveChecklist(shop.id, { kind: 'closing', items: [{ id: '', label: 'Kasse zählen' }, { id: '', label: 'Licht aus' }] });
+  assert.equal(checklists(shop.id).length, 1);
+  const iso = todayIso();
+  assert.equal(dayCloseReport(shop.id, iso).checklistsComplete, false, 'nothing ticked yet');
+  for (const item of tpl.items) tickChecklistItem(shop.id, iso, item.id, staff.id);
+  assert.equal(dayCloseReport(shop.id, iso).checklistsComplete, true, 'all ticked');
+  const comp = checklistCompletion(shop.id, iso);
+  assert.equal(comp[0].done, 2);
+  tickChecklistItem(shop.id, iso, tpl.items[0].id, staff.id); // untick
+  assert.equal(dayCloseReport(shop.id, iso).checklistsComplete, false, 'unticking reopens the day');
+}
+
+// Rezeptkarten: written on the visit, found via the customer, newest wins.
+{
+  // no phone on the fixture → the customer key is the device key
+  const key = 'd:dev-rhythm';
+  setTechRecord(shop.id, rhythmIds[0], { formula: '7.1 + 30vol', processingMin: 35, byStaffId: staff.id });
+  setTechRecord(shop.id, rhythmIds[1], { formula: '7.13 + 20vol', byStaffId: staff.id });
+  const latest = latestTechRecord(shop.id, key);
+  assert.equal(latest!.record.formula, '7.13 + 20vol', 'the newest card wins');
+  assert.throws(() => setTechRecord(shop.id, rhythmIds[0], { formula: '', byStaffId: staff.id }), /bad_formula/);
+}
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, the discovery, lifecycle and shop-floor batches all check out');

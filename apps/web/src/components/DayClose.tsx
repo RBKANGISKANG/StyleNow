@@ -138,6 +138,12 @@ export function DayClose({ shopId, iso, onClose }: { shopId: string; iso: string
               </>
             )}
 
+            {report.checklistsComplete !== null && (
+              <p className="rc-note" style={{ fontWeight: 700 }}>
+                {report.checklistsComplete ? `✅ ${t('cl_all_done')}` : `⚠ ${t('cl_open_left')}`}
+              </p>
+            )}
+
             <p className="rc-note">{t('zb_note')}</p>
 
             <footer className="rc-actions">

@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
-import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
+import { money, timeOf, dateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import {
   apiSetStatus,
   apiAvailability,
@@ -21,8 +21,22 @@ import {
   apiRescheduleBooking,
   apiShopWaitlist,
   apiWaitlistOffer,
+  apiWalkIns,
+  apiAddWalkIn,
+  apiSetWalkInState,
+  apiRemoveWalkIn,
+  apiConvertWalkIn,
+  apiEstimatedWait,
+  apiLogEntries,
+  apiAddLogEntry,
+  apiAckLogEntry,
+  apiDeleteLogEntry,
+  apiChecklists,
+  apiChecklistTicks,
+  apiTickChecklistItem,
   type ShopWaitlistRow,
 } from '@/lib/api';
+import type { WalkInEntry, LogEntry, ChecklistTemplate, ChecklistTick } from '@/core/store';
 import { deviceId } from '@/lib/device';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar';
@@ -380,7 +394,15 @@ function TodayTab({ shopId }: { shopId: string }) {
                   {data.bookings.map((b) => (
                     <tr key={b.id}>
                       <td style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{b.reference}</td>
-                      <td>{timeOf(b.startsAt, lang)}</td>
+                      <td>
+                        {timeOf(b.startsAt, lang)}
+                        {/* arrived / overdue — the state of the doorway */}
+                        {b.checkedInAt ? (
+                          <span className="ci-dot on" title={t('ci_arrived', { time: timeOf(b.checkedInAt, lang) })} />
+                        ) : b.status === 'confirmed' && Date.now() > b.startsAt + 10 * 60000 && Date.now() < b.startsAt + 3 * 36e5 ? (
+                          <span className="ci-dot late" title={t('ci_overdue')} />
+                        ) : null}
+                      </td>
                       <td>
                         {b.guestName}
                         {b.vip && <span title={t('vip_tag')}> ⭐</span>}
@@ -395,6 +417,12 @@ function TodayTab({ shopId }: { shopId: string }) {
                       <td>
                         {b.serviceNames.join(', ')}
                         <div style={{ fontSize: '0.72rem', color: 'var(--ink-soft)' }}>{b.staffName}</div>
+                        {/* the Rezeptkarte, where the stand-in needs it */}
+                        {b.techFormula && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--primary-deep)' }} title={t('tc_title')}>
+                            🧪 {b.techFormula}
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontWeight: 700 }}>{money(b.totalCents, lang)}</td>
                       <td>
@@ -449,6 +477,20 @@ function TodayTab({ shopId }: { shopId: string }) {
   )}
 
       <Waitlist shopId={shopId} />
+
+      {data && (
+        <WalkInQueue
+          shopId={shopId}
+          services={data.shop.services.map((s) => ({ id: s.id, name: s.name.en, durationMin: s.durationMin }))}
+          onToast={setToast}
+        />
+      )}
+      {data && (
+        <Logbook shopId={shopId} staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))} />
+      )}
+      {data && (
+        <ChecklistToday shopId={shopId} staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))} />
+      )}
 
       <AppointmentDialog
         shopId={shopId}
@@ -835,5 +877,268 @@ function DayPlanSheet({
         </footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * Laufkundschaft: the paper list by the till, kept honestly. Add, serve,
+ * finish — or convert into a real seat through the same booking contract as
+ * everything else, so a walk-in can never double-book a chair.
+ */
+function WalkInQueue({
+  shopId,
+  services,
+  onToast,
+}: {
+  shopId: string;
+  services: Array<{ id: string; name: string; durationMin: number }>;
+  onToast: (msg: string) => void;
+}) {
+  const { t } = useI18n();
+  const [rows, setRows] = useState<WalkInEntry[]>([]);
+  const [wait, setWait] = useState<number | null>(null);
+  const [name, setName] = useState('');
+  const [svcId, setSvcId] = useState(services[0]?.id ?? '');
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiWalkIns(shopId).then(setRows);
+    void apiEstimatedWait(shopId).then(setWait);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  const queued = rows.filter((r) => r.state === 'queued');
+  return (
+    <section className="section">
+      <h2>
+        🚶 {t('wi_title')}
+        {queued.length > 0 && wait !== null && (
+          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--ink-soft)', marginLeft: 10 }}>
+            ~{wait} {t('min')} {t('wi_wait')}
+          </span>
+        )}
+      </h2>
+      <div className="panel">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: rows.length ? 12 : 0 }}>
+          <input
+            className="input"
+            style={{ flex: '1 1 140px' }}
+            placeholder={t('wi_name')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={40}
+          />
+          <label className="chip">
+            <select value={svcId} onChange={(e) => setSvcId(e.target.value)}>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>{s.name} · {s.durationMin} min</option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="btn btn-primary sm"
+            disabled={!svcId}
+            onClick={() => {
+              void apiAddWalkIn(shopId, name, [svcId]).then(() => {
+                setName('');
+                load();
+              });
+            }}
+          >
+            ＋ {t('wi_add')}
+          </button>
+        </div>
+        {rows.map((r) => (
+          <div className="wi-row" key={r.id}>
+            <span className={`wi-state ${r.state}`} />
+            <span className="wi-name">{r.name}</span>
+            <span className="wi-meta">
+              {new Date(r.arrivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' · '}
+              {r.serviceIds.map((id) => services.find((s) => s.id === id)?.name ?? id).join(', ')}
+            </span>
+            <span style={{ display: 'flex', gap: 6 }}>
+              {r.state === 'queued' && (
+                <button
+                  className="btn btn-soft sm"
+                  onClick={() => {
+                    void apiConvertWalkIn(shopId, r.id).then((res) => {
+                      onToast(res.ok ? '✅ ' + t('wi_seated', { ref: res.reference ?? '' }) : '✕ ' + t('wi_no_seat'));
+                      load();
+                    });
+                  }}
+                >
+                  💺 {t('wi_seat')}
+                </button>
+              )}
+              {r.state !== 'done' && (
+                <button
+                  className="btn btn-ghost sm"
+                  onClick={() => void apiSetWalkInState(shopId, r.id, 'done').then(load)}
+                >
+                  ✓
+                </button>
+              )}
+              <button className="btn btn-ghost sm" onClick={() => void apiRemoveWalkIn(shopId, r.id).then(load)}>
+                ✕
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The Übergabebuch: what the next shift must know, with names on the reads.
+ * Pinned entries stay on top and ride along on the printed day plan.
+ */
+function Logbook({ shopId, staff }: { shopId: string; staff: Array<{ id: string; name: string }> }) {
+  const { t, lang } = useI18n();
+  const [rows, setRows] = useState<LogEntry[]>([]);
+  const [text, setText] = useState('');
+  const [author, setAuthor] = useState(staff[0]?.id ?? '');
+  const [pinned, setPinned] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiLogEntries(shopId).then(setRows);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  const nameOf = (id: string) => staff.find((s) => s.id === id)?.name ?? '—';
+  const shown = showAll ? rows : rows.slice(0, 5);
+  return (
+    <section className="section">
+      <h2>📓 {t('lb_title')}</h2>
+      <div className="panel">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: rows.length ? 12 : 0 }}>
+          <input
+            className="input"
+            style={{ flex: '1 1 200px' }}
+            placeholder={t('lb_ph')}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={500}
+          />
+          <label className="chip">
+            <select value={author} onChange={(e) => setAuthor(e.target.value)}>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="chip" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> 📌
+          </label>
+          <button
+            className="btn btn-primary sm"
+            disabled={!text.trim() || !author}
+            onClick={() => {
+              void apiAddLogEntry(shopId, author, text, pinned).then(() => {
+                setText('');
+                setPinned(false);
+                load();
+              });
+            }}
+          >
+            {t('lb_add')}
+          </button>
+        </div>
+        {shown.map((e) => (
+          <div className="lb-row" key={e.id}>
+            <div className="lb-head">
+              {e.pinned && <span>📌</span>}
+              <b>{nameOf(e.authorStaffId)}</b>
+              <span>{dateOf(e.at, lang)}</span>
+              <button className="btn btn-ghost sm" onClick={() => void apiDeleteLogEntry(shopId, e.id).then(load)}>
+                ✕
+              </button>
+            </div>
+            <p>{e.text}</p>
+            <div className="lb-acks">
+              {staff.map((s) => (
+                <button
+                  key={s.id}
+                  className={`chip sm ${e.ackBy.includes(s.id) ? 'on-primary' : ''}`}
+                  title={t('lb_ack_hint', { who: s.name })}
+                  onClick={() => void apiAckLogEntry(shopId, e.id, s.id).then(load)}
+                >
+                  {e.ackBy.includes(s.id) ? '✓ ' : ''}{s.name.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {rows.length > 5 && (
+          <button className="btn btn-ghost sm" onClick={() => setShowAll(!showAll)}>
+            {showAll ? t('lb_less') : t('lb_more', { n: rows.length - 5 })}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Today's opening/closing routines, ticked off with a name on every tick. */
+function ChecklistToday({ shopId, staff }: { shopId: string; staff: Array<{ id: string; name: string }> }) {
+  const { t } = useI18n();
+  const [lists, setLists] = useState<ChecklistTemplate[]>([]);
+  const [ticks, setTicks] = useState<ChecklistTick[]>([]);
+  const [who, setWho] = useState(staff[0]?.id ?? '');
+  const iso = todayIso();
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiChecklists(shopId).then(setLists);
+    void apiChecklistTicks(shopId, iso).then(setTicks);
+  }, [shopId, iso]);
+  useEffect(load, [load]);
+
+  if (lists.length === 0) return null;
+  const done = new Map(ticks.map((tk) => [tk.itemId, tk]));
+  const nameOf = (id: string) => staff.find((s) => s.id === id)?.name.split(' ')[0] ?? '—';
+  return (
+    <section className="section">
+      <h2>🧽 {t('cl_title')}</h2>
+      <div className="panel">
+        <label className="chip" style={{ marginBottom: 10 }}>
+          {t('cl_as')}
+          <select value={who} onChange={(e) => setWho(e.target.value)}>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </label>
+        {lists.map((tpl) => {
+          const doneCount = tpl.items.filter((i) => done.has(i.id)).length;
+          return (
+            <div key={tpl.id} style={{ marginBottom: 12 }}>
+              <p style={{ fontWeight: 800, fontSize: '0.85rem', marginBottom: 6 }}>
+                {t(tpl.kind === 'opening' ? 'cl_opening' : tpl.kind === 'closing' ? 'cl_closing' : 'cl_weekly')}
+                {' '}· {doneCount}/{tpl.items.length}
+                {doneCount === tpl.items.length && ' ✅'}
+              </p>
+              {tpl.items.map((item) => {
+                const tk = done.get(item.id);
+                return (
+                  <label className="cl-item" key={item.id}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(tk)}
+                      onChange={() => void apiTickChecklistItem(shopId, iso, item.id, who).then(load)}
+                    />
+                    <span className={tk ? 'done' : ''}>{item.label}</span>
+                    {tk && <em>{nameOf(tk.staffId)}</em>}
+                  </label>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }

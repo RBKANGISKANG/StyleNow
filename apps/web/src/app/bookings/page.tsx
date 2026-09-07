@@ -19,6 +19,7 @@ import {
   apiRebookCadence,
   apiSavedPeople,
   apiCustomerRecap,
+  apiCheckIn,
   type GiftCard,
 } from '@/lib/api';
 import type { DueRebook, SavedPerson, YearRecap } from '@/core/store';
@@ -54,6 +55,7 @@ interface Bk {
   customerMemo: string | null;
   forPersonId: string | null;
   goodwillCode: string | null;
+  checkedInAt: number | null;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   payment: { method: string; label: string } | null;
@@ -388,6 +390,27 @@ export default function BookingsPage() {
                 <Link className="btn btn-soft sm" href={`/messages?shop=${b.shop.id}`}>
                   💬 {t('mg_shop_thread')}
                 </Link>
+                {/* One tap at the door: the floor sees an arrived dot. */}
+                {Math.abs(b.startsAt - now) <= 45 * 60000 &&
+                  (b.checkedInAt ? (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--teal)', fontWeight: 700, alignSelf: 'center' }}>
+                      ✅ {t('ci_done', { who: b.staffName ?? b.shop.name })}
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-primary sm"
+                      onClick={() => {
+                        void apiCheckIn(b.id).then((ok) => {
+                          if (ok) {
+                            setToast('📍 ' + t('ci_toast'));
+                            void load();
+                          }
+                        });
+                      }}
+                    >
+                      📍 {t('ci_here')}
+                    </button>
+                  ))}
                 <span style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', alignSelf: 'center' }}>
                   {t('cal_reminder_hint')}
                 </span>

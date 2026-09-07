@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -312,12 +312,14 @@ function ShopPulse({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
   const [announcement, setAnnouncement] = useState('');
   const [trust, setTrust] = useState<Awaited<ReturnType<typeof apiShopTrust>> | null>(null);
+  const [queue, setQueue] = useState<{ queued: number; waitMin: number | null }>({ queued: 0, waitMin: null });
   const [forecast, setForecast] = useState<Array<{ iso: string; pct: number }>>([]);
   const [stampSt, setStampSt] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
 
   useEffect(() => {
     void apiShopAnnouncement(shopId).then(setAnnouncement);
     void apiShopTrust(shopId).then(setTrust);
+    void apiPublicQueue(shopId).then(setQueue);
     void apiDayForecast(shopId).then(setForecast);
     void apiStampStatus(shopId).then(setStampSt);
   }, [shopId]);
@@ -345,6 +347,14 @@ function ShopPulse({ shopId }: { shopId: string }) {
               : t('rel_counts', { n: String(trust.shopCancels90), m: String(trust.lateMoves90) })}
           </span>
           <em>{t('tr_derived')}</em>
+        </div>
+      )}
+
+      {/* Laufkundschaft: if there is a live queue, say so before someone
+          walks over for nothing. */}
+      {queue.queued > 0 && queue.waitMin !== null && (
+        <div className="trust-strip" style={{ marginTop: 8 }}>
+          <span>🚶 {t('wi_public', { n: String(queue.queued), min: String(queue.waitMin) })}</span>
         </div>
       )}
 

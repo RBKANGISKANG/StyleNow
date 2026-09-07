@@ -124,7 +124,21 @@ export interface Booking {
   forPersonId?: string;
   /** Late shop-side cancel/move: the automatic sorry-voucher minted for it. */
   goodwill?: { code: string; at: number };
+  /** The customer tapped "I'm here" — the floor sees an arrived dot. */
+  checkedInAt?: number;
+  /** Rezeptkarte: the colour formula this visit used, written by the stylist. */
+  techRecord?: TechRecord;
   createdAt: number;
+}
+
+/** What a colourist writes on the card so any stand-in can mix the same. */
+export interface TechRecord {
+  formula: string;
+  developer?: string;
+  processingMin?: number;
+  note?: string;
+  byStaffId: string;
+  at: number;
 }
 
 export interface WaitlistEntry {
@@ -187,6 +201,40 @@ export interface ShopClosure {
   reason: string;
 }
 
+/** A walk-in waiting for a chair — the paper list by the till, kept honestly. */
+export interface WalkInEntry {
+  id: string;
+  name: string;
+  serviceIds: string[];
+  arrivedAt: number;
+  state: 'queued' | 'serving' | 'done';
+}
+
+/** One line in the Übergabebuch — what the next shift must know. */
+export interface LogEntry {
+  id: string;
+  isoDate: string;
+  authorStaffId: string;
+  text: string;
+  pinned?: boolean;
+  /** staff ids who marked it read — the handover is only done when seen */
+  ackBy: string[];
+  at: number;
+}
+
+/** An opening/closing routine the team ticks off, day by day. */
+export interface ChecklistTemplate {
+  id: string;
+  kind: 'opening' | 'closing' | 'weekly';
+  items: Array<{ id: string; label: string }>;
+}
+
+export interface ChecklistTick {
+  itemId: string;
+  staffId: string;
+  at: number;
+}
+
 /** Someone this device books for besides themselves — a child, a parent, a friend. */
 export interface SavedPerson {
   id: string;
@@ -234,6 +282,10 @@ interface State {
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
   quietDiscounts: Map<string, number>; // shopId → percent off in the two emptiest day-parts
   people: Map<string, SavedPerson[]>; // deviceId → family & friends the device books for
+  walkIns: Map<string, WalkInEntry[]>; // shopId → today's Laufkundschaft queue
+  logEntries: Map<string, LogEntry[]>; // shopId → the Übergabebuch (team logbook)
+  checklists: Map<string, ChecklistTemplate[]>; // shopId → opening/closing checklists
+  checklistTicks: Map<string, ChecklistTick[]>; // `${shopId}:${iso}` → what got done that day
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -298,6 +350,10 @@ const state: State =
     goals: new Map(),
     quietDiscounts: new Map(),
     people: new Map(),
+    walkIns: new Map(),
+    logEntries: new Map(),
+    checklists: new Map(),
+    checklistTicks: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -367,6 +423,10 @@ function persist(): boolean {
         goals: [...state.goals.entries()],
         quietDiscounts: [...state.quietDiscounts.entries()],
         people: [...state.people.entries()],
+        walkIns: [...state.walkIns.entries()],
+        logEntries: [...state.logEntries.entries()],
+        checklists: [...state.checklists.entries()],
+        checklistTicks: [...state.checklistTicks.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -413,6 +473,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
         goals?: Array<[string, number]>;
         quietDiscounts?: Array<[string, number]>;
         people?: Array<[string, SavedPerson[]]>;
+        walkIns?: Array<[string, WalkInEntry[]]>;
+        logEntries?: Array<[string, LogEntry[]]>;
+        checklists?: Array<[string, ChecklistTemplate[]]>;
+        checklistTicks?: Array<[string, ChecklistTick[]]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -446,6 +510,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.goals = new Map(d.goals ?? []);
       state.quietDiscounts = new Map(d.quietDiscounts ?? []);
       state.people = new Map(d.people ?? []);
+      state.walkIns = new Map(d.walkIns ?? []);
+      state.logEntries = new Map(d.logEntries ?? []);
+      state.checklists = new Map(d.checklists ?? []);
+      state.checklistTicks = new Map(d.checklistTicks ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -666,6 +734,9 @@ export interface ShopConfig {
   goalCents?: number;
   stampCard?: { enabled: boolean; required: number };
   quietDiscountPct?: number;
+  logEntries?: LogEntry[];
+  checklists?: ChecklistTemplate[];
+  checklistTicks?: Array<[string, ChecklistTick[]]>;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -716,6 +787,9 @@ export function exportShopConfig(shopId: string): ShopConfig {
     goalCents: state.goals.get(shopId),
     stampCard: state.stampSettings.get(shopId),
     quietDiscountPct: state.quietDiscounts.get(shopId),
+    logEntries: state.logEntries.get(shopId) ?? [],
+    checklists: state.checklists.get(shopId) ?? [],
+    checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
   };
 }
 
@@ -752,6 +826,12 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.quietDiscountPct !== undefined) {
     if (doc.quietDiscountPct > 0) state.quietDiscounts.set(shopId, doc.quietDiscountPct);
     else state.quietDiscounts.delete(shopId);
+  }
+  if (doc.logEntries) state.logEntries.set(shopId, doc.logEntries);
+  if (doc.checklists) state.checklists.set(shopId, doc.checklists);
+  if (doc.checklistTicks) {
+    for (const k of [...state.checklistTicks.keys()]) if (k.startsWith(`${shopId}:`)) state.checklistTicks.delete(k);
+    for (const [k, v] of doc.checklistTicks) state.checklistTicks.set(k, v);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -3039,6 +3119,9 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       status: b.status,
       totalCents: b.quote.totalCents,
       paidCents: b.paidCents,
+      checkedInAt: b.checkedInAt ?? null,
+      // the last colour formula on file for this customer — for the stand-in
+      techFormula: latestTechRecord(shopId, customerKeyOf(b))?.record.formula ?? null,
     })),
     week,
   };
@@ -3123,6 +3206,7 @@ export interface BookingView {
   forPersonId: string | null;
   /** the automatic sorry-voucher a late shop cancel/move minted, if any */
   goodwillCode: string | null;
+  checkedInAt: number | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -3162,6 +3246,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       customerMemo: b.customerMemo ?? null,
       forPersonId: b.forPersonId ?? null,
       goodwillCode: b.goodwill?.code ?? null,
+      checkedInAt: b.checkedInAt ?? null,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -4425,6 +4510,8 @@ export interface DayCloseReport {
   feesCents: number;
   refundedCents: number;
   byMethod: Array<{ method: PaymentMethod; count: number; cents: number }>;
+  /** all checklists ticked off? null = the shop has none configured */
+  checklistsComplete: boolean | null;
 }
 
 export function dayCloseReport(shopId: string, isoDate: string): DayCloseReport {
@@ -4443,8 +4530,11 @@ export function dayCloseReport(shopId: string, isoDate: string): DayCloseReport 
     feesCents: 0,
     refundedCents: 0,
     byMethod: [],
+    checklistsComplete: null,
   };
   if (!shop) return report;
+  const completion = checklistCompletion(shopId, isoDate);
+  if (completion.length > 0) report.checklistsComplete = completion.every((c) => c.done === c.total);
   const start = dayStart(isoDate);
   const end = start + 24 * 60 * MIN;
   const byMethod = new Map<PaymentMethod, { count: number; cents: number }>();
@@ -5367,6 +5457,247 @@ export function eraseMyData(deviceId: string): number {
   state.people.delete(deviceId);
   persist();
   return touched;
+}
+
+// ---------------------------------------------------------------------------
+// the shop floor: check-in, walk-in queue, logbook, checklists, Rezeptkarten
+// ---------------------------------------------------------------------------
+
+export const CHECKIN_WINDOW_MIN = 45;
+
+/** "I'm here" — one tap, and the floor knows. Owner-only, near the start. */
+export function checkIn(bookingId: string, deviceId: string): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  if (b.status !== 'confirmed') throw new Error('not_checkinable');
+  if (Math.abs(b.startsAt - Date.now()) > CHECKIN_WINDOW_MIN * 60_000) throw new Error('too_early');
+  if (!b.checkedInAt) {
+    b.checkedInAt = Date.now();
+    persist();
+  }
+  return b;
+}
+
+// --- walk-in queue (Laufkundschaft) ----------------------------------------
+
+export function walkIns(shopId: string): WalkInEntry[] {
+  // Yesterday's list is paper for the bin: only today's entries surface.
+  const cutoff = dayStart(isoDateOf(Date.now()));
+  return (state.walkIns.get(shopId) ?? []).filter((w) => w.arrivedAt >= cutoff);
+}
+
+export function addWalkIn(shopId: string, name: string, serviceIds: string[]): WalkInEntry {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  const entry: WalkInEntry = {
+    id: `wi-${state.seq++}-${Date.now().toString(36)}`,
+    name: name.trim().slice(0, 40) || 'Walk-in',
+    serviceIds,
+    arrivedAt: Date.now(),
+    state: 'queued',
+  };
+  state.walkIns.set(shopId, [...(state.walkIns.get(shopId) ?? []), entry]);
+  persist();
+  return entry;
+}
+
+export function setWalkInState(shopId: string, id: string, next: WalkInEntry['state']): void {
+  const entry = (state.walkIns.get(shopId) ?? []).find((w) => w.id === id);
+  if (!entry) throw new Error('not_found');
+  entry.state = next;
+  persist();
+}
+
+export function removeWalkIn(shopId: string, id: string): void {
+  state.walkIns.set(shopId, (state.walkIns.get(shopId) ?? []).filter((w) => w.id !== id));
+  persist();
+}
+
+/**
+ * Give the walk-in a real seat: the next free start today (backfill projection,
+ * so "five minutes ago" still works), booked through the same contract as any
+ * booking. The queue entry flips to serving.
+ */
+export function convertWalkIn(shopId: string, id: string): Booking {
+  const entry = (state.walkIns.get(shopId) ?? []).find((w) => w.id === id);
+  if (!entry) throw new Error('not_found');
+  const iso = isoDateOf(Date.now());
+  const { slots } = availability(shopId, entry.serviceIds, iso, `shop:${shopId}`, null, { backfill: true });
+  // the nearest seat to *now*, past or future
+  const best = [...slots].sort(
+    (a, b) => Math.abs(a.start - Date.now()) - Math.abs(b.start - Date.now()),
+  )[0];
+  if (!best) throw new Error('no_seat_today');
+  const booking = createShopBooking(shopId, entry.serviceIds, best.suggestedStaffId, best.start, entry.name);
+  entry.state = 'serving';
+  persist();
+  return booking;
+}
+
+/** An honest "about X minutes": time to the next free chair, plus the queue ahead. */
+export function estimatedWaitMin(shopId: string): number | null {
+  const queued = walkIns(shopId).filter((w) => w.state === 'queued');
+  const shop = shopById(shopId);
+  if (!shop) return null;
+  const iso = isoDateOf(Date.now());
+  let first: number | null = null;
+  try {
+    const { slots } = availability(shopId, [effectiveServices(shopId)[0]?.id].filter(Boolean) as string[], iso, `shop:${shopId}`);
+    first = slots.find((s) => s.start > Date.now())?.start ?? null;
+  } catch {
+    return null;
+  }
+  if (first === null) return null;
+  const baseMin = Math.max(0, Math.round((first - Date.now()) / 60_000));
+  const chairs = Math.max(1, effectiveStaff(shopId).length);
+  const menu = new Map(effectiveServices(shopId).map((s) => [s.id, s]));
+  const queueMin = queued.reduce(
+    (sum, w) => sum + w.serviceIds.reduce((n, sid) => n + (menu.get(sid)?.durationMin ?? 30), 0),
+    0,
+  );
+  return baseMin + Math.round(queueMin / chairs);
+}
+
+/** What the shop page may say: how many are waiting, and roughly how long. */
+export function publicQueue(shopId: string): { queued: number; waitMin: number | null } {
+  const queued = walkIns(shopId).filter((w) => w.state === 'queued').length;
+  return { queued, waitMin: queued > 0 ? estimatedWaitMin(shopId) : null };
+}
+
+// --- Übergabebuch (team logbook) -------------------------------------------
+
+export function logEntries(shopId: string): LogEntry[] {
+  return [...(state.logEntries.get(shopId) ?? [])].sort(
+    (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false) || b.at - a.at,
+  );
+}
+
+export function addLogEntry(shopId: string, authorStaffId: string, text: string, pinned = false): LogEntry {
+  const clean = text.trim().slice(0, 500);
+  if (!clean) throw new Error('bad_text');
+  const entry: LogEntry = {
+    id: `lg-${state.seq++}-${Date.now().toString(36)}`,
+    isoDate: isoDateOf(Date.now()),
+    authorStaffId,
+    text: clean,
+    pinned: pinned || undefined,
+    ackBy: [],
+    at: Date.now(),
+  };
+  state.logEntries.set(shopId, [...(state.logEntries.get(shopId) ?? []), entry]);
+  persist();
+  return entry;
+}
+
+export function ackLogEntry(shopId: string, entryId: string, staffId: string): void {
+  const entry = (state.logEntries.get(shopId) ?? []).find((e) => e.id === entryId);
+  if (!entry) throw new Error('not_found');
+  if (!entry.ackBy.includes(staffId)) {
+    entry.ackBy.push(staffId);
+    persist();
+  }
+}
+
+export function deleteLogEntry(shopId: string, entryId: string): void {
+  state.logEntries.set(shopId, (state.logEntries.get(shopId) ?? []).filter((e) => e.id !== entryId));
+  persist();
+}
+
+// --- opening & closing checklists (Putzplan) --------------------------------
+
+export function checklists(shopId: string): ChecklistTemplate[] {
+  return state.checklists.get(shopId) ?? [];
+}
+
+export function saveChecklist(shopId: string, tpl: Omit<ChecklistTemplate, 'id'> & { id?: string }): ChecklistTemplate {
+  const items = tpl.items
+    .map((i) => ({ id: i.id || `ci-${state.seq++}`, label: i.label.trim().slice(0, 80) }))
+    .filter((i) => i.label);
+  if (items.length === 0) throw new Error('bad_items');
+  const list = [...(state.checklists.get(shopId) ?? [])];
+  const saved: ChecklistTemplate = { id: tpl.id || `cl-${state.seq++}`, kind: tpl.kind, items };
+  const at = list.findIndex((c) => c.id === saved.id);
+  if (at >= 0) list[at] = saved;
+  else list.push(saved);
+  state.checklists.set(shopId, list);
+  persist();
+  return saved;
+}
+
+export function deleteChecklist(shopId: string, id: string): void {
+  state.checklists.set(shopId, (state.checklists.get(shopId) ?? []).filter((c) => c.id !== id));
+  persist();
+}
+
+export function checklistTicks(shopId: string, iso: string): ChecklistTick[] {
+  return state.checklistTicks.get(`${shopId}:${iso}`) ?? [];
+}
+
+/** Toggle: an unticked item gets a tick with a name on it; a ticked one clears. */
+export function tickChecklistItem(shopId: string, iso: string, itemId: string, staffId: string): void {
+  const key = `${shopId}:${iso}`;
+  const ticks = state.checklistTicks.get(key) ?? [];
+  const at = ticks.findIndex((t) => t.itemId === itemId);
+  if (at >= 0) ticks.splice(at, 1);
+  else ticks.push({ itemId, staffId, at: Date.now() });
+  state.checklistTicks.set(key, ticks);
+  persist();
+}
+
+export function checklistCompletion(
+  shopId: string,
+  iso: string,
+): Array<{ template: ChecklistTemplate; done: number; total: number }> {
+  const done = new Set(checklistTicks(shopId, iso).map((t) => t.itemId));
+  return checklists(shopId).map((template) => ({
+    template,
+    done: template.items.filter((i) => done.has(i.id)).length,
+    total: template.items.length,
+  }));
+}
+
+// --- Rezeptkarten (colour formula records) ----------------------------------
+
+export function setTechRecord(
+  shopId: string,
+  bookingId: string,
+  rec: { formula: string; developer?: string; processingMin?: number; note?: string; byStaffId: string },
+): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.shopId !== shopId) throw new Error('not_found');
+  if (!['confirmed', 'completed'].includes(b.status)) throw new Error('not_recordable');
+  const formula = rec.formula.trim().slice(0, 120);
+  if (!formula) throw new Error('bad_formula');
+  b.techRecord = {
+    formula,
+    developer: rec.developer?.trim().slice(0, 40) || undefined,
+    processingMin: rec.processingMin || undefined,
+    note: rec.note?.trim().slice(0, 200) || undefined,
+    byStaffId: rec.byStaffId,
+    at: Date.now(),
+  };
+  persist();
+  return b;
+}
+
+/** The newest card for this customer at this shop — what a stand-in needs. */
+export function latestTechRecord(
+  shopId: string,
+  customerKey: string,
+): { record: TechRecord; bookingId: string; startsAt: number } | null {
+  let best: { record: TechRecord; bookingId: string; startsAt: number } | null = null;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !b.techRecord) continue;
+    if (customerKeyOf(b) !== customerKey) continue;
+    // Written-later wins; same moment (a backfill session) → the newer visit.
+    if (
+      !best ||
+      b.techRecord.at > best.record.at ||
+      (b.techRecord.at === best.record.at && b.startsAt > best.startsAt)
+    ) {
+      best = { record: b.techRecord, bookingId: b.id, startsAt: b.startsAt };
+    }
+  }
+  return best;
 }
 
 // The demo history has to be written after the module has finished defining

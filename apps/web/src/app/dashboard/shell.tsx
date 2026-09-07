@@ -76,6 +76,8 @@ export interface Overview {
     startsAt: number;
     status: string;
     totalCents: number;
+    checkedInAt: number | null;
+    techFormula: string | null;
   }>;
   week: Array<{ iso: string; revenueCents: number }>;
 }

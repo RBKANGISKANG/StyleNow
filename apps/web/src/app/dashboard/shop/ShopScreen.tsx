@@ -26,8 +26,12 @@ import {
   apiQuietDiscount,
   apiSetQuietDiscount,
   apiQuietWindows,
+  apiChecklists,
+  apiSaveChecklist,
+  apiDeleteChecklist,
   type ShopClosure,
 } from '@/lib/api';
+import type { ChecklistTemplate as ChecklistTemplateT } from '@/core/store';
 import { weekdayShort } from '@/lib/format';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
@@ -164,6 +168,11 @@ function ShopTab({
       <section className="section">
         <h2>🌙 {t('qd_title')}</h2>
         <QuietDiscountPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🧽 {t('cl_title')}</h2>
+        <ChecklistEditor shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -452,6 +461,93 @@ function QuietDiscountPanel({ shopId, onChanged }: { shopId: string; onChanged: 
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The Putzplan editor: each routine is a kind and one line per item. The
+ * ticking happens on the Today tab; this is only where the routine is written.
+ */
+function ChecklistEditor({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [lists, setLists] = useState<ChecklistTemplateT[]>([]);
+  const [editing, setEditing] = useState<{ id?: string; kind: 'opening' | 'closing' | 'weekly'; text: string } | null>(null);
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiChecklists(shopId).then(setLists);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  const kindLabel = (k: string) => t(k === 'opening' ? 'cl_opening' : k === 'closing' ? 'cl_closing' : 'cl_weekly');
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('cl_hint')}</p>
+      {lists.map((tpl) => (
+        <div key={tpl.id} className="wi-row">
+          <span className="wi-name">{kindLabel(tpl.kind)}</span>
+          <span className="wi-meta">{tpl.items.length} {t('cl_items')}</span>
+          <span style={{ display: 'flex', gap: 6 }}>
+            <button
+              className="btn btn-soft sm"
+              onClick={() => setEditing({ id: tpl.id, kind: tpl.kind, text: tpl.items.map((i) => i.label).join('\n') })}
+            >
+              ✏️
+            </button>
+            <button className="btn btn-ghost sm" onClick={() => void apiDeleteChecklist(shopId, tpl.id).then(load)}>
+              ✕
+            </button>
+          </span>
+        </div>
+      ))}
+      {editing ? (
+        <div style={{ marginTop: 10 }}>
+          <label className="chip" style={{ marginBottom: 8 }}>
+            <select
+              value={editing.kind}
+              onChange={(e) => setEditing({ ...editing, kind: e.target.value as 'opening' | 'closing' | 'weekly' })}
+            >
+              <option value="opening">{t('cl_opening')}</option>
+              <option value="closing">{t('cl_closing')}</option>
+              <option value="weekly">{t('cl_weekly')}</option>
+            </select>
+          </label>
+          <textarea
+            className="input"
+            rows={5}
+            placeholder={t('cl_items_ph')}
+            value={editing.text}
+            onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              className="btn btn-primary sm"
+              disabled={!editing.text.trim()}
+              onClick={() => {
+                void apiSaveChecklist(shopId, {
+                  id: editing.id,
+                  kind: editing.kind,
+                  items: editing.text.split('\n').map((l) => ({ id: '', label: l })),
+                }).then(() => {
+                  setEditing(null);
+                  onChanged('🧽 ' + t('cl_saved'));
+                  load();
+                });
+              }}
+            >
+              💾 {t('loc_save')}
+            </button>
+            <button className="btn btn-ghost sm" onClick={() => setEditing(null)}>
+              {t('cd_keep')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn btn-soft sm" style={{ marginTop: 8 }} onClick={() => setEditing({ kind: 'opening', text: '' })}>
+          ＋ {t('cl_new')}
+        </button>
+      )}
     </div>
   );
 }
