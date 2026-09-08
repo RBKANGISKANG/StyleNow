@@ -38,6 +38,7 @@ interface Svc {
   popular: boolean;
   requiresPatchTest?: boolean;
   consultationFirst?: boolean;
+  adultsOnly?: boolean;
 }
 interface ShopInfo {
   id: string;
@@ -507,6 +508,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   /** what must be paid now for one hold: the deposit, or everything */
   const dueOf = (h: Hold) => (h.quote.depositCents > 0 ? h.quote.depositCents : h.quote.totalCents);
   const minorChemical = forMinor && menu.filter((sv) => serviceIds.includes(sv.id)).some((sv) => sv.requiresPatchTest);
+  // Tattoos/piercings are 18+ full stop — a named guardian changes nothing.
+  const minorAdultsOnly = forMinor && menu.filter((sv) => serviceIds.includes(sv.id)).some((sv) => sv.adultsOnly);
   // one shape for pair and party: every seat beyond the first
   const extraHolds = hold2 ? [hold2] : groupHolds;
   const extrasDue = extraHolds.reduce((n, h) => n + dueOf(h), 0);
@@ -1403,7 +1406,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     onChange={(e) => setGuardianName(e.target.value)}
                     maxLength={60}
                   />
-                  {minorChemical ? (
+                  {minorAdultsOnly ? (
+                    <p className="patch-hint" style={{ color: 'var(--danger)' }}>🚫 {t('mn_adults')}</p>
+                  ) : minorChemical ? (
                     <p className="patch-hint" style={{ color: 'var(--danger)' }}>🚫 {t('mn_chemical')}</p>
                   ) : (
                     <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', marginBottom: 8 }}>{t('mn_hint')}</p>
@@ -1606,6 +1611,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   (ptRequired && !ptAck) ||
                   (cfRequired && !cfAck) ||
                   minorChemical ||
+                  minorAdultsOnly ||
                   (forMinor && !guardianName.trim())
                 }
                 onClick={() => void createHold(slot.start, staffId)}

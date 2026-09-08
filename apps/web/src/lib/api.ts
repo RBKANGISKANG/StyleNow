@@ -2316,3 +2316,30 @@ export async function apiShopStaffMeta(shopId: string, staffId: string): Promise
   await readyForRead();
   return store.effectiveStaff(shopId).find((s) => s.id === staffId)?.languages ?? [];
 }
+
+// ---- corporate packages ----------------------------------------------------
+
+export async function apiBuyCorporateBatch(
+  shopId: string,
+  company: string,
+  count: number,
+  amountCents: number,
+  payment?: { method: PaymentMethod; label: string },
+): Promise<{ ok: true; batch: store.CorporateBatch } | { ok: false; error: string }> {
+  await localWrite();
+  try {
+    return { ok: true, batch: store.buyCorporateBatch(shopId, deviceId(), company, count, amountCents, payment) };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function apiMyCorporateBatches(): Promise<store.CorporateBatch[]> {
+  await readyForRead();
+  return store.myCorporateBatches(deviceId());
+}
+
+export async function apiCorporateForShop(shopId: string): Promise<ReturnType<typeof store.corporateBatchesForShop>> {
+  await readyForRead();
+  return store.corporateBatchesForShop(shopId);
+}

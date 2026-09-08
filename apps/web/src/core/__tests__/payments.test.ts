@@ -37,6 +37,7 @@ import {
   openDispute, resolveDispute, disputesForShop, myDisputes,
   createDuoHold, resourceRoomFor, myMembership, bookingsForDevice, effectiveServices,
   exportShopConfig, applyShopConfig, patchService, serviceOverrideEntries,
+  feed, buyCorporateBatch, corporateDiscountPct, myCorporateBatches, corporateBatchesForShop,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -1392,4 +1393,83 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.ok(myDisputes(rhythmDev).every((x) => x.text === '—'), 'erasure blanks the complaint words');
 }
 
-console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, and discovery & ops');
+// ---------------------------------------------------------------------------
+// verticals round: new categories, kids filter, 18+ guard, corporate packages
+// ---------------------------------------------------------------------------
+
+// The marketplace now carries the new verticals, and the feed can filter them.
+{
+  const cats = new Set(allShops().map((s) => s.category));
+  for (const c of ['spa', 'makeup', 'tattoo', 'physio', 'kids']) {
+    assert.ok(cats.has(c as never), `the ${c} vertical is seeded`);
+  }
+  const spa = feed({ category: 'spa' });
+  assert.ok(spa.length >= 1 && spa.every((c) => c.shopId === 'shop-sanfte-stunde'), 'the spa chip finds the spa');
+  const kids = feed({ kidsFriendly: true });
+  assert.ok(kids.length >= 1 && kids.every((c) => c.kidsFriendly), 'the kids filter keeps only kids-built places');
+  assert.ok(kids.some((c) => c.shopId === 'shop-kleine-schere'));
+  const eclat = feed({}).find((c) => c.shopId === 'shop-eclat');
+  assert.ok(eclat?.premium, 'the concierge tier is flagged on its card');
+  // and the new shops actually project bookable days
+  const spaShop = allShops().find((s) => s.id === 'shop-sanfte-stunde')!;
+  let found = false;
+  for (let d = 1; d <= 14 && !found; d++) {
+    found = availability(spaShop.id, [spaShop.services[0].id], addDays(todayIso(), d), 'dev-vert', null).slots.length > 0;
+  }
+  assert.ok(found, 'the spa has bookable slots');
+}
+
+// 18+: tattoos and piercings refuse minors outright, guardian or not.
+{
+  const tat = allShops().find((s) => s.id === 'shop-schwarzwerk')!;
+  const needle = tat.services.find((s) => s.adultsOnly)!;
+  const jewel = tat.services.find((s) => !s.adultsOnly && !s.requiresPatchTest)!;
+  assert.throws(
+    () => createHold({ shopId: tat.id, serviceIds: [needle.id], staffId: null, startsAt: Date.now() + 5 * 864e5, deviceId: 'dev-18', guestName: 'Kid', forMinor: true, guardianName: 'Papa Krause', idempotencyKey: 'a18-1' }),
+    /minor_adults_only/,
+    'a guardian does not make a tattoo legal',
+  );
+  // a non-needle service at the same studio books fine for a minor
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(tat.id, [jewel.id], addDays(todayIso(), d), 'dev-18', null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: tat.id, serviceIds: [jewel.id], staffId: null, startsAt: s.start, deviceId: 'dev-18', guestName: 'Kid', forMinor: true, guardianName: 'Papa Krause', idempotencyKey: `a18-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'the jewellery check books for a minor with a guardian');
+}
+
+// Corporate packages: one order, N ordinary gift cards, a volume discount.
+{
+  assert.equal(corporateDiscountPct(4), 0);
+  assert.equal(corporateDiscountPct(5), 5);
+  assert.equal(corporateDiscountPct(10), 10);
+  assert.equal(corporateDiscountPct(20), 15);
+  const dev = 'dev-corp';
+  assert.throws(() => buyCorporateBatch(shop.id, dev, 'Tiny GmbH', 2, 5000), /bad_count/);
+  assert.throws(() => buyCorporateBatch(shop.id, dev, '   ', 10, 5000), /company_required/);
+  const batch = buyCorporateBatch(shop.id, dev, 'Späti Ventures GmbH', 10, 5000);
+  assert.equal(batch.codes.length, 10);
+  assert.equal(batch.discountPct, 10);
+  assert.equal(batch.paidCents, 45000, 'ten €50 cards cost €450 with the volume discount');
+  // every code is an ordinary, fully-funded gift card
+  for (const code of batch.codes) {
+    const v = validateVoucher(code, 5000);
+    assert.ok(v.ok && v.discountCents === 5000, 'each code redeems at full face value');
+    assert.equal(giftCard(code)!.fromName, 'Späti Ventures GmbH');
+  }
+  assert.equal(myCorporateBatches(dev)[0].id, batch.id);
+  const shopView = corporateBatchesForShop(shop.id);
+  assert.equal(shopView.paidCents, 45000);
+  assert.equal(shopView.outstandingCents, 50000, 'liability is the face value, not the discounted price');
+  // privacy: the export names the order, erasure keeps the numbers but not the name
+  const ex = exportMyData(dev);
+  assert.equal((ex.corporateBatches as unknown[]).length, 1);
+  eraseMyData(dev);
+  assert.equal(myCorporateBatches(dev)[0].company, '—', 'erasure blanks the company name');
+  assert.equal(corporateBatchesForShop(shop.id).paidCents, 45000, 'the books still add up');
+}
+
+console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, and verticals');

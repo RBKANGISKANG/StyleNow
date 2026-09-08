@@ -29,6 +29,8 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
     ratingCount: shop.ratingCount,
     isNew: shop.isNew,
     isMobile: shop.isMobile,
+    kidsFriendly: shop.kidsFriendly ?? false,
+    premium: shop.premium ?? false,
     depositPercent: shop.depositPercent,
     policy: shop.policy,
     services: shop.services.map((s) => ({
@@ -41,6 +43,7 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
       basePriceCents: s.basePriceCents,
       dynamicPricing: s.dynamicPricing,
       popular: s.popular ?? false,
+      adultsOnly: s.adultsOnly ?? false,
     })),
     staff: shop.staff.map((s) => ({ id: s.id, name: s.name, role: s.role, tier: s.tier })),
     reviews: shop.reviews,

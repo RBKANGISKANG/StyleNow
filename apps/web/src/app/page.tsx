@@ -17,6 +17,11 @@ const CATEGORIES = [
   { id: 'barber', emoji: '💈', en: 'Barber', de: 'Barbier' },
   { id: 'nails', emoji: '💅', en: 'Nails', de: 'Nägel' },
   { id: 'brows', emoji: '👁️', en: 'Brows', de: 'Brauen' },
+  { id: 'spa', emoji: '💆', en: 'Massage & Spa', de: 'Massage & Spa' },
+  { id: 'makeup', emoji: '💄', en: 'Makeup', de: 'Make-up' },
+  { id: 'tattoo', emoji: '🖋️', en: 'Tattoo', de: 'Tattoo' },
+  { id: 'physio', emoji: '🤸', en: 'Physio & Training', de: 'Physio & Training' },
+  { id: 'kids', emoji: '🧒', en: 'Kids', de: 'Kinder' },
   { id: 'mobile', emoji: '🚗', en: 'At home', de: 'Zu Hause' },
 ];
 
@@ -39,6 +44,8 @@ interface Card {
   distanceM: number;
   isNew: boolean;
   isMobile: boolean;
+  kidsFriendly: boolean;
+  premium: boolean;
   reasons: string[];
   minutesToFirstSlot: number | null;
   logoUrl: string | null;
@@ -59,6 +66,7 @@ export default function Explore() {
   const [personalise, setPersonalise] = useState(false);
   const [budget, setBudget] = useState<number | null>(null);
   const [favsOnly, setFavsOnly] = useState(false);
+  const [kidsOnly, setKidsOnly] = useState(false);
   const [favs, toggleFav] = useFavourites();
   const [locInput, setLocInput] = useState('');
   const [loc, setLoc] = useState<{ lat: number; lng: number; label: string } | null>(null);
@@ -116,6 +124,7 @@ export default function Explore() {
 
   const activeFilters =
     (wantsSoon ? 1 : 0) + (personalise ? 1 : 0) + (favsOnly ? 1 : 0) + (topRated ? 1 : 0) +
+    (kidsOnly ? 1 : 0) +
     (budget !== null ? 1 : 0) + (radius !== null ? 1 : 0) + (category !== null ? 1 : 0);
 
   const resetFilters = () => {
@@ -123,6 +132,7 @@ export default function Explore() {
     setPersonalise(false);
     setFavsOnly(false);
     setTopRated(false);
+    setKidsOnly(false);
     setBudget(null);
     setRadius(null);
     setCategory(null);
@@ -163,9 +173,10 @@ export default function Explore() {
       lng: loc?.lng,
       maxTravelM: radius ?? undefined,
       minRating: topRated ? 4.5 : undefined,
+      kidsFriendly: kidsOnly || undefined,
       sortBy,
     }),
-    [search, category, wantsSoon, personalise, budget, lang, loc, radius, topRated, sortBy],
+    [search, category, wantsSoon, personalise, budget, lang, loc, radius, topRated, kidsOnly, sortBy],
   );
 
   useEffect(() => {
@@ -247,6 +258,9 @@ export default function Explore() {
         </button>
         <button className={`chip ${topRated ? 'on' : ''}`} onClick={() => setTopRated(!topRated)}>
           ⭐ {t('top_rated')}
+        </button>
+        <button className={`chip ${kidsOnly ? 'on' : ''}`} onClick={() => setKidsOnly(!kidsOnly)}>
+          🧒 {t('f_kids')}
         </button>
         <label className="chip">
           💶 {t('budget')}
@@ -417,6 +431,8 @@ function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () =>
         <div className="badges">
           {card.isNew && <span className="badge amber">{t('new_badge')}</span>}
           {card.isMobile && <span className="badge teal">{t('mobile_badge')}</span>}
+          {card.kidsFriendly && <span className="badge amber">{t('kids_badge')}</span>}
+          {card.premium && <span className="badge plum">{t('premium_badge')}</span>}
         </div>
         <button
           className="fav-btn"

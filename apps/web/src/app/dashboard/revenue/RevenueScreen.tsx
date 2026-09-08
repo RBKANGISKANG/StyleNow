@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, apiDrawerReport, apiAddCashEntry, apiDeleteCashEntry, apiStaffEarnings, apiUtilizationReport, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, apiDrawerReport, apiAddCashEntry, apiDeleteCashEntry, apiStaffEarnings, apiUtilizationReport, apiCorporateForShop, type RevenueReport } from '@/lib/api';
 import type { DrawerReport as DrawerReportT, StaffEarningsRow as StaffEarningsRowT, UtilizationReport as UtilizationReportT, CashEntry } from '@/core/store';
 
 type CashKind = CashEntry['kind'];
@@ -40,6 +40,7 @@ function RevenueTab({ shopId }: { shopId: string }) {
   const [closeIso, setCloseIso] = useState(todayIso());
   const [closeOpen, setCloseOpen] = useState(false);
   const [gift, setGift] = useState<Awaited<ReturnType<typeof apiShopGiftCards>>>(null);
+  const [corp, setCorp] = useState<Awaited<ReturnType<typeof apiCorporateForShop>> | null>(null);
   const [quiet, setQuiet] = useState<Awaited<ReturnType<typeof apiQuietWindows>>>([]);
   const [goal, setGoal] = useState(0);
   const [goalDraft, setGoalDraft] = useState('');
@@ -50,6 +51,7 @@ function RevenueTab({ shopId }: { shopId: string }) {
   useEffect(() => {
     if (!shopId) return;
     void apiShopGiftCards(shopId).then(setGift);
+    void apiCorporateForShop(shopId).then(setCorp);
     void apiQuietWindows(shopId).then(setQuiet);
     void apiShopGoal(shopId).then((g) => {
       setGoal(g);
@@ -265,6 +267,29 @@ function RevenueTab({ shopId }: { shopId: string }) {
                 <span style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', flexBasis: '100%' }}>
                   {t('gc_shop_hint')}
                 </span>
+              </div>
+            </section>
+          )}
+
+          {corp && corp.batches.length > 0 && (
+            <section className="section">
+              <h2>💼 {t('corp_shop_title')}</h2>
+              <div className="panel">
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <div className="hr-kpi">
+                    <span className="k">{t('corp_shop_paid')}</span>
+                    <span className="v">{money(corp.paidCents, lang)}</span>
+                  </div>
+                  <div className="hr-kpi">
+                    <span className="k">{t('gc_shop_outstanding')}</span>
+                    <span className="v">{money(corp.outstandingCents, lang)}</span>
+                  </div>
+                </div>
+                {corp.batches.slice(0, 6).map((b) => (
+                  <p key={b.id} style={{ fontSize: '0.8rem', margin: '4px 0' }}>
+                    <strong>{b.company}</strong> · {t('corp_shop_line', { n: String(b.count), amount: money(b.amountCents, lang), pct: String(b.discountPct) })}
+                  </p>
+                ))}
               </div>
             </section>
           )}

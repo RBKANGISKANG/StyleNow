@@ -33,6 +33,9 @@ export default function BookPage({ params }: { params: { slug: string } }) {
           basePriceCents: s.basePriceCents,
           dynamicPricing: s.dynamicPricing,
           popular: s.popular ?? false,
+          requiresPatchTest: s.requiresPatchTest ?? false,
+          consultationFirst: s.consultationFirst ?? false,
+          adultsOnly: s.adultsOnly ?? false,
         })),
         staff: shop.staff.map((s) => ({ id: s.id, name: s.name, role: s.role })),
       }}

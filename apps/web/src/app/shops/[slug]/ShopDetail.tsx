@@ -44,6 +44,8 @@ export interface ShopData {
   ratingCount: number;
   isNew: boolean;
   isMobile: boolean;
+  kidsFriendly: boolean;
+  premium: boolean;
   depositPercent: number;
   policy: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
   services: Array<{
@@ -56,6 +58,7 @@ export interface ShopData {
     basePriceCents: number;
     dynamicPricing: boolean;
     popular: boolean;
+    adultsOnly: boolean;
   }>;
   staff: Array<{ id: string; name: string; role: { en: string; de: string }; tier: string }>;
   reviews: Array<{ author: string; rating: number; text: { en: string; de: string }; service: string; date: string }>;
@@ -129,6 +132,8 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
                   <Glyph name="repeat" emoji="🚗" size={14} /> {t('mobile_badge')}
                 </span>
               )}
+              {shop.kidsFriendly && <span>🧒 {t('kids_badge')}</span>}
+              {shop.premium && <span>👑 {t('premium_badge')}</span>}
               {shop.isNew && (
                 <span>
                   <Glyph name="sparkle" emoji="✨" size={14} /> {t('new_badge')}
@@ -198,6 +203,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
                     {s.name[lang]}
                     {s.popular && <span className="mini-badge pop">{t('popular')}</span>}
                     {s.dynamicPricing && <span className="mini-badge">{t('dynamic_badge')}</span>}
+                    {s.adultsOnly && <span className="mini-badge" title={t('adults_hint')}>18+</span>}
                   </div>
                   <div className="meta">
                     {totalMin} {t('min')}

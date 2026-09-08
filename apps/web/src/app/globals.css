@@ -429,6 +429,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 }
 .badge.teal { background: var(--teal); color: #fff; }
 .badge.amber { background: var(--amber); color: #4a3005; } /* white on amber fails contrast */
+.badge.plum { background: #41295a; color: #fff; } /* the concierge tier's own colour */
 
 .fav-btn {
   position: absolute;

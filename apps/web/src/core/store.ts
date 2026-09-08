@@ -322,6 +322,26 @@ export interface Dispute {
   resolution?: { kind: 'redo' | 'goodwill' | 'declined'; note?: string; at: number };
 }
 
+/**
+ * A company's bulk gift-card order: N codes at a volume discount, one invoice
+ * line. The cards themselves are ordinary gift cards — employees redeem them
+ * at checkout like any other code.
+ */
+export interface CorporateBatch {
+  id: string;
+  shopId: string;
+  deviceId: string;
+  company: string;
+  count: number;
+  /** face value per card */
+  amountCents: number;
+  /** what the company actually paid, after the volume discount */
+  paidCents: number;
+  discountPct: number;
+  codes: string[];
+  createdAt: number;
+}
+
 /** The physical bottlenecks a salon has besides stylists. 0 = not tracked. */
 export interface ShopResources {
   basins: number;
@@ -452,6 +472,7 @@ interface State {
   staffPhotos: Map<string, ShopPhoto[]>; // staffId → portfolio (work photos)
   stock: Map<string, StockItem[]>; // shopId → the back-bar shelf
   disputes: Map<string, Dispute>; // disputeId → a complaint and what became of it
+  corporate: Map<string, CorporateBatch>; // batchId → a company's bulk gift-card order
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -533,6 +554,7 @@ const state: State =
     staffPhotos: new Map(),
     stock: new Map(),
     disputes: new Map(),
+    corporate: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -619,6 +641,7 @@ function persist(): boolean {
         staffPhotos: [...state.staffPhotos.entries()],
         stock: [...state.stock.entries()],
         disputes: [...state.disputes.entries()],
+        corporate: [...state.corporate.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -682,6 +705,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         staffPhotos?: Array<[string, ShopPhoto[]]>;
         stock?: Array<[string, StockItem[]]>;
         disputes?: Array<[string, Dispute]>;
+        corporate?: Array<[string, CorporateBatch]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -732,6 +756,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.staffPhotos = new Map(d.staffPhotos ?? []);
       state.stock = new Map(d.stock ?? []);
       state.disputes = new Map(d.disputes ?? []);
+      state.corporate = new Map(d.corporate ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -2505,6 +2530,8 @@ export interface FeedQuery {
   lat?: number;
   lng?: number;
   minRating?: number;
+  /** only places built for children (play corner, patient staff) */
+  kidsFriendly?: boolean;
   sortBy?: 'match' | 'distance' | 'price' | 'rating';
 }
 
@@ -2526,6 +2553,8 @@ export interface FeedCard {
   distanceM: number;
   isNew: boolean;
   isMobile: boolean;
+  kidsFriendly: boolean;
+  premium: boolean;
   score: number;
   reasons: string[];
   minutesToFirstSlot: number | null;
@@ -2541,6 +2570,8 @@ export function feed(q: FeedQuery): FeedCard[] {
   let shops = allShops();
   if (q.category) shops = shops.filter((s) => s.category === q.category);
   if (q.minRating) shops = shops.filter((s) => s.ratingAvg >= q.minRating!);
+  // Parents filter for places built for children, not merely tolerant of them.
+  if (q.kidsFriendly) shops = shops.filter((s) => s.kidsFriendly);
   if (q.search) {
     const needle = q.search.toLowerCase();
     shops = shops.filter((s) => {
@@ -2608,6 +2639,8 @@ export function feed(q: FeedQuery): FeedCard[] {
       distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       isNew: s.isNew,
       isMobile: s.isMobile,
+      kidsFriendly: s.kidsFriendly ?? false,
+      premium: s.premium ?? false,
       score: m.score,
       reasons: m.reasons,
       minutesToFirstSlot: firstSlot.get(s.id) ?? null,
@@ -2699,6 +2732,8 @@ export function createHold(input: HoldInput): HoldResult {
   if (input.forMinor) {
     if (!input.guardianName?.trim()) throw new Error('guardian_required');
     if (services.some((s) => s.requiresPatchTest)) throw new Error('minor_chemical');
+    // Tattoos and piercings are 18+, guardian or not — the law, not a policy.
+    if (services.some((s) => s.adultsOnly)) throw new Error('minor_adults_only');
   }
 
   const now = Date.now();
@@ -3778,6 +3813,77 @@ export function buyGiftCard(
 
 export function giftCard(code: string): GiftCard | null {
   return state.giftCards.get(code.trim().toUpperCase()) ?? null;
+}
+
+// --- corporate packages ------------------------------------------------------
+
+export const CORP_MIN_CARDS = 5;
+export const CORP_MAX_CARDS = 50;
+
+/** Volume discount: 5+ cards → 5 %, 10+ → 10 %, 20+ → 15 %. */
+export function corporateDiscountPct(count: number): number {
+  if (count >= 20) return 15;
+  if (count >= 10) return 10;
+  if (count >= CORP_MIN_CARDS) return 5;
+  return 0;
+}
+
+/**
+ * One order, N ordinary gift cards: the company pays once (with the volume
+ * discount), hands the codes to the team, and every code redeems at checkout
+ * like any other gift card — full face value, the discount was the buyer's.
+ */
+export function buyCorporateBatch(
+  shopId: string,
+  deviceId: string,
+  company: string,
+  count: number,
+  amountCents: number,
+  payment?: { method: PaymentMethod; label: string },
+): CorporateBatch {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  const name = company.trim().slice(0, 60);
+  if (!name) throw new Error('company_required');
+  if (!Number.isInteger(count) || count < CORP_MIN_CARDS || count > CORP_MAX_CARDS) throw new Error('bad_count');
+  if (amountCents < GIFT_MIN_CENTS || amountCents > GIFT_MAX_CENTS) throw new Error('bad_amount');
+  const discountPct = corporateDiscountPct(count);
+  const codes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    codes.push(buyGiftCard(shopId, deviceId, amountCents, { fromName: name }, payment).code);
+  }
+  const batch: CorporateBatch = {
+    id: `cb-${state.seq++}-${Date.now().toString(36)}`,
+    shopId,
+    deviceId,
+    company: name,
+    count,
+    amountCents,
+    paidCents: Math.round((count * amountCents * (100 - discountPct)) / 100),
+    discountPct,
+    codes,
+    createdAt: Date.now(),
+  };
+  state.corporate.set(batch.id, batch);
+  persist();
+  return batch;
+}
+
+export function myCorporateBatches(deviceId: string): CorporateBatch[] {
+  return [...state.corporate.values()].filter((b) => b.deviceId === deviceId).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** The shop's B2B view: orders, revenue, and how much is still unredeemed. */
+export function corporateBatchesForShop(shopId: string): {
+  batches: CorporateBatch[];
+  paidCents: number;
+  outstandingCents: number;
+} {
+  const batches = [...state.corporate.values()].filter((b) => b.shopId === shopId).sort((a, b) => b.createdAt - a.createdAt);
+  const outstandingCents = batches.reduce(
+    (n, b) => n + b.codes.reduce((m, code) => m + (state.giftCards.get(code)?.balanceCents ?? 0), 0),
+    0,
+  );
+  return { batches, paidCents: batches.reduce((n, b) => n + b.paidCents, 0), outstandingCents };
 }
 
 export function giftCardsForDevice(deviceId: string): GiftCard[] {
@@ -5920,6 +6026,7 @@ export function exportMyData(deviceId: string): Record<string, unknown> {
     memberships: [...state.memberships.values()].filter((m) => m.deviceId === deviceId),
     watches: [...state.watches.values()].filter((w) => w.deviceId === deviceId),
     disputes: myDisputes(deviceId),
+    corporateBatches: myCorporateBatches(deviceId),
   };
 }
 
@@ -5959,6 +6066,8 @@ export function eraseMyData(deviceId: string): number {
   for (const [id, pk] of state.packages) if (pk.deviceId === deviceId) state.packages.delete(id);
   // the complaint's paper trail stays for the shop, the words do not
   for (const d of state.disputes.values()) if (d.deviceId === deviceId) d.text = '—';
+  // the order's numbers stay (the shop's books), the company name does not
+  for (const cb of state.corporate.values()) if (cb.deviceId === deviceId) cb.company = '—';
   state.people.delete(deviceId);
   // health data is the most sensitive record in the system — it goes first
   state.careProfiles.delete(deviceId);

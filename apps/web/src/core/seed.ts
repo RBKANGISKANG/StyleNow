@@ -35,6 +35,8 @@ export interface SeedService {
    *  null is an explicit "none" (a shop override clearing a seeded marker) —
    *  unlike undefined it survives JSON persistence. */
   resource?: 'basin' | 'colour' | null;
+  /** Tattoos, piercings: not bookable for minors at all, guardian or not. */
+  adultsOnly?: boolean;
 }
 
 export interface SeedStaff {
@@ -58,7 +60,7 @@ export interface SeedShop {
   id: string;
   slug: string;
   name: string;
-  category: 'hair' | 'barber' | 'nails' | 'brows' | 'mobile';
+  category: 'hair' | 'barber' | 'nails' | 'brows' | 'mobile' | 'spa' | 'makeup' | 'tattoo' | 'physio' | 'kids';
   tagline: LocalText;
   about: LocalText;
   address: string;
@@ -72,6 +74,10 @@ export interface SeedShop {
   ratingCount: number;
   isNew: boolean;
   isMobile: boolean;
+  /** Built for children: play corner, patient staff, the explore filter. */
+  kidsFriendly?: boolean;
+  /** VIP/concierge tier: premium service level, priced accordingly. */
+  premium?: boolean;
   chainId: string | null;
   tags: string[];
   /** cosine similarity of the shop embedding to the demo user's taste vector */
@@ -541,6 +547,284 @@ export const SHOPS: SeedShop[] = [
       { author: 'Robin', rating: 5, text: { en: 'Found my new regular place. Ida listens first, cuts second.', de: 'Mein neuer Stammladen. Ida hört erst zu und schneidet dann.' }, service: 'Cut & Finish', date: '2026-07-26' },
     ],
   },
+  {
+    id: 'shop-sanfte-stunde',
+    slug: 'sanfte-stunde-spa',
+    name: 'Sanfte Stunde Spa',
+    category: 'spa',
+    tagline: { en: 'Massage, facials and an hour that belongs to you', de: 'Massage, Facials und eine Stunde, die dir gehört' },
+    about: {
+      en: 'A quiet floor in Charlottenburg: deep-tissue and relaxation massage, facials, and wellness coaching. Phones stay in the locker; the world stays outside.',
+      de: 'Eine ruhige Etage in Charlottenburg: Tiefengewebs- und Entspannungsmassage, Facials und Wellness-Coaching. Handys bleiben im Schließfach; die Welt bleibt draußen.',
+    },
+    address: 'Kantstraße 24, 10623 Berlin',
+    district: 'Charlottenburg',
+    lat: 52.506,
+    lng: 13.3224,
+    gradient: ['#134e5e', '#71b280'],
+    emoji: '💆',
+    languagesSpoken: ['de', 'en'],
+    ratingAvg: 4.9,
+    ratingCount: 203,
+    isNew: false,
+    isMobile: false,
+    chainId: null,
+    tags: ['massage', 'spa', 'wellness', 'facial', 'relax'],
+    semanticSimilarity: 0.52,
+    cancellationRate: 0.02,
+    rules: { ...STANDARD_RULES, slotGranularityMin: 30, bufferAfterMin: 15 },
+    depositPercent: 20,
+    policy: { freeUntilHours: 24, lateFeePercent: 50, noShowFeePercent: 100 },
+    timezone: 'Europe/Berlin',
+    services: [
+      { id: 'svc-ss-deep', emoji: '💪', name: { en: 'Deep Tissue Massage (60 min)', de: 'Tiefengewebsmassage (60 Min.)' }, durationMin: 60, processingGapMin: 0, finishMin: 10, basePriceCents: 8900, vatRateBps: 1900, dynamicPricing: true, popular: true },
+      { id: 'svc-ss-relax', emoji: '🌊', name: { en: 'Relaxation Massage (90 min)', de: 'Entspannungsmassage (90 Min.)' }, durationMin: 90, processingGapMin: 0, finishMin: 10, basePriceCents: 11900, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ss-facial', emoji: '🧖', name: { en: 'Signature Facial', de: 'Signature Facial' }, durationMin: 60, processingGapMin: 0, finishMin: 5, basePriceCents: 9500, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ss-hotstone', emoji: '🪨', name: { en: 'Hot Stone Ritual', de: 'Hot-Stone-Ritual' }, durationMin: 75, processingGapMin: 0, finishMin: 10, basePriceCents: 10900, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ss-coach', emoji: '🌱', name: { en: 'Wellness Coaching Session', de: 'Wellness-Coaching' }, durationMin: 45, processingGapMin: 0, finishMin: 0, basePriceCents: 6500, vatRateBps: 1900, dynamicPricing: false, consultationFirst: true },
+    ],
+    staff: [
+      { id: 'st-ss-heike', name: 'Heike', role: { en: 'Massage Therapist', de: 'Massagetherapeutin' }, tier: 'senior', shifts: week([{ startMin: h(10), endMin: h(19) }], [1, 2, 3, 4, 5]) },
+      { id: 'st-ss-tomas', name: 'Tomás', role: { en: 'Spa Therapist', de: 'Spa-Therapeut' }, tier: 'stylist', shifts: { ...week([{ startMin: h(11), endMin: h(20) }], [2, 3, 4, 5]), 6: [{ startMin: h(10), endMin: h(16) }] } },
+      { id: 'st-ss-annika', name: 'Annika', role: { en: 'Wellness Coach', de: 'Wellness-Coach' }, tier: 'stylist', shifts: week([{ startMin: h(9), endMin: h(15) }], [1, 3, 5]) },
+    ],
+    pricingRules: [
+      { id: 'pr-ss-morning', kind: 'time_of_day', name: 'Quiet mornings −10 %', dows: [1, 2, 3], minuteOfDayFrom: h(10), minuteOfDayTo: h(12), adjustKind: 'percent', adjustValue: -10, priority: 8, stackable: false },
+    ],
+    reviews: [
+      { author: 'Sibel', rating: 5, text: { en: 'The only hour of my week where nobody can reach me. Heike’s hands are magic.', de: 'Die einzige Stunde der Woche, in der mich niemand erreicht. Heikes Hände sind Magie.' }, service: 'Deep Tissue Massage (60 min)', date: '2026-08-02' },
+    ],
+  },
+  {
+    id: 'shop-blendwerk',
+    slug: 'blendwerk-makeup',
+    name: 'Blendwerk Makeup Artistry',
+    category: 'makeup',
+    tagline: { en: 'Weddings, shoots and big nights — faces done properly', de: 'Hochzeiten, Shootings und große Abende — Gesichter, richtig gemacht' },
+    about: {
+      en: 'A makeup studio for the days photographs outlive: bridal trials with a written colour plan, event makeup, and lessons that teach your own face. On-location work is quoted at the trial.',
+      de: 'Ein Make-up-Studio für die Tage, die Fotos überdauern: Braut-Probetermine mit schriftlichem Farbplan, Event-Make-up und Kurse für das eigene Gesicht. Vor-Ort-Einsätze werden beim Probetermin angeboten.',
+    },
+    address: 'Boxhagener Straße 31, 10245 Berlin',
+    district: 'Friedrichshain',
+    lat: 52.5099,
+    lng: 13.4601,
+    gradient: ['#b24592', '#f15f79'],
+    emoji: '💄',
+    languagesSpoken: ['de', 'en', 'pl'],
+    ratingAvg: 4.8,
+    ratingCount: 88,
+    isNew: false,
+    isMobile: false,
+    chainId: null,
+    tags: ['makeup', 'weddings', 'events', 'bridal', 'lessons'],
+    semanticSimilarity: 0.47,
+    cancellationRate: 0.03,
+    rules: { ...STANDARD_RULES, slotGranularityMin: 30, bookingLeadMin: 120 },
+    depositPercent: 30,
+    policy: { freeUntilHours: 48, lateFeePercent: 50, noShowFeePercent: 100 },
+    timezone: 'Europe/Berlin',
+    services: [
+      { id: 'svc-bw-bridal-trial', emoji: '👰', name: { en: 'Bridal Trial (with colour plan)', de: 'Braut-Probetermin (mit Farbplan)' }, durationMin: 90, processingGapMin: 0, finishMin: 0, basePriceCents: 12900, vatRateBps: 1900, dynamicPricing: false, consultationFirst: true, popular: true },
+      { id: 'svc-bw-bridal-day', emoji: '💍', name: { en: 'Wedding-day Makeup', de: 'Hochzeits-Make-up' }, durationMin: 75, processingGapMin: 0, finishMin: 0, basePriceCents: 18900, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-bw-event', emoji: '🥂', name: { en: 'Event Makeup', de: 'Event-Make-up' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 8900, vatRateBps: 1900, dynamicPricing: true },
+      { id: 'svc-bw-lesson', emoji: '🎓', name: { en: 'Makeup Lesson (1:1)', de: 'Make-up-Kurs (1:1)' }, durationMin: 90, processingGapMin: 0, finishMin: 0, basePriceCents: 11900, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-bw-lashes', emoji: '👁️', name: { en: 'Strip Lashes & Touch-up', de: 'Wimpernband & Auffrischung' }, durationMin: 30, processingGapMin: 0, finishMin: 0, basePriceCents: 3900, vatRateBps: 1900, dynamicPricing: false },
+    ],
+    staff: [
+      { id: 'st-bw-alina', name: 'Alina', role: { en: 'Makeup Artist & Founder', de: 'Make-up-Artistin & Gründerin' }, tier: 'senior', shifts: { ...week([{ startMin: h(10), endMin: h(18) }], [2, 3, 4, 5]), 6: [{ startMin: h(8), endMin: h(16) }] } },
+      { id: 'st-bw-june', name: 'June', role: { en: 'Makeup Artist', de: 'Make-up-Artistin' }, tier: 'stylist', shifts: { ...week([{ startMin: h(11), endMin: h(19) }], [3, 4, 5]), 6: [{ startMin: h(8), endMin: h(16) }], 7: [{ startMin: h(9), endMin: h(14) }] } },
+    ],
+    pricingRules: [
+      { id: 'pr-bw-wknd', kind: 'day_of_week', name: 'Weekend events +10 %', dows: [6, 7], adjustKind: 'percent', adjustValue: 10, priority: 9, stackable: false },
+    ],
+    reviews: [
+      { author: 'Verena', rating: 5, text: { en: 'The trial alone was worth it — I got a written plan my day-of artist could follow to the letter.', de: 'Allein der Probetermin war es wert — ich bekam einen schriftlichen Plan, dem die Artistin am Tag genau folgen konnte.' }, service: 'Bridal Trial (with colour plan)', date: '2026-06-28' },
+    ],
+  },
+  {
+    id: 'shop-schwarzwerk',
+    slug: 'schwarzwerk-tattoo',
+    name: 'Schwarzwerk Tattoo & Piercing',
+    category: 'tattoo',
+    tagline: { en: 'Fine-line tattoos and precise piercing, 18+', de: 'Fine-Line-Tattoos und präzises Piercing, ab 18' },
+    about: {
+      en: 'A licensed studio in Kreuzberg: fine-line and blackwork tattoos, professional piercing with titanium jewellery, and a consultation before every first needle. Hygiene certificate on the wall, not in a drawer.',
+      de: 'Ein lizenziertes Studio in Kreuzberg: Fine-Line- und Blackwork-Tattoos, professionelles Piercing mit Titanschmuck und ein Beratungsgespräch vor jeder ersten Nadel. Das Hygienezertifikat hängt an der Wand, nicht in der Schublade.',
+    },
+    address: 'Wiener Straße 14, 10999 Berlin',
+    district: 'Kreuzberg',
+    lat: 52.4979,
+    lng: 13.4291,
+    gradient: ['#232526', '#414345'],
+    emoji: '🖋️',
+    languagesSpoken: ['de', 'en', 'es'],
+    ratingAvg: 4.9,
+    ratingCount: 167,
+    isNew: false,
+    isMobile: false,
+    chainId: null,
+    tags: ['tattoo', 'piercing', 'fine-line', 'blackwork'],
+    semanticSimilarity: 0.35,
+    cancellationRate: 0.05,
+    rules: { ...STANDARD_RULES, slotGranularityMin: 30, bookingLeadMin: 240, bufferAfterMin: 20 },
+    depositPercent: 30,
+    policy: { freeUntilHours: 72, lateFeePercent: 50, noShowFeePercent: 100 },
+    timezone: 'Europe/Berlin',
+    services: [
+      { id: 'svc-sw-consult', emoji: '💬', name: { en: 'Design Consultation', de: 'Design-Beratung' }, durationMin: 30, processingGapMin: 0, finishMin: 0, basePriceCents: 2000, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-sw-small', emoji: '🖋️', name: { en: 'Small Tattoo Session (up to 2h)', de: 'Kleine Tattoo-Session (bis 2 Std.)' }, durationMin: 120, processingGapMin: 0, finishMin: 15, basePriceCents: 22000, vatRateBps: 1900, dynamicPricing: false, adultsOnly: true, consultationFirst: true, popular: true },
+      { id: 'svc-sw-flash', emoji: '⚡', name: { en: 'Flash Tattoo (from the wall)', de: 'Flash-Tattoo (von der Wand)' }, durationMin: 60, processingGapMin: 0, finishMin: 15, basePriceCents: 9900, vatRateBps: 1900, dynamicPricing: false, adultsOnly: true },
+      { id: 'svc-sw-pierce', emoji: '✨', name: { en: 'Piercing (incl. titanium jewellery)', de: 'Piercing (inkl. Titanschmuck)' }, durationMin: 30, processingGapMin: 0, finishMin: 10, basePriceCents: 5500, vatRateBps: 1900, dynamicPricing: false, adultsOnly: true },
+      { id: 'svc-sw-jewel', emoji: '💎', name: { en: 'Jewellery Change & Check', de: 'Schmuckwechsel & Kontrolle' }, durationMin: 15, processingGapMin: 0, finishMin: 0, basePriceCents: 1500, vatRateBps: 1900, dynamicPricing: false },
+    ],
+    staff: [
+      { id: 'st-sw-marek', name: 'Marek', role: { en: 'Tattoo Artist', de: 'Tätowierer' }, tier: 'senior', shifts: week([{ startMin: h(12), endMin: h(20) }], [2, 3, 4, 5, 6]) },
+      { id: 'st-sw-lou', name: 'Lou', role: { en: 'Piercer', de: 'Piercer:in' }, tier: 'stylist', shifts: { ...week([{ startMin: h(12), endMin: h(19) }], [3, 4, 5]), 6: [{ startMin: h(11), endMin: h(17) }] } },
+    ],
+    pricingRules: [],
+    reviews: [
+      { author: 'Deniz', rating: 5, text: { en: 'Marek talked me OUT of a bigger piece first session. That is how you earn trust.', de: 'Marek hat mir in der ersten Session von einem größeren Motiv abgeraten. So verdient man Vertrauen.' }, service: 'Small Tattoo Session (up to 2h)', date: '2026-07-11' },
+    ],
+  },
+  {
+    id: 'shop-mobile-physio',
+    slug: 'mobilephysio-berlin',
+    name: 'MobilePhysio Berlin',
+    category: 'physio',
+    tagline: { en: 'Physio, sports massage and training — at your door', de: 'Physio, Sportmassage und Training — bei dir zu Hause' },
+    about: {
+      en: 'Licensed physiotherapists and certified trainers who come to you: home visits inside the S-Bahn ring, office visits for teams. Bring a mat; we bring everything else.',
+      de: 'Lizenzierte Physiotherapeut:innen und zertifizierte Trainer:innen, die zu dir kommen: Hausbesuche im S-Bahn-Ring, Bürobesuche für Teams. Du stellst die Matte; wir bringen den Rest.',
+    },
+    address: 'Mobile — serves inner Berlin',
+    district: 'Citywide',
+    lat: 52.51,
+    lng: 13.42,
+    gradient: ['#0f2027', '#2c5364'],
+    emoji: '🤸',
+    languagesSpoken: ['de', 'en'],
+    ratingAvg: 4.8,
+    ratingCount: 59,
+    isNew: true,
+    isMobile: true,
+    chainId: null,
+    tags: ['physio', 'training', 'massage', 'home visit', 'office'],
+    semanticSimilarity: 0.41,
+    cancellationRate: 0.03,
+    rules: { ...STANDARD_RULES, slotGranularityMin: 30, bookingLeadMin: 240, bufferAfterMin: 0 },
+    depositPercent: 30,
+    policy: { freeUntilHours: 24, lateFeePercent: 50, noShowFeePercent: 100 },
+    timezone: 'Europe/Berlin',
+    services: [
+      { id: 'svc-mp-physio', emoji: '🦴', name: { en: 'Physiotherapy Session (60 min)', de: 'Physiotherapie (60 Min.)' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 9900, vatRateBps: 1900, dynamicPricing: false, popular: true, consultationFirst: true },
+      { id: 'svc-mp-sport', emoji: '🏃', name: { en: 'Sports Massage (45 min)', de: 'Sportmassage (45 Min.)' }, durationMin: 45, processingGapMin: 0, finishMin: 0, basePriceCents: 7500, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-mp-pt', emoji: '🏋️', name: { en: 'Personal Training (60 min)', de: 'Personal Training (60 Min.)' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 8500, vatRateBps: 1900, dynamicPricing: true },
+      { id: 'svc-mp-office', emoji: '🪑', name: { en: 'Office Chair Massage (20 min)', de: 'Büro-Stuhlmassage (20 Min.)' }, durationMin: 20, processingGapMin: 0, finishMin: 0, basePriceCents: 3500, vatRateBps: 1900, dynamicPricing: false },
+    ],
+    staff: [
+      { id: 'st-mp-jonas', name: 'Jonas', role: { en: 'Physiotherapist', de: 'Physiotherapeut' }, tier: 'senior', shifts: week([{ startMin: h(8), endMin: h(18) }], [1, 2, 3, 4, 5]) },
+      { id: 'st-mp-carla', name: 'Carla', role: { en: 'Personal Trainer', de: 'Personal Trainerin' }, tier: 'stylist', shifts: { ...week([{ startMin: h(7), endMin: h(15) }], [1, 3, 5]), 6: [{ startMin: h(9), endMin: h(13) }] } },
+    ],
+    pricingRules: [
+      { id: 'pr-mp-early', kind: 'time_of_day', name: 'Before-work sessions +10 %', dows: [1, 2, 3, 4, 5], minuteOfDayFrom: h(7), minuteOfDayTo: h(9), adjustKind: 'percent', adjustValue: 10, priority: 8, stackable: false },
+    ],
+    reviews: [
+      { author: 'Ole', rating: 5, text: { en: 'Jonas fixed in four home visits what two years of “just stretch more” did not.', de: 'Jonas hat in vier Hausbesuchen repariert, was zwei Jahre „einfach mehr dehnen“ nicht geschafft haben.' }, service: 'Physiotherapy Session (60 min)', date: '2026-08-19' },
+    ],
+  },
+  {
+    id: 'shop-kleine-schere',
+    slug: 'kleine-schere',
+    name: 'Kleine Schere',
+    category: 'kids',
+    tagline: { en: 'Haircuts for small people — patience included', de: 'Haarschnitte für kleine Menschen — Geduld inklusive' },
+    about: {
+      en: 'A salon built at child height: race-car chairs, a film corner, staff who have seen every kind of wiggle, and a certificate for the very first cut. Parents get their trim while the kids watch cartoons.',
+      de: 'Ein Salon auf Kinderhöhe: Rennauto-Stühle, eine Filmecke, ein Team, das jedes Zappeln kennt, und eine Urkunde für den allerersten Schnitt. Eltern bekommen ihren Schnitt, während die Kinder Trickfilme schauen.',
+    },
+    address: 'Stargarder Straße 63, 10437 Berlin',
+    district: 'Prenzlauer Berg',
+    lat: 52.5449,
+    lng: 13.4218,
+    gradient: ['#f7971e', '#ffd200'],
+    emoji: '🧒',
+    languagesSpoken: ['de', 'en', 'fr'],
+    ratingAvg: 4.7,
+    ratingCount: 96,
+    isNew: false,
+    isMobile: false,
+    kidsFriendly: true,
+    chainId: null,
+    tags: ['kids', 'family', 'first haircut', 'patient'],
+    semanticSimilarity: 0.38,
+    cancellationRate: 0.06,
+    rules: { ...STANDARD_RULES, slotGranularityMin: 15, bufferAfterMin: 10, bookingLeadMin: 30 },
+    depositPercent: 0,
+    policy: { freeUntilHours: 4, lateFeePercent: 0, noShowFeePercent: 50 },
+    timezone: 'Europe/Berlin',
+    services: [
+      { id: 'svc-ks-kids', emoji: '🧒', name: { en: 'Kids Cut (up to 12)', de: 'Kinderschnitt (bis 12)' }, durationMin: 30, processingGapMin: 0, finishMin: 0, basePriceCents: 2400, vatRateBps: 1900, dynamicPricing: false, popular: true },
+      { id: 'svc-ks-first', emoji: '🎉', name: { en: 'First Haircut (with certificate)', de: 'Erster Haarschnitt (mit Urkunde)' }, durationMin: 30, processingGapMin: 0, finishMin: 10, basePriceCents: 2900, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ks-teen', emoji: '🎧', name: { en: 'Teen Cut (13–17)', de: 'Teenie-Schnitt (13–17)' }, durationMin: 40, processingGapMin: 0, finishMin: 0, basePriceCents: 3200, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ks-combo', emoji: '👨‍👧', name: { en: 'Parent + Kid Combo', de: 'Eltern-Kind-Kombi' }, durationMin: 60, processingGapMin: 0, finishMin: 0, basePriceCents: 5900, vatRateBps: 1900, dynamicPricing: false },
+    ],
+    staff: [
+      { id: 'st-ks-paula', name: 'Paula', role: { en: 'Kids Stylist', de: 'Kinder-Stylistin' }, tier: 'senior', shifts: { ...week([{ startMin: h(9), endMin: h(17) }], [2, 3, 4, 5]), 6: [{ startMin: h(9), endMin: h(15) }] } },
+      { id: 'st-ks-milan', name: 'Milan', role: { en: 'Stylist', de: 'Stylist' }, tier: 'stylist', shifts: { ...week([{ startMin: h(10), endMin: h(18) }], [3, 4, 5]), 6: [{ startMin: h(9), endMin: h(15) }] } },
+    ],
+    pricingRules: [
+      { id: 'pr-ks-morning', kind: 'time_of_day', name: 'Kita mornings −15 %', dows: [2, 3, 4], minuteOfDayFrom: h(9), minuteOfDayTo: h(11), adjustKind: 'percent', adjustValue: -15, priority: 8, stackable: false },
+    ],
+    reviews: [
+      { author: 'Nadja', rating: 5, text: { en: 'First haircut without a single tear — the certificate is on our fridge.', de: 'Erster Haarschnitt ohne eine einzige Träne — die Urkunde hängt am Kühlschrank.' }, service: 'First Haircut (with certificate)', date: '2026-07-30' },
+    ],
+  },
+  {
+    id: 'shop-eclat',
+    slug: 'eclat-concierge',
+    name: 'Éclat Concierge',
+    category: 'hair',
+    tagline: { en: 'Private-suite beauty, planned around your calendar', de: 'Beauty in der Privatsuite, geplant um deinen Kalender' },
+    about: {
+      en: 'One client at a time in a private suite: a dedicated concierge coordinates hair, makeup and styling around your schedule — fittings, premieres, board days. Discretion is the house style.',
+      de: 'Ein Gast zur Zeit in einer Privatsuite: eine persönliche Concierge koordiniert Haare, Make-up und Styling um deinen Kalender — Anproben, Premieren, Vorstandstage. Diskretion ist der Stil des Hauses.',
+    },
+    address: 'Behrenstraße 27, 10117 Berlin',
+    district: 'Mitte',
+    lat: 52.5155,
+    lng: 13.389,
+    gradient: ['#41295a', '#2f0743'],
+    emoji: '👑',
+    languagesSpoken: ['de', 'en', 'fr'],
+    ratingAvg: 5.0,
+    ratingCount: 31,
+    isNew: false,
+    isMobile: false,
+    premium: true,
+    chainId: null,
+    tags: ['vip', 'concierge', 'premium', 'private suite', 'events'],
+    semanticSimilarity: 0.29,
+    cancellationRate: 0.01,
+    rules: { ...STANDARD_RULES, slotGranularityMin: 30, bookingLeadMin: 720, bufferAfterMin: 30 },
+    depositPercent: 50,
+    policy: { freeUntilHours: 72, lateFeePercent: 50, noShowFeePercent: 100 },
+    timezone: 'Europe/Berlin',
+    services: [
+      { id: 'svc-ec-signature', emoji: '👑', name: { en: 'Signature Transformation (suite)', de: 'Signature Transformation (Suite)' }, durationMin: 180, processingGapMin: 0, finishMin: 20, basePriceCents: 59000, vatRateBps: 1900, dynamicPricing: false, consultationFirst: true, popular: true },
+      { id: 'svc-ec-event', emoji: '🎭', name: { en: 'Event Prep (hair + makeup, suite)', de: 'Event-Vorbereitung (Haare + Make-up, Suite)' }, durationMin: 120, processingGapMin: 0, finishMin: 15, basePriceCents: 34000, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ec-express', emoji: '⏱️', name: { en: 'Express Blowout & Finish', de: 'Express-Blowout & Finish' }, durationMin: 45, processingGapMin: 0, finishMin: 0, basePriceCents: 12000, vatRateBps: 1900, dynamicPricing: false },
+      { id: 'svc-ec-consult', emoji: '📋', name: { en: 'Concierge Planning Call', de: 'Concierge-Planungsgespräch' }, durationMin: 30, processingGapMin: 0, finishMin: 0, basePriceCents: 0, vatRateBps: 1900, dynamicPricing: false },
+    ],
+    staff: [
+      { id: 'st-ec-margaux', name: 'Margaux', role: { en: 'Creative Director', de: 'Kreativdirektorin' }, tier: 'senior', shifts: week([{ startMin: h(9), endMin: h(19) }], [1, 2, 3, 4, 5]) },
+      { id: 'st-ec-viktor', name: 'Viktor', role: { en: 'Concierge Stylist', de: 'Concierge-Stylist' }, tier: 'senior', shifts: { ...week([{ startMin: h(10), endMin: h(20) }], [2, 3, 4, 5]), 6: [{ startMin: h(10), endMin: h(18) }] } },
+    ],
+    pricingRules: [],
+    reviews: [
+      { author: 'C. M.', rating: 5, text: { en: 'They moved my appointment twice around a delayed flight without being asked. That is the service.', de: 'Sie haben meinen Termin zweimal um einen verspäteten Flug herum verschoben, ohne dass ich fragen musste. Das ist der Service.' }, service: 'Event Prep (hair + makeup, suite)', date: '2026-08-21' },
+    ],
+  },
 ];
 
 export const CATEGORIES = [
@@ -548,6 +832,11 @@ export const CATEGORIES = [
   { id: 'barber', emoji: '💈', label: { en: 'Barber', de: 'Barbier' } },
   { id: 'nails', emoji: '💅', label: { en: 'Nails', de: 'Nägel' } },
   { id: 'brows', emoji: '👁️', label: { en: 'Brows & Lashes', de: 'Brauen & Wimpern' } },
+  { id: 'spa', emoji: '💆', label: { en: 'Massage & Spa', de: 'Massage & Spa' } },
+  { id: 'makeup', emoji: '💄', label: { en: 'Makeup', de: 'Make-up' } },
+  { id: 'tattoo', emoji: '🖋️', label: { en: 'Tattoo & Piercing', de: 'Tattoo & Piercing' } },
+  { id: 'physio', emoji: '🤸', label: { en: 'Physio & Training', de: 'Physio & Training' } },
+  { id: 'kids', emoji: '🧒', label: { en: 'Kids', de: 'Kinder' } },
   { id: 'mobile', emoji: '🚗', label: { en: 'At home', de: 'Zu Hause' } },
 ] as const;
 
