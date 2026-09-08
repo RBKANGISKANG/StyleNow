@@ -31,10 +31,17 @@ import {
   apiDeleteChecklist,
   apiResources,
   apiSetResources,
+  apiPackageOffers,
+  apiSavePackageOffer,
+  apiDeletePackageOffer,
+  apiPackagesForShop,
+  apiMembershipOffer,
+  apiSetMembershipOffer,
+  apiMembersOfShop,
   type ShopClosure,
 } from '@/lib/api';
-import type { ChecklistTemplate as ChecklistTemplateT } from '@/core/store';
-import { weekdayShort } from '@/lib/format';
+import type { ChecklistTemplate as ChecklistTemplateT, PackageOffer as PackageOfferT } from '@/core/store';
+import { weekdayShort, money } from '@/lib/format';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
 import { BillingSettings } from '@/components/BillingSettings';
@@ -175,6 +182,20 @@ function ShopTab({
       <section className="section">
         <h2>🚿 {t('rs_title')}</h2>
         <ResourcesPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🎟 {t('pk_title')}</h2>
+        <PackagesPanel
+          shopId={shopId}
+          services={data.shop.services.map((s) => ({ id: s.id, name: s.name, basePriceCents: s.basePriceCents }))}
+          onChanged={(msg) => setToast(msg)}
+        />
+      </section>
+
+      <section className="section">
+        <h2>💜 {t('mb_title')}</h2>
+        <MembershipPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -871,6 +892,137 @@ function ClosureManager({ shopId, onChanged }: { shopId: string; onChanged: (msg
         >
           {t('cls_add')}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 5er-Karten: N of one service for a bundle price, money up front, redeemed
+ * visit by visit through checkout. Uses are derived from bookings — a card
+ * cannot be over-spent and a cancellation returns the use by itself.
+ */
+function PackagesPanel({
+  shopId,
+  services,
+  onChanged,
+}: {
+  shopId: string;
+  services: Array<{ id: string; name: { en: string; de: string }; basePriceCents: number }>;
+  onChanged: (msg: string) => void;
+}) {
+  const { t, lang } = useI18n();
+  const [offers, setOffers] = useState<PackageOfferT[]>([]);
+  const [liability, setLiability] = useState<{ soldCount: number; outstandingUses: number; outstandingCents: number } | null>(null);
+  const [svcId, setSvcId] = useState(services[0]?.id ?? '');
+  const [count, setCount] = useState(5);
+  const [price, setPrice] = useState('');
+
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiPackageOffers(shopId).then(setOffers);
+    void apiPackagesForShop(shopId).then(setLiability);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  const nameOf = (id: string) => services.find((s) => s.id === id)?.name[lang] ?? id;
+  const base = services.find((s) => s.id === svcId)?.basePriceCents ?? 0;
+  const suggested = Math.round((base * (count - 1)) / 100); // N for the price of N−1
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('pk_hint')}</p>
+      {offers.map((o) => (
+        <div className="wi-row" key={o.id}>
+          <span className="wi-name">{o.count}× {nameOf(o.serviceId)}</span>
+          <span className="wi-meta">{money(o.priceCents, lang)}</span>
+          <button className="btn btn-ghost sm" aria-label={t('a11y_delete')} onClick={() => void apiDeletePackageOffer(shopId, o.id).then(load)}>✕</button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+        <label className="chip">
+          <select value={svcId} onChange={(e) => setSvcId(e.target.value)}>
+            {services.map((s) => (<option key={s.id} value={s.id}>{s.name[lang]}</option>))}
+          </select>
+        </label>
+        <label className="chip">
+          <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
+            <option value={5}>5×</option>
+            <option value={10}>10×</option>
+          </select>
+        </label>
+        <input className="input" style={{ width: 110 }} inputMode="numeric" placeholder={`€ ${suggested || ''}`} value={price}
+          onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, ''))} />
+        <button
+          className="btn btn-primary sm"
+          disabled={!svcId}
+          onClick={() => {
+            const cents = Number(price || suggested) * 100;
+            void apiSavePackageOffer(shopId, { serviceId: svcId, count, priceCents: cents }).then(() => {
+              setPrice('');
+              onChanged('🎟 ' + t('pk_saved'));
+              load();
+            });
+          }}
+        >
+          ＋ {t('pk_add')}
+        </button>
+      </div>
+      {liability && liability.soldCount > 0 && (
+        <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginTop: 10 }}>
+          {t('pk_liability', { sold: liability.soldCount, uses: liability.outstandingUses, eur: money(liability.outstandingCents, lang) })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The club: a flat monthly fee for a standing discount — recurring revenue. */
+function MembershipPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t, lang } = useI18n();
+  const [offer, setOffer] = useState<{ priceCents: number; discountPct: number } | null>(null);
+  const [members, setMembers] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiMembershipOffer(shopId).then((o) => {
+      setOffer(o);
+      setLoaded(true);
+    });
+    void apiMembersOfShop(shopId).then(setMembers);
+  }, [shopId]);
+
+  if (!loaded) return <div className="spinner" />;
+  const save = (next: { priceCents: number; discountPct: number } | null) => {
+    setOffer(next);
+    void apiSetMembershipOffer(shopId, next).then(() => onChanged('💜 ' + t('mb_saved')));
+  };
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('mb_hint')}</p>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label className="chip">
+          {t('mb_price')}
+          <select
+            value={offer?.priceCents ?? 0}
+            onChange={(e) => {
+              const cents = Number(e.target.value);
+              save(cents === 0 ? null : { priceCents: cents, discountPct: offer?.discountPct || 10 });
+            }}
+          >
+            <option value={0}>{t('qd_off')}</option>
+            {[990, 1490, 1990, 2900].map((c) => (<option key={c} value={c}>{money(c, lang)}/{t('mb_month')}</option>))}
+          </select>
+        </label>
+        {offer && (
+          <label className="chip">
+            {t('mb_pct')}
+            <select value={offer.discountPct} onChange={(e) => save({ ...offer, discountPct: Number(e.target.value) })}>
+              {[5, 10, 15, 20].map((n) => (<option key={n} value={n}>−{n}%</option>))}
+            </select>
+          </label>
+        )}
+        {members > 0 && <span style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>{t('mb_members', { n: members })}</span>}
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import {
   apiCheckIn,
   apiRecordPatchTest,
   apiDayDrift,
+  apiMyPackages,
   type GiftCard,
 } from '@/lib/api';
 import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
@@ -92,6 +93,7 @@ export default function BookingsPage() {
   const [people, setPeople] = useState<SavedPerson[]>([]);
   const [personFilter, setPersonFilter] = useState<string>('all');
   const [recap, setRecap] = useState<YearRecap | null>(null);
+  const [myPacks, setMyPacks] = useState<Awaited<ReturnType<typeof apiMyPackages>>>([]);
   // Live day-drift per salon, only asked for salons where I sit today.
   const [drift, setDrift] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -115,7 +117,7 @@ export default function BookingsPage() {
   const load = useCallback(async () => {
     // One round-trip's worth of waiting, not eight: these reads are
     // independent, and each one pays the backend sync budget on its own.
-    const [bk, pts, wl, un, gc, st, du, pp] = await Promise.all([
+    const [bk, pts, wl, un, gc, st, du, pp, pks] = await Promise.all([
       apiMyBookings(),
       apiLoyaltyBalance(),
       apiMyWaitlist(),
@@ -124,6 +126,7 @@ export default function BookingsPage() {
       apiMyStampCards(),
       apiRebookCadence(),
       apiSavedPeople(),
+      apiMyPackages(),
     ]);
     setBookings(bk);
     setPoints(pts);
@@ -133,6 +136,7 @@ export default function BookingsPage() {
     setStampCards(st);
     setDue(du);
     setPeople(pp);
+    setMyPacks(pks);
   }, []);
 
   useEffect(() => {
@@ -594,6 +598,27 @@ export default function BookingsPage() {
           ))}
         </section>
       )}
+      {/* Prepaid cards: what is left to sit through, where. */}
+      {myPacks.length > 0 && (
+        <section className="section" style={{ marginTop: 18 }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>🎟 {t('pk_wallet')}</h2>
+          {myPacks.map((pk) => (
+            <div className="due-card" key={pk.id}>
+              <span className="due-emoji">🎟</span>
+              <span className="due-main">
+                <b>{pk.total}× {pk.serviceName[lang]}</b>
+                <span>{pk.shopName} · {pk.remaining}/{pk.total}</span>
+              </span>
+              {pk.remaining > 0 && (
+                <Link className="btn btn-soft sm" href={`/shops/${pk.slug}/book?service=${pk.serviceId}`}>
+                  {t('due_book')}
+                </Link>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* The year, as this device saw it — computed locally, shared only if
           the customer says so. */}
       <section className="section" style={{ marginTop: 18 }}>

@@ -293,6 +293,10 @@ export default function Explore() {
           ⚙ {t('f_filters')}
           {activeFilters > 0 && <em>{activeFilters}</em>}
         </button>
+        {/* today's dead gaps at a discount, one tap away from discovery */}
+        <Link href="/deals" className="chip" style={{ textDecoration: 'none' }}>
+          ⚡ {t('dl_nav')}
+        </Link>
         <span className="results-count">
           {cards === null
             ? '…'

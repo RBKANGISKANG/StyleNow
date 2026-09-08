@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { money, dateOf } from '@/lib/format';
-import { apiBuyGiftCard, type GiftCard } from '@/lib/api';
+import { apiBuyGiftCard, apiGiftTreatment, apiShopServices, type GiftCard } from '@/lib/api';
 import { PayMethod } from '@/components/PayMethod';
 import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { GIFT_MIN_CENTS, GIFT_MAX_CENTS } from '@/core/store';
@@ -36,14 +36,32 @@ export function GiftFlow({
   const [pay, setPay] = useState<PaymentChoice | null>(null);
   const [busy, setBusy] = useState(false);
   const [card, setCard] = useState<GiftCard | null>(null);
+  // "One balayage at X" instead of an amount: the gift IS a named service.
+  const [treatId, setTreatId] = useState('');
+  const [services, setServices] = useState<Array<{ id: string; name: { en: string; de: string }; basePriceCents: number }>>([]);
+  useEffect(() => {
+    void apiShopServices(shop.id).then((live) => {
+      if (Array.isArray(live)) {
+        setServices(
+          (live as Array<{ id: string; name: { en: string; de: string }; basePriceCents: number }>).filter(
+            (sv) => sv.basePriceCents >= GIFT_MIN_CENTS,
+          ),
+        );
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop.id]);
+  const treat = services.find((sv) => sv.id === treatId) ?? null;
 
-  const effective = custom ? Math.round(Number(custom) * 100) : amount;
+  const effective = treat ? treat.basePriceCents : custom ? Math.round(Number(custom) * 100) : amount;
   const amountOk = Number.isInteger(effective) && effective >= GIFT_MIN_CENTS && effective <= GIFT_MAX_CENTS;
 
   const buy = async () => {
     if (!amountOk || !pay) return;
     setBusy(true);
-    const c = await apiBuyGiftCard(shop.id, effective, { toName, fromName, message }, pay);
+    const c = treat
+      ? await apiGiftTreatment(shop.id, treat.id, { toName, fromName, message }, pay)
+      : await apiBuyGiftCard(shop.id, effective, { toName, fromName, message }, pay);
     setBusy(false);
     if (c) {
       rememberPayment(pay);
@@ -89,6 +107,15 @@ export function GiftFlow({
             onChange={(e) => setCustom(e.target.value.replace(/[^\d]/g, ''))}
           />
         </div>
+        <label className="chip" style={{ marginTop: 8 }}>
+          🎀 {t('gc_treat')}
+          <select value={treatId} onChange={(e) => setTreatId(e.target.value)}>
+            <option value="">{t('gc_treat_none')}</option>
+            {services.map((sv) => (
+              <option key={sv.id} value={sv.id}>{sv.name[lang]} · {money(sv.basePriceCents, lang)}</option>
+            ))}
+          </select>
+        </label>
         {custom && !amountOk && (
           <p className="pm-err">
             {t('gc_amount_range', { min: money(GIFT_MIN_CENTS, lang), max: money(GIFT_MAX_CENTS, lang) })}

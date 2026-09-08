@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShareShop } from '@/components/ShareShop';
 import { NextOpenings } from '@/components/NextOpenings';
@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -228,6 +228,8 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
             {t('gc_promo_cta')}
           </Link>
         </div>
+        <PackagesPromo shopId={shop.id} />
+        <MembershipPromo shopId={shop.id} shopName={shop.name} />
       </section>
 
       <HoursTable hours={hours} />
@@ -425,5 +427,93 @@ function ShopPulse({ shopId }: { shopId: string }) {
         </section>
       )}
     </>
+  );
+}
+
+/** The 5er-Karten on sale: money up front, visits whenever — one tap to own. */
+function PackagesPromo({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [offers, setOffers] = useState<Array<{ id: string; serviceId: string; count: number; priceCents: number }>>([]);
+  const [services, setServices] = useState<Map<string, { name: { en: string; de: string }; basePriceCents: number }>>(new Map());
+  const [bought, setBought] = useState<string | null>(null);
+
+  useEffect(() => {
+    void apiPackageOffers(shopId).then(setOffers);
+    void apiShopServices(shopId).then((live) => {
+      if (Array.isArray(live)) {
+        setServices(new Map((live as Array<{ id: string; name: { en: string; de: string }; basePriceCents: number }>).map((s) => [s.id, s])));
+      }
+    });
+  }, [shopId]);
+
+  if (offers.length === 0) return null;
+  return (
+    <>
+      {offers.map((o) => {
+        const svc = services.get(o.serviceId);
+        if (!svc) return null;
+        const save = svc.basePriceCents * o.count - o.priceCents;
+        return (
+          <div className="gc-promo" key={o.id} style={{ marginTop: 8 }}>
+            <span style={{ fontSize: '1.5rem' }} aria-hidden>🎟</span>
+            <span style={{ flex: 1 }}>
+              <strong>{o.count}× {svc.name[lang]} · {money(o.priceCents, lang)}</strong>
+              <span className="gc-promo-sub">
+                {save > 0 ? t('pk_save', { eur: money(save, lang) }) : t('pk_promo_sub')}
+              </span>
+            </span>
+            {bought === o.id ? (
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--teal)' }}>✅ {t('pk_bought')}</span>
+            ) : (
+              <button
+                className="btn btn-primary sm"
+                onClick={() => {
+                  void apiBuyPackage(shopId, o.id, { method: 'at_salon', label: 'Im Salon' }).then((pk) => {
+                    if (pk) setBought(o.id);
+                  });
+                }}
+              >
+                {t('pk_buy')}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/** The club: join in one tap, the discount applies to every future booking. */
+function MembershipPromo({ shopId, shopName }: { shopId: string; shopName: string }) {
+  const { t, lang } = useI18n();
+  const [offer, setOffer] = useState<{ priceCents: number; discountPct: number } | null>(null);
+  const [mine, setMine] = useState<{ since: number } | null>(null);
+
+  const load = useCallback(() => {
+    void apiMembershipOffer(shopId).then(setOffer);
+    void apiMyMembership(shopId).then(setMine);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  if (!offer) return null;
+  return (
+    <div className="gc-promo" style={{ marginTop: 8 }}>
+      <span style={{ fontSize: '1.5rem' }} aria-hidden>💜</span>
+      <span style={{ flex: 1 }}>
+        <strong>{t('mb_promo_title', { shop: shopName })}</strong>
+        <span className="gc-promo-sub">
+          {t('mb_promo_sub', { price: money(offer.priceCents, lang), pct: offer.discountPct })}
+        </span>
+      </span>
+      {mine ? (
+        <button className="btn btn-ghost sm" onClick={() => void apiLeaveMembership(shopId).then(load)}>
+          ✓ {t('mb_member')} · {t('mb_leave')}
+        </button>
+      ) : (
+        <button className="btn btn-primary sm" onClick={() => void apiJoinMembership(shopId).then(load)}>
+          {t('mb_join')}
+        </button>
+      )}
+    </div>
   );
 }

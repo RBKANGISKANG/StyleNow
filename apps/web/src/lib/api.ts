@@ -2023,3 +2023,122 @@ export async function apiConsultDone(shopId: string): Promise<boolean> {
   await readyForRead();
   return store.consultDone(deviceId(), shopId);
 }
+
+// ---- money products batch: packages, deals, treatment gifts, groups, club --
+
+export async function apiPackageOffers(shopId: string): Promise<store.PackageOffer[]> {
+  await readyForRead();
+  return store.packageOffers(shopId);
+}
+
+export async function apiSavePackageOffer(
+  shopId: string,
+  offer: { id?: string; serviceId: string; count: number; priceCents: number },
+): Promise<void> {
+  await localWrite();
+  store.savePackageOffer(shopId, offer);
+  syncConfig(shopId);
+}
+
+export async function apiDeletePackageOffer(shopId: string, offerId: string): Promise<void> {
+  await localWrite();
+  store.deletePackageOffer(shopId, offerId);
+  syncConfig(shopId);
+}
+
+export async function apiBuyPackage(
+  shopId: string,
+  offerId: string,
+  payment?: { method: store.PaymentMethod; label: string },
+): Promise<store.OwnedPackage | null> {
+  await localWrite();
+  try {
+    return store.buyPackage(shopId, offerId, deviceId(), payment);
+  } catch {
+    return null;
+  }
+}
+
+export async function apiMyPackages(): Promise<ReturnType<typeof store.myPackages>> {
+  await readyForRead();
+  return store.myPackages(deviceId());
+}
+
+export async function apiPackagesForShop(shopId: string): Promise<ReturnType<typeof store.packagesForShop>> {
+  await readyForRead();
+  return store.packagesForShop(shopId);
+}
+
+export async function apiLastMinuteDeals(): Promise<store.Deal[]> {
+  await readyForRead();
+  return store.lastMinuteDeals(deviceId());
+}
+
+export async function apiGiftTreatment(
+  shopId: string,
+  serviceId: string,
+  opts: { toName?: string; fromName?: string; message?: string },
+  payment?: { method: store.PaymentMethod; label: string },
+): Promise<store.GiftCard | null> {
+  await localWrite();
+  try {
+    return store.giftTreatment(shopId, deviceId(), serviceId, opts, payment);
+  } catch {
+    return null;
+  }
+}
+
+export type GroupHoldOutcome =
+  | { ok: true; holds: HoldResult[] }
+  | { ok: false; code: 'slot_taken'; alternatives: ApiSlot[] }
+  | { ok: false; code: 'error' };
+
+export async function apiGroupHold(
+  input: Omit<store.HoldInput, 'idempotencyKey' | 'deviceId'>,
+  friendNames: string[],
+): Promise<GroupHoldOutcome> {
+  await localWrite();
+  const full: store.HoldInput = { ...input, deviceId: deviceId(), idempotencyKey: newIdempotencyKey() };
+  try {
+    const holds = store.createGroupHold(full, friendNames);
+    return { ok: true, holds };
+  } catch (e) {
+    if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    return { ok: false, code: 'error' };
+  }
+}
+
+export async function apiMembershipOffer(shopId: string): Promise<store.MembershipOffer | null> {
+  await readyForRead();
+  return store.membershipOffer(shopId);
+}
+
+export async function apiSetMembershipOffer(shopId: string, offer: store.MembershipOffer | null): Promise<void> {
+  await localWrite();
+  store.setMembershipOffer(shopId, offer);
+  syncConfig(shopId);
+}
+
+export async function apiMyMembership(shopId: string): Promise<store.Membership | null> {
+  await readyForRead();
+  return store.myMembership(deviceId(), shopId);
+}
+
+export async function apiJoinMembership(shopId: string): Promise<store.Membership | null> {
+  await localWrite();
+  try {
+    return store.joinMembership(deviceId(), shopId);
+  } catch {
+    return null;
+  }
+}
+
+export async function apiLeaveMembership(shopId: string): Promise<void> {
+  await localWrite();
+  store.leaveMembership(deviceId(), shopId);
+}
+
+export async function apiMembersOfShop(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.membersOfShop(shopId);
+}

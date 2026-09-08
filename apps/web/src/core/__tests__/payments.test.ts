@@ -29,6 +29,8 @@ import {
   setReview, reviewTagStats, recordPatchTest, patchTestValid, careProfile as careOf, setAllergies,
   setResources, resourcesOf, gapWindows, dayDriftMin, ensureConsultService, consultDone,
   joinWaitlist, waitlistForDevice,
+  savePackageOffer, buyPackage, myPackages, packageRemaining, packagesForShop,
+  setMembershipOffer, joinMembership, leaveMembership, giftTreatment, createGroupHold, lastMinuteDeals,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -870,4 +872,116 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(getBooking(held)!.needsConsult, true, 'the floor sees the missing conversation');
 }
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, four feature batches, the review regressions and the scheduling core all check out');
+// ---------------------------------------------------------------------------
+// money products batch: packages, membership, treatment gifts, groups, deals
+// ---------------------------------------------------------------------------
+
+// 5er-Karte: prepaid, derived uses, no double-spend, cancellation refunds a use.
+{
+  const dev = 'dev-pack';
+  const offer = savePackageOffer(shop.id, { serviceId: svc.id, count: 5, priceCents: svc.basePriceCents * 4 });
+  const pk = buyPackage(shop.id, offer.id, dev, { method: 'card', label: 'Visa ····4242' });
+  assert.equal(packageRemaining(pk), 5);
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, staff.id).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: s.start, deviceId: dev, guestName: 'Pk', usePackageId: pk.id, idempotencyKey: 'pk-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  const b2 = getBooking(held)!;
+  assert.equal(b2.quote.totalCents, 0, 'a card visit costs nothing at checkout');
+  assert.equal(packageRemaining(pk), 4, 'the live hold reserves a use');
+  confirmBooking(held);
+  cancelBooking(held, { preview: false, by: 'customer' });
+  assert.equal(packageRemaining(pk), 5, 'a cancelled visit returns the use — derived, not stored');
+  {
+    // a real free slot for a two-service basket — the mismatch must come from
+    // the card gate, not from the seat check
+    let two: number | null = null;
+    let twoIso = '';
+    for (let d = 1; d <= 21 && !two; d++) {
+      const iso = addDays(todayIso(), d);
+      const s = availability(shop.id, [svc.id, shop.services[1].id], iso, dev, null).slots.find((x) => x.start > Date.now());
+      if (s) {
+        two = s.start;
+        twoIso = iso;
+      }
+    }
+    assert.ok(two, 'fixture: a two-service slot exists');
+    void twoIso;
+    assert.throws(
+      () => createHold({ shopId: shop.id, serviceIds: [svc.id, shop.services[1].id], staffId: null, startsAt: two!, deviceId: dev, guestName: 'Pk', usePackageId: pk.id, idempotencyKey: 'pk-2' }),
+      /package_mismatch/,
+      'a card pays for exactly its service, nothing else',
+    );
+  }
+  assert.ok(myPackages(dev)[0].remaining === 5);
+  assert.ok(packagesForShop(shop.id).outstandingUses >= 5, 'the liability view counts open visits');
+}
+
+// Membership: the club discount rides every quote as its own line.
+{
+  const dev = 'dev-club';
+  setMembershipOffer(shop.id, { priceCents: 1490, discountPct: 10 });
+  joinMembership(dev, shop.id);
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, staff.id).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: s.start, deviceId: dev, guestName: 'Cl', idempotencyKey: 'mb-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  const b3 = getBooking(held)!;
+  assert.ok(b3.quote.breakdown.some((l) => l.label.startsWith('Membership')), 'the perk is visible on the quote');
+  assert.ok(b3.quote.discountCents > 0);
+  leaveMembership(dev, shop.id);
+}
+
+// Gift a treatment: the card's value IS the named service.
+{
+  const card = giftTreatment(shop.id, 'dev-gifter', svc.id, { toName: 'Mia' }, { method: 'card', label: 'Visa ····4242' });
+  assert.equal(card.balanceCents, svc.basePriceCents);
+  assert.equal(card.serviceId, svc.id);
+  assert.ok(card.serviceName);
+}
+
+// Group: three friends, three distinct chairs, all-or-nothing.
+{
+  const dev = 'dev-group';
+  let seats: ReturnType<typeof createGroupHold> | null = null;
+  for (let d = 1; d <= 28 && !seats; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find(
+      (x) => x.start > Date.now() && x.staffIds.length >= 3,
+    );
+    if (!s) continue;
+    try {
+      seats = createGroupHold(
+        { shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Orga', idempotencyKey: 'grp-1' },
+        ['Mia', 'Ben'],
+      );
+    } catch { /* next day */ }
+  }
+  assert.ok(seats, 'a trio found a minute with three chairs');
+  assert.equal(seats!.length, 3);
+  const staffIds = new Set(seats!.map((r) => getBooking(r.bookingId)!.staffId));
+  assert.equal(staffIds.size, 3, 'three different stylists');
+  const groupId = getBooking(seats![0].bookingId)!.duoId;
+  assert.ok(seats!.every((r) => getBooking(r.bookingId)!.duoId === groupId), 'one shared group id');
+}
+
+// Deal board: only genuine discounts, never the past, capped and sorted.
+{
+  const deals = lastMinuteDeals('dev-deals');
+  assert.ok(deals.length <= 12);
+  for (const d of deals) {
+    assert.ok(d.priceCents < d.basePriceCents, 'a deal is a real discount');
+    assert.ok(d.start > Date.now(), 'and a real future seat');
+    assert.ok(d.offPct >= 10);
+  }
+  for (let i = 1; i < deals.length; i++) assert.ok(deals[i].offPct <= deals[i - 1].offPct, 'best first');
+}
+
+console.log('OK — every prior batch plus the money products (5er-Karten, membership, treatment gifts, group seats, the deal board) all check out');

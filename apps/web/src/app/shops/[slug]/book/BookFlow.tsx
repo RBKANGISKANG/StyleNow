@@ -18,7 +18,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -198,7 +198,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // Together: two chairs, the same minute. The second seat gets its own hold
   // and its own guest name; the engine guarantees two different stylists.
   const [duo, setDuo] = useState(false);
-  const [friendName, setFriendName] = useState('');
+  const [partySize, setPartySize] = useState(2);
+  const [friendNames, setFriendNames] = useState<string[]>(['', '', '']);
+  const [groupHolds, setGroupHolds] = useState<Hold[]>([]);
   const [hold2, setHold2] = useState<Hold | null>(null);
   // Family & friends: who this visit is for ('' = the device owner). A
   // ?for= deep link (the "Milo is due" nudge) arrives with the person chosen.
@@ -281,6 +283,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [usePoints, setUsePoints] = useState(false);
   const [stamp, setStamp] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
   const [useStamp, setUseStamp] = useState(false);
+  // A 5er-Karte for exactly this (single-service) basket, with uses left.
+  const [packages, setPackages] = useState<Awaited<ReturnType<typeof apiMyPackages>>>([]);
+  const [usePackage, setUsePackage] = useState(false);
+  const eligiblePackage =
+    serviceIds.length === 1
+      ? packages.find((pk) => pk.shopId === shop.id && pk.serviceId === serviceIds[0] && pk.remaining > 0) ?? null
+      : null;
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
 
   // Flexible saver: the five cheapest times of the coming week, on demand.
@@ -323,6 +332,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     if (step === 2) {
       void apiLoyaltyBalance().then(setPoints);
       void apiStampStatus(shop.id).then(setStamp);
+      void apiMyPackages().then(setPackages);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -443,6 +453,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       if (left === 0 && !confirmed) {
         setHold(null);
         setHold2(null);
+        setGroupHolds([]);
         setExpired(true);
         setStep(1);
       }
@@ -456,9 +467,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   /** what must be paid now for one hold: the deposit, or everything */
   const dueOf = (h: Hold) => (h.quote.depositCents > 0 ? h.quote.depositCents : h.quote.totalCents);
+  // one shape for pair and party: every seat beyond the first
+  const extraHolds = hold2 ? [hold2] : groupHolds;
+  const extrasDue = extraHolds.reduce((n, h) => n + dueOf(h), 0);
 
   // Together mode only shows times where a second chair is genuinely free.
-  const shownSlots = slots === null ? null : duo ? slots.filter((s) => s.staffIds.length >= 2) : slots;
+  const shownSlots = slots === null ? null : duo ? slots.filter((s) => s.staffIds.length >= partySize) : slots;
 
   // A saver chip picked on another day: the day's slots just arrived —
   // select the promised time and move on, exactly like tapping it directly.
@@ -500,13 +514,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       guestName: name.trim() || 'Guest',
       guestPhone: phone.trim() || undefined,
       guestNote: note.trim() || undefined,
-      voucherCode: useStamp ? undefined : voucher?.code,
-      pointsToSpend: useStamp || !usePoints ? undefined : points,
-      useStampReward: useStamp || undefined,
+      voucherCode: useStamp || usePackage ? undefined : voucher?.code,
+      pointsToSpend: useStamp || usePackage || !usePoints ? undefined : points,
+      useStampReward: (!usePackage && useStamp) || undefined,
+      usePackageId: usePackage && eligiblePackage ? eligiblePackage.id : undefined,
       forPersonId: forPerson || undefined,
     };
     const outcome = duo
-      ? await apiDuoHold(input, friendName)
+      ? partySize === 2
+        ? await apiDuoHold(input, friendNames[0])
+        : await apiGroupHold(input, friendNames.slice(0, partySize - 1))
       : await apiHold({ ...input, prime });
     setHolding(false);
     if (!outcome.ok) {
@@ -523,7 +540,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     } catch {
       // ignore
     }
-    if ('first' in outcome) {
+    if ('holds' in outcome) {
+      setHold(outcome.holds[0]);
+      setGroupHolds(outcome.holds.slice(1));
+    } else if ('first' in outcome) {
       setHold(outcome.first);
       setHold2(outcome.second);
     } else {
@@ -533,7 +553,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   const confirm = async () => {
     if (!hold) return;
-    const due = dueOf(hold) + (hold2 ? dueOf(hold2) : 0);
+    const due = dueOf(hold) + extrasDue;
     if (due > 0 && !pay) return; // the button is disabled, but belt and braces
     const method = due > 0 ? (pay ?? undefined) : undefined;
     const outcome = await apiConfirm(hold.bookingId, method);
@@ -541,18 +561,19 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       if (outcome.code === 'hold_expired') {
         setHold(null);
         setHold2(null);
+        setGroupHolds([]);
         setExpired(true);
         setStep(1);
       }
       return;
     }
     let reference2: string | undefined;
-    if (hold2) {
-      const second = await apiConfirm(hold2.bookingId, method);
-      // The pair held together, so a second-seat expiry here is next to
-      // impossible — but if it happens, the first booking still stands and
-      // the confirmation says so by simply not naming a second reference.
-      if (second.ok) reference2 = second.reference;
+    for (const h of extraHolds) {
+      const seat = await apiConfirm(h.bookingId, method);
+      // The party held together, so a later-seat expiry here is next to
+      // impossible — but if it happens, the earlier bookings still stand and
+      // the confirmation simply names fewer references.
+      if (seat.ok && !reference2) reference2 = seat.reference;
     }
     if (due > 0 && pay) rememberPayment(pay); // next checkout is one tap
     setConfirmed({ reference: outcome.reference, reference2 });
@@ -572,7 +593,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           <div className="ref">{confirmed.reference}</div>
           {confirmed.reference2 && (
             <div style={{ margin: '2px 0 6px', fontSize: '0.85rem', fontWeight: 700 }}>
-              👯 {friendName || t('duo_friend_name')}: <span style={{ fontFamily: 'ui-monospace, monospace' }}>{confirmed.reference2}</span>
+              👯 {friendNames[0] || t('duo_friend_name')}: <span style={{ fontFamily: 'ui-monospace, monospace' }}>{confirmed.reference2}</span>
             </div>
           )}
           <div style={{ fontWeight: 700 }}>
@@ -794,6 +815,22 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>👯 {t('duo_toggle')}</span>
               </label>
               {duo && <p className="duo-hint">{t('duo_hint')}</p>}
+              {duo && shop.staff.length > 2 && (
+                <label className="chip" style={{ marginTop: 8 }}>
+                  👥 {t('grp_size')}
+                  <select
+                    value={partySize}
+                    onChange={(e) => {
+                      setPartySize(Number(e.target.value));
+                      setSlot(null);
+                    }}
+                  >
+                    {[2, 3, 4].filter((n) => n <= shop.staff.length).map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           )}
 
@@ -1169,7 +1206,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 </div>
                 {hold2 && (
                   <div className="quote-line">
-                    <span>👯 {friendName || t('duo_friend_name')}</span>
+                    <span>👯 {friendNames[0] || t('duo_friend_name')}</span>
                     <span>{money(hold2.quote.totalCents, lang)}</span>
                   </div>
                 )}
@@ -1298,16 +1335,17 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
               />
-              {duo && (
+              {duo && friendNames.slice(0, partySize - 1).map((fn, i) => (
                 <input
+                  key={i}
                   className="input"
                   style={{ marginTop: 8 }}
-                  placeholder={`👯 ${t('duo_friend_name')}`}
-                  value={friendName}
-                  onChange={(e) => setFriendName(e.target.value)}
+                  placeholder={`👯 ${t('duo_friend_name')}${partySize > 2 ? ` ${i + 1}` : ''}`}
+                  value={fn}
+                  onChange={(e) => setFriendNames((cur) => cur.map((x, j) => (j === i ? e.target.value : x)))}
                   maxLength={60}
                 />
-              )}
+              ))}
               <input
                 className="input"
                 style={{ marginTop: 8 }}
@@ -1339,7 +1377,32 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   </button>
                 ))}
               </div>
-              {stamp && stamp.enabled && !duo && (stamp.stamps > 0 || stamp.rewardsAvailable > 0) && (
+              {/* 5er-Karte: a prepaid visit pays itself — one switch, no code. */}
+              {eligiblePackage && !duo && (
+                <div className="stamp-box">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <span className="switch">
+                      <input
+                        type="checkbox"
+                        checked={usePackage}
+                        onChange={(e) => {
+                          setUsePackage(e.target.checked);
+                          if (e.target.checked) {
+                            setUseStamp(false);
+                            setUsePoints(false);
+                            setVoucher(null);
+                          }
+                        }}
+                      />
+                      <span className="knob" />
+                    </span>
+                    <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>
+                      🎟 {t('pk_use', { n: eligiblePackage.remaining, total: eligiblePackage.total })}
+                    </span>
+                  </label>
+                </div>
+              )}
+              {stamp && stamp.enabled && !duo && !usePackage && (stamp.stamps > 0 || stamp.rewardsAvailable > 0) && (
                 <div className="stamp-box">
                   <div className="stamp-row" aria-hidden>
                     {Array.from({ length: stamp.required }, (_, i) => (
@@ -1413,9 +1476,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </div>
           )}
 
-          {hold && dueOf(hold) + (hold2 ? dueOf(hold2) : 0) > 0 && (
+          {hold && dueOf(hold) + extrasDue > 0 && (
             <PayMethod
-              amountCents={dueOf(hold) + (hold2 ? dueOf(hold2) : 0)}
+              amountCents={dueOf(hold) + extrasDue}
               onChange={setPay}
             />
           )}
@@ -1431,7 +1494,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 disabled={
                   holding ||
                   name.trim().length === 0 ||
-                  (duo && friendName.trim().length === 0) ||
+                  (duo && friendNames.slice(0, partySize - 1).some((n) => !n.trim())) ||
                   (ptRequired && !ptAck) ||
                   (cfRequired && !cfAck)
                 }
@@ -1443,12 +1506,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <button
                 className="btn btn-primary"
                 style={{ flex: 1 }}
-                disabled={dueOf(hold) + (hold2 ? dueOf(hold2) : 0) > 0 && !pay}
+                disabled={dueOf(hold) + extrasDue > 0 && !pay}
                 onClick={() => void confirm()}
               >
                 💳{' '}
-                {dueOf(hold) + (hold2 ? dueOf(hold2) : 0) > 0
-                  ? `${t('pay_confirm')} · ${money(dueOf(hold) + (hold2 ? dueOf(hold2) : 0), lang)}${hold2 ? ` · 👯` : ''}`
+                {dueOf(hold) + extrasDue > 0
+                  ? `${t('pay_confirm')} · ${money(dueOf(hold) + extrasDue, lang)}${hold2 ? ` · 👯` : ''}`
                   : t('confirm_free')}
               </button>
             )}

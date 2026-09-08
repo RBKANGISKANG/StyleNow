@@ -120,6 +120,8 @@ export interface Booking {
   customerMemo?: string;
   /** This visit was the stamp card's free one — it consumes a reward and earns no stamp. */
   stampFree?: boolean;
+  /** This visit was paid by a prepaid 5er-Karte. */
+  packageId?: string;
   /** A saved person on the booking device this visit is for. */
   forPersonId?: string;
   /** Late shop-side cancel/move: the automatic sorry-voucher minted for it. */
@@ -218,6 +220,41 @@ export interface CashEntry {
   amountCents: number;
   note?: string;
   at: number;
+}
+
+/** A 5er-Karte the shop sells: N of one service for a bundle price. */
+export interface PackageOffer {
+  id: string;
+  serviceId: string;
+  count: number;
+  priceCents: number;
+}
+
+/** A bought card. Uses are DERIVED from bookings carrying packageId. */
+export interface OwnedPackage {
+  id: string;
+  offerId: string;
+  shopId: string;
+  serviceId: string;
+  deviceId: string;
+  total: number;
+  pricePaidCents: number;
+  purchasedAt: number;
+  payment?: { method: PaymentMethod; label: string };
+}
+
+/** The club a shop runs: a flat monthly fee for a standing discount. */
+export interface MembershipOffer {
+  priceCents: number;
+  discountPct: number;
+}
+
+export interface Membership {
+  shopId: string;
+  deviceId: string;
+  since: number;
+  priceCents: number;
+  discountPct: number;
 }
 
 /** The physical bottlenecks a salon has besides stylists. 0 = not tracked. */
@@ -320,6 +357,10 @@ interface State {
   cashEntries: Map<string, CashEntry[]>; // `${shopId}:${iso}` → the day's Kassenbuch
   careProfiles: Map<string, CareProfile>; // deviceId → allergies & patch tests
   resources: Map<string, ShopResources>; // shopId → how many basins / colour stations exist
+  packageOffers: Map<string, PackageOffer[]>; // shopId → the 5er-Karten it sells
+  packages: Map<string, OwnedPackage>; // packageId → who owns how many of what
+  membershipOffers: Map<string, MembershipOffer>; // shopId → the club it runs
+  memberships: Map<string, Membership>; // `${deviceId}:${shopId}` → active membership
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -391,6 +432,10 @@ const state: State =
     cashEntries: new Map(),
     careProfiles: new Map(),
     resources: new Map(),
+    packageOffers: new Map(),
+    packages: new Map(),
+    membershipOffers: new Map(),
+    memberships: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -467,6 +512,10 @@ function persist(): boolean {
         cashEntries: [...state.cashEntries.entries()],
         careProfiles: [...state.careProfiles.entries()],
         resources: [...state.resources.entries()],
+        packageOffers: [...state.packageOffers.entries()],
+        packages: [...state.packages.entries()],
+        membershipOffers: [...state.membershipOffers.entries()],
+        memberships: [...state.memberships.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -520,6 +569,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
         cashEntries?: Array<[string, CashEntry[]]>;
         careProfiles?: Array<[string, CareProfile]>;
         resources?: Array<[string, ShopResources]>;
+        packageOffers?: Array<[string, PackageOffer[]]>;
+        packages?: Array<[string, OwnedPackage]>;
+        membershipOffers?: Array<[string, MembershipOffer]>;
+        memberships?: Array<[string, Membership]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -560,6 +613,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.cashEntries = new Map(d.cashEntries ?? []);
       state.careProfiles = new Map(d.careProfiles ?? []);
       state.resources = new Map(d.resources ?? []);
+      state.packageOffers = new Map(d.packageOffers ?? []);
+      state.packages = new Map(d.packages ?? []);
+      state.membershipOffers = new Map(d.membershipOffers ?? []);
+      state.memberships = new Map(d.memberships ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -785,6 +842,8 @@ export interface ShopConfig {
   checklistTicks?: Array<[string, ChecklistTick[]]>;
   cashEntries?: Array<[string, CashEntry[]]>;
   resources?: ShopResources;
+  packageOffers?: PackageOffer[];
+  membershipOffer?: MembershipOffer;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -840,6 +899,8 @@ export function exportShopConfig(shopId: string): ShopConfig {
     checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     cashEntries: [...state.cashEntries.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     resources: state.resources.get(shopId),
+    packageOffers: state.packageOffers.get(shopId) ?? [],
+    membershipOffer: state.membershipOffers.get(shopId),
   };
 }
 
@@ -890,6 +951,11 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.resources !== undefined) {
     if (doc.resources && (doc.resources.basins > 0 || doc.resources.colourStations > 0)) state.resources.set(shopId, doc.resources);
     else state.resources.delete(shopId);
+  }
+  if (doc.packageOffers) state.packageOffers.set(shopId, doc.packageOffers);
+  if (doc.membershipOffer !== undefined) {
+    if (doc.membershipOffer && doc.membershipOffer.priceCents > 0) state.membershipOffers.set(shopId, doc.membershipOffer);
+    else state.membershipOffers.delete(shopId);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -2437,6 +2503,8 @@ export interface HoldInput {
   pointsToSpend?: number;
   /** Spend a stamp-card reward: this visit's services are free. */
   useStampReward?: boolean;
+  /** Redeem one use of a prepaid 5er-Karte (single service, must match). */
+  usePackageId?: string;
   /** Book as a Prime flexible appointment — see primeWindowsFor(). */
   prime?: boolean;
   /** A saved person on this device the visit is for ("Milo", "Mum"). */
@@ -2540,8 +2608,22 @@ export function createHold(input: HoldInput): HoldResult {
   let discountCents = 0;
   let giftCents = 0;
   let stampFree = false;
+  let packageUsed = false;
   const discountLines: Array<{ label: string; cents: number }> = [];
+  if (input.usePackageId) {
+    // A 5er-Karte visit: prepaid, so the whole (single-service) subtotal is
+    // covered. The engine re-derives the remaining uses from live bookings —
+    // a card cannot be spent twice, and a cancellation returns the use.
+    const pk = state.packages.get(input.usePackageId);
+    if (!pk || pk.deviceId !== input.deviceId || pk.shopId !== input.shopId) throw new Error('no_package');
+    if (input.serviceIds.length !== 1 || input.serviceIds[0] !== pk.serviceId) throw new Error('package_mismatch');
+    if (packageRemaining(pk) < 1) throw new Error('package_empty');
+    packageUsed = true;
+    discountCents += q.subtotalCents;
+    discountLines.push({ label: `5er-Karte (${pk.total}er)`, cents: -q.subtotalCents });
+  }
   if (input.useStampReward) {
+    if (packageUsed) throw new Error('no_stamp_reward'); // one funding source per visit
     // The engine re-checks, not the UI: the reward must actually exist, and a
     // free visit is a whole discount — it does not stack with codes or points.
     const st = stampStatus(input.shopId, input.deviceId);
@@ -2550,7 +2632,19 @@ export function createHold(input: HoldInput): HoldResult {
     discountCents += q.subtotalCents;
     discountLines.push({ label: `Stempelkarte — ${st.required}. Besuch frei`, cents: -q.subtotalCents });
   }
-  if (!stampFree && input.voucherCode) {
+  // Membership: the club discount applies to what is still payable, before
+  // codes and points — a standing perk, not a coupon.
+  if (!stampFree && !packageUsed) {
+    const ms = state.memberships.get(`${input.deviceId}:${input.shopId}`);
+    if (ms && ms.discountPct > 0) {
+      const cut = Math.round((q.subtotalCents * ms.discountPct) / 100);
+      if (cut > 0) {
+        discountCents += cut;
+        discountLines.push({ label: `Membership −${ms.discountPct}%`, cents: -cut });
+      }
+    }
+  }
+  if (!stampFree && !packageUsed && input.voucherCode) {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
     if (!v.ok) throw new Error('voucher_invalid');
     discountCents += v.discountCents;
@@ -2563,7 +2657,7 @@ export function createHold(input: HoldInput): HoldResult {
     discountLines.push({ label: `${isGift ? 'Gift card' : 'Voucher'} ${v.voucher.code}`, cents: -v.discountCents });
   }
   let pointsSpent = 0;
-  if (!stampFree && input.pointsToSpend && input.pointsToSpend > 0) {
+  if (!stampFree && !packageUsed && input.pointsToSpend && input.pointsToSpend > 0) {
     const balance = loyaltyBalance(input.deviceId);
     const remainder = Math.max(q.subtotalCents + travelFeeCents - discountCents, 0);
     pointsSpent = Math.min(input.pointsToSpend, balance);
@@ -2622,6 +2716,7 @@ export function createHold(input: HoldInput): HoldResult {
     voucherCode: stampFree ? undefined : input.voucherCode || undefined,
     giftCents: giftCents || undefined,
     stampFree: stampFree || undefined,
+    packageId: packageUsed ? input.usePackageId : undefined,
     isPrime: input.prime || undefined,
     forPersonId: input.forPersonId || undefined,
     // The test belongs to a person's skin, and the device only vouches for
@@ -3397,6 +3492,9 @@ export interface GiftCard {
   payment?: { method: PaymentMethod; label: string };
   createdAt: number;
   redemptions: Array<{ at: number; cents: number; reference: string }>;
+  /** Set when the card was bought as "one balayage at X" rather than an amount. */
+  serviceId?: string;
+  serviceName?: { en: string; de: string };
 }
 
 export const GIFT_MIN_CENTS = 1000;
@@ -6276,6 +6374,308 @@ export function consultDone(deviceId: string, shopId: string): boolean {
     return true; // a completed visit IS a conversation with the salon
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// money products batch: 5er-Karten, deals, treatment gifts, groups, membership
+// ---------------------------------------------------------------------------
+
+export function packageOffers(shopId: string): PackageOffer[] {
+  return state.packageOffers.get(shopId) ?? [];
+}
+
+export function savePackageOffer(
+  shopId: string,
+  offer: { id?: string; serviceId: string; count: number; priceCents: number },
+): PackageOffer {
+  const svc = effectiveServices(shopId).find((s) => s.id === offer.serviceId);
+  if (!svc) throw new Error('service_not_found');
+  if (![5, 10].includes(offer.count)) throw new Error('bad_count');
+  if (!Number.isInteger(offer.priceCents) || offer.priceCents < 100) throw new Error('bad_price');
+  const list = [...packageOffers(shopId)];
+  const saved: PackageOffer = { id: offer.id || `po-${state.seq++}`, serviceId: offer.serviceId, count: offer.count, priceCents: offer.priceCents };
+  const at = list.findIndex((o) => o.id === saved.id);
+  if (at >= 0) list[at] = saved;
+  else list.push(saved);
+  state.packageOffers.set(shopId, list);
+  persist();
+  return saved;
+}
+
+export function deletePackageOffer(shopId: string, offerId: string): void {
+  state.packageOffers.set(shopId, packageOffers(shopId).filter((o) => o.id !== offerId));
+  persist();
+}
+
+/** Uses left on a card, derived: every live/completed booking that names it. */
+export function packageRemaining(pk: OwnedPackage): number {
+  const now = Date.now();
+  let used = 0;
+  for (const b of state.bookings.values()) {
+    if (b.packageId !== pk.id) continue;
+    if (b.status === 'completed' || bookingBlocks(b, now)) used += 1;
+  }
+  return Math.max(0, pk.total - used);
+}
+
+export function buyPackage(
+  shopId: string,
+  offerId: string,
+  deviceId: string,
+  payment?: { method: PaymentMethod; label: string },
+): OwnedPackage {
+  const offer = packageOffers(shopId).find((o) => o.id === offerId);
+  if (!offer) throw new Error('not_found');
+  const pk: OwnedPackage = {
+    id: `pk-${state.seq++}-${Date.now().toString(36)}`,
+    offerId: offer.id,
+    shopId,
+    serviceId: offer.serviceId,
+    deviceId,
+    total: offer.count,
+    pricePaidCents: offer.priceCents,
+    purchasedAt: Date.now(),
+    payment,
+  };
+  state.packages.set(pk.id, pk);
+  persist();
+  return pk;
+}
+
+export function myPackages(deviceId: string): Array<OwnedPackage & { remaining: number; serviceName: { en: string; de: string }; shopName: string; slug: string }> {
+  return [...state.packages.values()]
+    .filter((pk) => pk.deviceId === deviceId)
+    .map((pk) => {
+      const shop = shopById(pk.shopId);
+      const svc = shop ? serviceOf(shop, pk.serviceId) : undefined;
+      return {
+        ...pk,
+        remaining: packageRemaining(pk),
+        serviceName: svc?.name ?? { en: pk.serviceId, de: pk.serviceId },
+        shopName: shop?.name ?? '',
+        slug: shop?.slug ?? '',
+      };
+    })
+    .sort((a, b) => b.purchasedAt - a.purchasedAt);
+}
+
+/** The liability view: cards sold, uses outstanding, euros of promised work. */
+export function packagesForShop(shopId: string): { soldCount: number; outstandingUses: number; outstandingCents: number } {
+  let soldCount = 0;
+  let outstandingUses = 0;
+  let outstandingCents = 0;
+  for (const pk of state.packages.values()) {
+    if (pk.shopId !== shopId) continue;
+    soldCount += 1;
+    const rem = packageRemaining(pk);
+    outstandingUses += rem;
+    outstandingCents += Math.round((pk.pricePaidCents / pk.total) * rem);
+  }
+  return { soldCount, outstandingUses, outstandingCents };
+}
+
+// --- last-minute deal board -------------------------------------------------
+
+export interface Deal {
+  shopId: string;
+  slug: string;
+  shopName: string;
+  emoji: string;
+  district: string;
+  serviceId: string;
+  serviceName: { en: string; de: string };
+  iso: string;
+  start: number;
+  priceCents: number;
+  basePriceCents: number;
+  offPct: number;
+}
+
+/**
+ * Today's and tomorrow's dead gaps, marketplace-wide: the most-discounted
+ * genuinely bookable slot per shop. Nothing invented — these are the same
+ * prices the booking grid would show; the board just goes looking for them.
+ */
+export function lastMinuteDeals(deviceId: string): Deal[] {
+  const now = Date.now();
+  const out: Deal[] = [];
+  for (const shop of allShops()) {
+    let best: Deal | null = null;
+    // the shop's flagship-ish services: popular first, then the cheapest cut
+    const menu = effectiveServices(shop.id).filter((s) => s.basePriceCents > 0);
+    const candidates = [...menu].sort((a, b) => Number(b.popular ?? false) - Number(a.popular ?? false)).slice(0, 2);
+    for (const svc of candidates) {
+      for (let d = 0; d < 2; d++) {
+        const iso = addDays(isoDateOf(now), d);
+        let slots: ApiSlot[];
+        try {
+          slots = availability(shop.id, [svc.id], iso, deviceId).slots;
+        } catch {
+          continue;
+        }
+        for (const s of slots) {
+          if (s.start <= now || s.priceCents >= s.basePriceCents) continue;
+          const offPct = Math.round((1 - s.priceCents / s.basePriceCents) * 100);
+          if (offPct < 10) continue;
+          if (!best || offPct > best.offPct) {
+            best = {
+              shopId: shop.id,
+              slug: shop.slug,
+              shopName: shop.name,
+              emoji: shop.emoji,
+              district: shop.district,
+              serviceId: svc.id,
+              serviceName: svc.name,
+              iso,
+              start: s.start,
+              priceCents: s.priceCents,
+              basePriceCents: s.basePriceCents,
+              offPct,
+            };
+          }
+        }
+      }
+    }
+    if (best) out.push(best);
+  }
+  return out.sort((a, b) => b.offPct - a.offPct).slice(0, 12);
+}
+
+// --- gift a treatment -------------------------------------------------------
+
+/** "One balayage at Chroma" — a gift card whose value IS a named service. */
+export function giftTreatment(
+  shopId: string,
+  deviceId: string,
+  serviceId: string,
+  opts: { toName?: string; fromName?: string; message?: string } = {},
+  payment?: { method: PaymentMethod; label: string },
+): GiftCard {
+  const svc = effectiveServices(shopId).find((s) => s.id === serviceId);
+  if (!svc || svc.basePriceCents < GIFT_MIN_CENTS) throw new Error('service_not_found');
+  const card = buyGiftCard(shopId, deviceId, svc.basePriceCents, opts, payment);
+  card.serviceId = svc.id;
+  card.serviceName = svc.name;
+  persist();
+  return card;
+}
+
+// --- group bookings (three to six friends, one act) -------------------------
+
+export const GROUP_MAX = 4;
+
+/**
+ * The duo, generalized: N seats at the same minute on N distinct chairs, all
+ * through the ordinary hold contract, all rolled back if the group cannot be
+ * seated whole. Discounts stay on the organizer's seat only.
+ */
+export function createGroupHold(input: HoldInput, friendNames: string[]): HoldResult[] {
+  const extra = friendNames.map((n) => n.trim()).filter(Boolean);
+  if (extra.length === 0) throw new Error('bad_group');
+  if (extra.length + 1 > GROUP_MAX) throw new Error('group_too_big');
+  if (input.prime) throw new Error('duo_prime');
+  const shop = shopById(input.shopId);
+  if (!shop) throw new Error('shop_not_found');
+
+  const first = createHold(input);
+  const firstBooking = state.bookings.get(first.bookingId)!;
+  const results: HoldResult[] = [first];
+  const usedStaff = new Set([firstBooking.staffId]);
+
+  const services = input.serviceIds
+    .map((id) => serviceOf(shop, id))
+    .filter((s): s is SeedService => Boolean(s));
+  const timing = aggregate(services);
+  const isoDate = isoDateOf(input.startsAt);
+  const now = Date.now();
+
+  const rollback = (): never => {
+    for (const r of results) deleteBooking(r.bookingId);
+    state.idempotency.delete(input.idempotencyKey);
+    for (let i = 0; i < extra.length; i++) state.idempotency.delete(`${input.idempotencyKey}-g${i}`);
+    const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null);
+    throw new SlotTaken(
+      slots.filter((s) => s.staffIds.length >= extra.length + 1 && s.start !== input.startsAt).slice(0, 6),
+    );
+  };
+
+  for (let i = 0; i < extra.length; i++) {
+    const held = occupancyForBasket(input.startsAt, services, shop.rules);
+    let partnerId: string | null = null;
+    for (const st of effectiveStaff(input.shopId)) {
+      if (usedStaff.has(st.id)) continue;
+      const day = staffDayOf(shop, st.id, isoDate, now);
+      const fits = day.working.some(
+        (w) => input.startsAt >= w.start && input.startsAt + timing.durationMin * MIN <= w.end,
+      );
+      if (fits && !held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
+        partnerId = st.id;
+        break;
+      }
+    }
+    if (!partnerId) rollback();
+    const seat = createHold({
+      ...input,
+      staffId: partnerId,
+      guestName: extra[i],
+      guestPhone: undefined,
+      guestNote: undefined,
+      voucherCode: undefined,
+      pointsToSpend: undefined,
+      useStampReward: undefined,
+      usePackageId: undefined,
+      forPersonId: undefined,
+      idempotencyKey: `${input.idempotencyKey}-g${i}`,
+    });
+    usedStaff.add(state.bookings.get(seat.bookingId)!.staffId);
+    results.push(seat);
+  }
+
+  const groupId = first.bookingId;
+  for (const r of results) state.bookings.get(r.bookingId)!.duoId = groupId;
+  persist();
+  return results;
+}
+
+// --- membership -------------------------------------------------------------
+
+export function membershipOffer(shopId: string): MembershipOffer | null {
+  return state.membershipOffers.get(shopId) ?? null;
+}
+
+export function setMembershipOffer(shopId: string, offer: MembershipOffer | null): void {
+  if (!offer || offer.priceCents <= 0 || offer.discountPct <= 0) state.membershipOffers.delete(shopId);
+  else {
+    state.membershipOffers.set(shopId, {
+      priceCents: Math.min(20000, Math.round(offer.priceCents)),
+      discountPct: Math.min(30, Math.round(offer.discountPct)),
+    });
+  }
+  persist();
+}
+
+export function myMembership(deviceId: string, shopId: string): Membership | null {
+  return state.memberships.get(`${deviceId}:${shopId}`) ?? null;
+}
+
+export function joinMembership(deviceId: string, shopId: string): Membership {
+  const offer = membershipOffer(shopId);
+  if (!offer) throw new Error('no_offer');
+  const ms: Membership = { shopId, deviceId, since: Date.now(), priceCents: offer.priceCents, discountPct: offer.discountPct };
+  state.memberships.set(`${deviceId}:${shopId}`, ms);
+  persist();
+  return ms;
+}
+
+export function leaveMembership(deviceId: string, shopId: string): void {
+  state.memberships.delete(`${deviceId}:${shopId}`);
+  persist();
+}
+
+export function membersOfShop(shopId: string): number {
+  let n = 0;
+  for (const ms of state.memberships.values()) if (ms.shopId === shopId) n += 1;
+  return n;
 }
 
 // The demo history has to be written after the module has finished defining
