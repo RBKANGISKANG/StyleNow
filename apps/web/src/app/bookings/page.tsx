@@ -23,6 +23,7 @@ import {
   apiRecordPatchTest,
   apiDayDrift,
   apiMyPackages,
+  apiSetWouldRepeat,
   type GiftCard,
 } from '@/lib/api';
 import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
@@ -61,6 +62,7 @@ interface Bk {
   goodwillCode: string | null;
   checkedInAt: number | null;
   needsPatchTest: boolean;
+  wouldRepeat: boolean;
   review: { rating: number; text: string; date: string } | null;
   tipCents: number;
   payment: { method: string; label: string } | null;
@@ -674,6 +676,7 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
   const [tags, setTags] = useState<ReviewTag[]>([]);
   const [busy, setBusy] = useState(false);
   const [ptDone, setPtDone] = useState(false);
+  const [repeat, setRepeat] = useState(booking.wouldRepeat);
 
   const submitReview = async () => {
     if (rating < 1) return;
@@ -768,6 +771,20 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
           ))}
         </div>
       )}
+      {/* The result journal: pin what worked, and how to care for it. */}
+      <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          className={`chip ${repeat ? 'on-primary' : ''}`}
+          onClick={() => {
+            void apiSetWouldRepeat(booking.id, !repeat).then((ok) => {
+              if (ok) setRepeat(!repeat);
+            });
+          }}
+        >
+          {repeat ? '📌 ' : '☆ '}{t('jr_repeat')}
+        </button>
+        <AftercareTip colour={booking.needsPatchTest || booking.services.some((sv) => /colou?r|balayage|strähn|toner/i.test(sv.name.en + sv.name.de))} />
+      </div>
       {booking.shop && (
         <div style={{ marginTop: 10 }}>
           <Link
@@ -793,5 +810,24 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
         </div>
       )}
     </div>
+  );
+}
+
+
+/** One honest sentence of aftercare — colour visits get the colour one. */
+function AftercareTip({ colour }: { colour: boolean }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className="chip" onClick={() => setOpen(!open)} aria-expanded={open}>
+        🧴 {t('ac_btn')}
+      </button>
+      {open && (
+        <p style={{ flexBasis: '100%', fontSize: '0.78rem', color: 'var(--ink-soft)', margin: '4px 0 0' }}>
+          {colour ? t('ac_colour') : t('ac_general')}
+        </p>
+      )}
+    </>
   );
 }

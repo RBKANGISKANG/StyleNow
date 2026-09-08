@@ -38,6 +38,10 @@ import {
   apiMembershipOffer,
   apiSetMembershipOffer,
   apiMembersOfShop,
+  apiAccessFacts,
+  apiSetAccessFacts,
+  apiBirthdayPerk,
+  apiSetBirthdayPerk,
   type ShopClosure,
 } from '@/lib/api';
 import type { ChecklistTemplate as ChecklistTemplateT, PackageOffer as PackageOfferT } from '@/core/store';
@@ -196,6 +200,16 @@ function ShopTab({
       <section className="section">
         <h2>💜 {t('mb_title')}</h2>
         <MembershipPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>♿ {t('af_title')}</h2>
+        <AccessFactsPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🎂 {t('bp_title')}</h2>
+        <BirthdayPerkPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1024,6 +1038,70 @@ function MembershipPanel({ shopId, onChanged }: { shopId: string; onChanged: (ms
         )}
         {members > 0 && <span style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>{t('mb_members', { n: members })}</span>}
       </div>
+    </div>
+  );
+}
+
+
+/** What the premises can honestly promise — shown on the public shop page. */
+function AccessFactsPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [facts, setFacts] = useState({ stepFree: false, wheelchairWC: false, quietCorner: false });
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiAccessFacts(shopId).then((f) => {
+      if (f) setFacts(f);
+      setLoaded(true);
+    });
+  }, [shopId]);
+  if (!loaded) return <div className="spinner" />;
+  const toggle = (key: 'stepFree' | 'wheelchairWC' | 'quietCorner') => {
+    const next = { ...facts, [key]: !facts[key] };
+    setFacts(next);
+    void apiSetAccessFacts(shopId, next).then(() => onChanged('♿ ' + t('af_saved')));
+  };
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('af_hint')}</p>
+      <div className="addon-row">
+        <button className={`chip ${facts.stepFree ? 'on-primary' : ''}`} onClick={() => toggle('stepFree')}>♿ {t('af_stepfree')}</button>
+        <button className={`chip ${facts.wheelchairWC ? 'on-primary' : ''}`} onClick={() => toggle('wheelchairWC')}>🚻 {t('af_wc')}</button>
+        <button className={`chip ${facts.quietCorner ? 'on-primary' : ''}`} onClick={() => toggle('quietCorner')}>🤫 {t('af_quiet')}</button>
+      </div>
+    </div>
+  );
+}
+
+/** The birthday window: opt in with a percent, the checkout does the rest. */
+function BirthdayPerkPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [pct, setPct] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiBirthdayPerk(shopId).then((n) => {
+      setPct(n);
+      setLoaded(true);
+    });
+  }, [shopId]);
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('bp_hint')}</p>
+      <label className="chip">
+        {t('qd_pct')}
+        <select
+          value={pct}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            setPct(n);
+            void apiSetBirthdayPerk(shopId, n).then(() => onChanged('🎂 ' + t('bp_saved')));
+          }}
+        >
+          {[0, 10, 15, 20].map((n) => (<option key={n} value={n}>{n === 0 ? t('qd_off') : `−${n}%`}</option>))}
+        </select>
+      </label>
     </div>
   );
 }

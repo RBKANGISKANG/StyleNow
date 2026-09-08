@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -338,6 +338,7 @@ function ShopPulse({ shopId }: { shopId: string }) {
   const [announcement, setAnnouncement] = useState('');
   const [trust, setTrust] = useState<Awaited<ReturnType<typeof apiShopTrust>> | null>(null);
   const [queue, setQueue] = useState<{ queued: number; waitMin: number | null }>({ queued: 0, waitMin: null });
+  const [access, setAccess] = useState<{ stepFree: boolean; wheelchairWC: boolean; quietCorner: boolean } | null>(null);
   const [forecast, setForecast] = useState<Array<{ iso: string; pct: number }>>([]);
   const [stampSt, setStampSt] = useState<Awaited<ReturnType<typeof apiStampStatus>> | null>(null);
 
@@ -345,6 +346,7 @@ function ShopPulse({ shopId }: { shopId: string }) {
     void apiShopAnnouncement(shopId).then(setAnnouncement);
     void apiShopTrust(shopId).then(setTrust);
     void apiPublicQueue(shopId).then(setQueue);
+    void apiAccessFacts(shopId).then(setAccess);
     void apiDayForecast(shopId).then(setForecast);
     void apiStampStatus(shopId).then(setStampSt);
   }, [shopId]);
@@ -384,6 +386,15 @@ function ShopPulse({ shopId }: { shopId: string }) {
       {queue.queued > 0 && queue.waitMin !== null && (
         <div className="trust-strip" style={{ marginTop: 8 }}>
           <span>🚶 {t('wi_public', { n: String(queue.queued), min: String(queue.waitMin) })}</span>
+        </div>
+      )}
+
+      {/* what the premises can honestly promise — before anyone travels */}
+      {access && (access.stepFree || access.wheelchairWC || access.quietCorner) && (
+        <div className="trust-strip" style={{ marginTop: 8 }}>
+          {access.stepFree && <span>♿ {t('af_stepfree')}</span>}
+          {access.wheelchairWC && <span>🚻 {t('af_wc')}</span>}
+          {access.quietCorner && <span>🤫 {t('af_quiet')}</span>}
         </div>
       )}
 

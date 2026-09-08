@@ -85,6 +85,8 @@ export interface Overview {
     needsPatchTest: boolean;
     needsConsult: boolean;
     allergies: string[];
+    guardianName: string | null;
+    accessNote: string | null;
   }>;
   week: Array<{ iso: string; revenueCents: number }>;
 }

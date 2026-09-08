@@ -132,6 +132,14 @@ export interface Booking {
   needsPatchTest?: boolean;
   /** A consultation-first treatment booked without a prior consultation here. */
   needsConsult?: boolean;
+  /** The visit is for a minor; the named adult answers for it. */
+  minor?: { guardianName: string };
+  /** What the person needs from the visit, copied from their care profile at booking. */
+  accessNote?: string;
+  /** Customer-private: "do exactly this again next time". */
+  wouldRepeat?: boolean;
+  /** The birthday-window perk applied to this booking. */
+  birthdayPerk?: boolean;
   /** Rezeptkarte: the colour formula this visit used, written by the stylist. */
   techRecord?: TechRecord;
   createdAt: number;
@@ -267,6 +275,24 @@ export interface ShopResources {
 export interface CareProfile {
   allergies: string[];
   patchTests: Array<{ shopId: string; iso: string }>;
+  /** MM-DD — the year is nobody's business, the perk only needs the day. */
+  birthday?: string;
+  /** what a visit needs to actually work for this person */
+  access?: AccessNeeds;
+}
+
+export interface AccessNeeds {
+  wheelchair?: boolean;
+  quiet?: boolean;
+  extraTime?: boolean;
+  note?: string;
+}
+
+/** What the premises can honestly promise. */
+export interface AccessFacts {
+  stepFree: boolean;
+  wheelchairWC: boolean;
+  quietCorner: boolean;
 }
 
 /** A walk-in waiting for a chair — the paper list by the till, kept honestly. */
@@ -361,6 +387,8 @@ interface State {
   packages: Map<string, OwnedPackage>; // packageId → who owns how many of what
   membershipOffers: Map<string, MembershipOffer>; // shopId → the club it runs
   memberships: Map<string, Membership>; // `${deviceId}:${shopId}` → active membership
+  accessFacts: Map<string, AccessFacts>; // shopId → what the premises can promise
+  birthdayPerks: Map<string, number>; // shopId → percent off in the birthday window
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -436,6 +464,8 @@ const state: State =
     packages: new Map(),
     membershipOffers: new Map(),
     memberships: new Map(),
+    accessFacts: new Map(),
+    birthdayPerks: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -516,6 +546,8 @@ function persist(): boolean {
         packages: [...state.packages.entries()],
         membershipOffers: [...state.membershipOffers.entries()],
         memberships: [...state.memberships.entries()],
+        accessFacts: [...state.accessFacts.entries()],
+        birthdayPerks: [...state.birthdayPerks.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -573,6 +605,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
         packages?: Array<[string, OwnedPackage]>;
         membershipOffers?: Array<[string, MembershipOffer]>;
         memberships?: Array<[string, Membership]>;
+        accessFacts?: Array<[string, AccessFacts]>;
+        birthdayPerks?: Array<[string, number]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -617,6 +651,8 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.packages = new Map(d.packages ?? []);
       state.membershipOffers = new Map(d.membershipOffers ?? []);
       state.memberships = new Map(d.memberships ?? []);
+      state.accessFacts = new Map(d.accessFacts ?? []);
+      state.birthdayPerks = new Map(d.birthdayPerks ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -844,6 +880,8 @@ export interface ShopConfig {
   resources?: ShopResources;
   packageOffers?: PackageOffer[];
   membershipOffer?: MembershipOffer;
+  accessFacts?: AccessFacts;
+  birthdayPerkPct?: number;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -901,6 +939,8 @@ export function exportShopConfig(shopId: string): ShopConfig {
     resources: state.resources.get(shopId),
     packageOffers: state.packageOffers.get(shopId) ?? [],
     membershipOffer: state.membershipOffers.get(shopId),
+    accessFacts: state.accessFacts.get(shopId),
+    birthdayPerkPct: state.birthdayPerks.get(shopId),
   };
 }
 
@@ -956,6 +996,14 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.membershipOffer !== undefined) {
     if (doc.membershipOffer && doc.membershipOffer.priceCents > 0) state.membershipOffers.set(shopId, doc.membershipOffer);
     else state.membershipOffers.delete(shopId);
+  }
+  if (doc.accessFacts !== undefined) {
+    if (doc.accessFacts) state.accessFacts.set(shopId, doc.accessFacts);
+    else state.accessFacts.delete(shopId);
+  }
+  if (doc.birthdayPerkPct !== undefined) {
+    if (doc.birthdayPerkPct > 0) state.birthdayPerks.set(shopId, doc.birthdayPerkPct);
+    else state.birthdayPerks.delete(shopId);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -2509,6 +2557,9 @@ export interface HoldInput {
   prime?: boolean;
   /** A saved person on this device the visit is for ("Milo", "Mum"). */
   forPersonId?: string;
+  /** The visit is for someone under 16; a guardian must be named. */
+  forMinor?: boolean;
+  guardianName?: string;
   idempotencyKey: string;
 }
 
@@ -2530,6 +2581,13 @@ export function createHold(input: HoldInput): HoldResult {
     .map((id) => serviceOf(shop, id))
     .filter((s): s is SeedService => Boolean(s));
   if (services.length === 0) throw new Error('service_not_found');
+
+  // Chemical services on minors are legally sensitive in Germany — the
+  // platform refuses to book them at all rather than leave it to the till.
+  if (input.forMinor) {
+    if (!input.guardianName?.trim()) throw new Error('guardian_required');
+    if (services.some((s) => s.requiresPatchTest)) throw new Error('minor_chemical');
+  }
 
   const now = Date.now();
   const isoDate = isoDateOf(input.startsAt);
@@ -2644,6 +2702,20 @@ export function createHold(input: HoldInput): HoldResult {
       }
     }
   }
+  // Birthday club: the shop opted in, the profile carries a birthday, and the
+  // visit lands inside the window — the perk applies itself.
+  let birthdayApplied = false;
+  if (!stampFree && !packageUsed && !input.forPersonId) {
+    const perkPct = state.birthdayPerks.get(input.shopId) ?? 0;
+    if (perkPct > 0 && birthdayWindow(input.deviceId, input.startsAt)) {
+      const cut = Math.round((q.subtotalCents * perkPct) / 100);
+      if (cut > 0) {
+        birthdayApplied = true;
+        discountCents += cut;
+        discountLines.push({ label: `🎂 Birthday −${perkPct}%`, cents: -cut });
+      }
+    }
+  }
   if (!stampFree && !packageUsed && input.voucherCode) {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
     if (!v.ok) throw new Error('voucher_invalid');
@@ -2719,6 +2791,9 @@ export function createHold(input: HoldInput): HoldResult {
     packageId: packageUsed ? input.usePackageId : undefined,
     isPrime: input.prime || undefined,
     forPersonId: input.forPersonId || undefined,
+    minor: input.forMinor ? { guardianName: input.guardianName!.trim().slice(0, 60) } : undefined,
+    accessNote: accessNoteOf(input.deviceId) || undefined,
+    birthdayPerk: birthdayApplied || undefined,
     // The test belongs to a person's skin, and the device only vouches for
     // its owner: booking for a saved person never inherits the owner's test.
     needsPatchTest:
@@ -3335,6 +3410,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       needsPatchTest: b.needsPatchTest ?? false,
       needsConsult: b.needsConsult ?? false,
       allergies: careProfile(b.deviceId).allergies,
+      guardianName: b.minor?.guardianName ?? null,
+      accessNote: b.accessNote ?? null,
     })),
     week,
   };
@@ -3421,6 +3498,8 @@ export interface BookingView {
   goodwillCode: string | null;
   checkedInAt: number | null;
   needsPatchTest: boolean;
+  wouldRepeat: boolean;
+  birthdayPerk: boolean;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -3462,6 +3541,8 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       goodwillCode: b.goodwill?.code ?? null,
       checkedInAt: b.checkedInAt ?? null,
       needsPatchTest: b.needsPatchTest ?? false,
+      wouldRepeat: b.wouldRepeat ?? false,
+      birthdayPerk: b.birthdayPerk ?? false,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -6225,6 +6306,86 @@ export function recordPatchTest(deviceId: string, shopId: string): void {
   const rest = profile.patchTests.filter((pt) => pt.shopId !== shopId);
   state.careProfiles.set(deviceId, { ...profile, patchTests: [...rest, { shopId, iso }] });
   persist();
+}
+
+export function setBirthday(deviceId: string, mmdd: string | null): void {
+  const profile = careProfile(deviceId);
+  if (mmdd && !/^\d{2}-\d{2}$/.test(mmdd)) throw new Error('bad_birthday');
+  state.careProfiles.set(deviceId, { ...profile, birthday: mmdd || undefined });
+  persist();
+}
+
+export function setAccessNeeds(deviceId: string, access: AccessNeeds | null): void {
+  const profile = careProfile(deviceId);
+  const clean = access
+    ? {
+        wheelchair: access.wheelchair || undefined,
+        quiet: access.quiet || undefined,
+        extraTime: access.extraTime || undefined,
+        note: access.note?.trim().slice(0, 120) || undefined,
+      }
+    : undefined;
+  const empty = !clean || (!clean.wheelchair && !clean.quiet && !clean.extraTime && !clean.note);
+  state.careProfiles.set(deviceId, { ...profile, access: empty ? undefined : clean });
+  persist();
+}
+
+/** The one line the floor needs: the profile's needs, spelled out. */
+function accessNoteOf(deviceId: string): string {
+  const a = careProfile(deviceId).access;
+  if (!a) return '';
+  const bits: string[] = [];
+  if (a.wheelchair) bits.push('♿');
+  if (a.quiet) bits.push('🤫 quiet');
+  if (a.extraTime) bits.push('⏳ extra time');
+  if (a.note) bits.push(a.note);
+  return bits.join(' · ');
+}
+
+export const BIRTHDAY_WINDOW_DAYS = 14;
+
+/** Is this start inside the person's birthday window? Year-agnostic. */
+function birthdayWindow(deviceId: string, startsAt: number): boolean {
+  const bd = careProfile(deviceId).birthday;
+  if (!bd) return false;
+  const [mm, dd] = bd.split('-').map(Number);
+  const d = new Date(startsAt);
+  for (const year of [d.getFullYear() - 1, d.getFullYear(), d.getFullYear() + 1]) {
+    const b = new Date(year, mm - 1, dd, 12).getTime();
+    if (Math.abs(startsAt - b) <= BIRTHDAY_WINDOW_DAYS * 864e5) return true;
+  }
+  return false;
+}
+
+export function birthdayPerkOf(shopId: string): number {
+  return state.birthdayPerks.get(shopId) ?? 0;
+}
+
+export function setBirthdayPerk(shopId: string, pct: number): void {
+  if (!Number.isInteger(pct) || pct < 0 || pct > 30) throw new Error('bad_percent');
+  if (pct > 0) state.birthdayPerks.set(shopId, pct);
+  else state.birthdayPerks.delete(shopId);
+  persist();
+}
+
+export function accessFactsOf(shopId: string): AccessFacts | null {
+  return state.accessFacts.get(shopId) ?? null;
+}
+
+export function setAccessFacts(shopId: string, facts: AccessFacts | null): void {
+  if (!facts || (!facts.stepFree && !facts.wheelchairWC && !facts.quietCorner)) state.accessFacts.delete(shopId);
+  else state.accessFacts.set(shopId, facts);
+  persist();
+}
+
+/** "Do exactly this again" — customer-private, feeds the journal and nudges. */
+export function setWouldRepeat(bookingId: string, deviceId: string, on: boolean): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  if (b.status !== 'completed') throw new Error('not_completed');
+  b.wouldRepeat = on || undefined;
+  persist();
+  return b;
 }
 
 export function patchTestValid(deviceId: string, shopId: string): boolean {

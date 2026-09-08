@@ -2142,3 +2142,48 @@ export async function apiMembersOfShop(shopId: string): Promise<number> {
   await readyForRead();
   return store.membersOfShop(shopId);
 }
+
+// ---- care & safety batch: birthday, access, minors, journal ---------------
+
+export async function apiSetBirthday(mmdd: string | null): Promise<void> {
+  await localWrite();
+  store.setBirthday(deviceId(), mmdd);
+}
+
+export async function apiSetAccessNeeds(access: store.AccessNeeds | null): Promise<void> {
+  await localWrite();
+  store.setAccessNeeds(deviceId(), access);
+}
+
+export async function apiAccessFacts(shopId: string): Promise<store.AccessFacts | null> {
+  await readyForRead();
+  return store.accessFactsOf(shopId);
+}
+
+export async function apiSetAccessFacts(shopId: string, facts: store.AccessFacts | null): Promise<void> {
+  await localWrite();
+  store.setAccessFacts(shopId, facts);
+  syncConfig(shopId);
+}
+
+export async function apiBirthdayPerk(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.birthdayPerkOf(shopId);
+}
+
+export async function apiSetBirthdayPerk(shopId: string, pct: number): Promise<void> {
+  await localWrite();
+  store.setBirthdayPerk(shopId, pct);
+  syncConfig(shopId);
+}
+
+export async function apiSetWouldRepeat(bookingId: string, on: boolean): Promise<boolean> {
+  await localWrite();
+  try {
+    const b = store.setWouldRepeat(bookingId, deviceId(), on);
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}

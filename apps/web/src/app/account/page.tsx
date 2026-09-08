@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { useAuth, emptyProfile, type Profile } from '@/lib/auth';
-import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData } from '@/lib/api';
+import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData, apiCareProfile, apiSetBirthday, apiSetAccessNeeds, apiSetAllergies } from '@/lib/api';
 import { ReferralPanel } from '@/components/ReferralPanel';
 import { useConfirm } from '@/components/ConfirmDialog';
 
@@ -26,6 +26,7 @@ export default function AccountPage() {
       {user ? <ProfileView /> : <AuthForms />}
       {/* Device data exists with or without an account — so do its rights. */}
       {!user && <GuestPrivacy />}
+      <CarePanel />
       <div className="panel" style={{ marginTop: 16, textAlign: 'center' }}>
         <p style={{ fontSize: '0.88rem', color: 'var(--ink-soft)' }}>💼 {t('partner_title')}</p>
         <Link href="/partner" className="btn btn-dark" style={{ marginTop: 10 }}>
@@ -406,5 +407,80 @@ function PrivacyActions({ onDone }: { onDone: (n: number) => void }) {
       </button>
       {dialog}
     </>
+  );
+}
+
+
+/**
+ * The care profile: birthday (day only — the year is nobody's business),
+ * allergies, and what a visit needs to work. All of it travels with the
+ * device, feeds the booking automatically, and dies with "erase my data".
+ */
+function CarePanel() {
+  const { t } = useI18n();
+  const [loaded, setLoaded] = useState(false);
+  const [birthday, setBirthdayV] = useState('');
+  const [allergies, setAllergiesV] = useState('');
+  const [wheelchair, setWheelchair] = useState(false);
+  const [quiet, setQuiet] = useState(false);
+  const [extraTime, setExtraTime] = useState(false);
+  const [note, setNote] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    void apiCareProfile().then((cp) => {
+      setBirthdayV(cp.birthday ?? '');
+      setAllergiesV(cp.allergies.join(', '));
+      setWheelchair(Boolean(cp.access?.wheelchair));
+      setQuiet(Boolean(cp.access?.quiet));
+      setExtraTime(Boolean(cp.access?.extraTime));
+      setNote(cp.access?.note ?? '');
+      setLoaded(true);
+    });
+  }, []);
+
+  if (!loaded) return null;
+  const save = async () => {
+    await apiSetBirthday(/^\d{2}-\d{2}$/.test(birthday) ? birthday : null);
+    await apiSetAllergies(allergies.split(',').map((a) => a.trim()).filter(Boolean));
+    await apiSetAccessNeeds({ wheelchair, quiet, extraTime, note });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2400);
+  };
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <h3 style={{ marginBottom: 4 }}>🌱 {t('care_title')}</h3>
+      <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('care_hint')}</p>
+      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: 4 }}>
+        🎂 {t('care_birthday')}
+      </label>
+      <input className="input" style={{ maxWidth: 140 }} placeholder="MM-DD" value={birthday} maxLength={5}
+        onChange={(e) => setBirthdayV(e.target.value.replace(/[^\d-]/g, ''))} />
+      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, margin: '10px 0 4px' }}>
+        🚫 {t('care_allergies')}
+      </label>
+      <input className="input" placeholder={t('care_allergies_ph')} value={allergies} maxLength={200}
+        onChange={(e) => setAllergiesV(e.target.value)} />
+      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, margin: '10px 0 4px' }}>
+        ♿ {t('care_access')}
+      </label>
+      <div className="addon-row">
+        {([
+          ['wheelchair', wheelchair, setWheelchair, '♿ ' + t('care_wheelchair')],
+          ['quiet', quiet, setQuiet, '🤫 ' + t('care_quiet')],
+          ['extra', extraTime, setExtraTime, '⏳ ' + t('care_extra')],
+        ] as const).map(([key, on, set, label]) => (
+          <button key={key} className={`chip ${on ? 'on-primary' : ''}`} onClick={() => set(!on)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <input className="input" style={{ marginTop: 8 }} placeholder={t('care_note_ph')} value={note} maxLength={120}
+        onChange={(e) => setNote(e.target.value)} />
+      <button className="btn btn-primary sm" style={{ marginTop: 10 }} onClick={() => void save()}>
+        💾 {t('acc_save')}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: 'var(--teal)', fontSize: '0.85rem' }}>✅</span>}
+    </div>
   );
 }

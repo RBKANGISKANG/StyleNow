@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
       useStampReward: Boolean(body.useStampReward),
       prime: body.prime === true,
       forPersonId: typeof body.forPersonId === 'string' ? body.forPersonId : undefined,
+      forMinor: body.forMinor === true,
+      guardianName: typeof body.guardianName === 'string' ? body.guardianName : undefined,
+      usePackageId: typeof body.usePackageId === 'string' ? body.usePackageId : undefined,
       idempotencyKey,
     });
     return NextResponse.json(result, { status: 201 });

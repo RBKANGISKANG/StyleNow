@@ -31,6 +31,7 @@ import {
   joinWaitlist, waitlistForDevice,
   savePackageOffer, buyPackage, myPackages, packageRemaining, packagesForShop,
   setMembershipOffer, joinMembership, leaveMembership, giftTreatment, createGroupHold, lastMinuteDeals,
+  setBirthday, setBirthdayPerk, setAccessNeeds, setAccessFacts, accessFactsOf, setWouldRepeat,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -984,4 +985,76 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   for (let i = 1; i < deals.length; i++) assert.ok(deals[i].offPct <= deals[i - 1].offPct, 'best first');
 }
 
-console.log('OK — every prior batch plus the money products (5er-Karten, membership, treatment gifts, group seats, the deal board) all check out');
+// ---------------------------------------------------------------------------
+// care & safety batch: minors, birthday, access, journal
+// ---------------------------------------------------------------------------
+
+// Minors: guardian required, chemistry refused outright.
+{
+  const dev = 'dev-minor';
+  const flagged = shop.services.find((s) => s.requiresPatchTest)!;
+  assert.throws(
+    () => createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: Date.now() + 864e5, deviceId: dev, guestName: 'Kid', forMinor: true, idempotencyKey: 'mn-0' }),
+    /guardian_required/,
+  );
+  assert.throws(
+    () => createHold({ shopId: shop.id, serviceIds: [flagged.id], staffId: null, startsAt: Date.now() + 864e5, deviceId: dev, guestName: 'Kid', forMinor: true, guardianName: 'Mama Weber', idempotencyKey: 'mn-1' }),
+    /minor_chemical/,
+  );
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Kid', forMinor: true, guardianName: 'Mama Weber', idempotencyKey: 'mn-2' }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.equal(getBooking(held)!.minor!.guardianName, 'Mama Weber', 'a cut for a kid books, with the adult named');
+}
+
+// Birthday club: the perk applies itself inside the window, only there.
+{
+  const dev = 'dev-bday';
+  const inWindow = new Date(Date.now() + 3 * 864e5);
+  setBirthday(dev, `${String(inWindow.getMonth() + 1).padStart(2, '0')}-${String(inWindow.getDate()).padStart(2, '0')}`);
+  setBirthdayPerk(shop.id, 15);
+  let held = '';
+  for (let d = 1; d <= 10 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'B', idempotencyKey: 'bd-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  const bb = getBooking(held)!;
+  assert.ok(bb.birthdayPerk, 'the window found the visit');
+  assert.ok(bb.quote.breakdown.some((l) => l.label.includes('Birthday')));
+  setBirthdayPerk(shop.id, 0);
+}
+
+// Access: the profile writes itself onto the booking; the shop states facts.
+{
+  const dev = 'dev-access';
+  setAccessNeeds(dev, { wheelchair: true, extraTime: true, note: 'Assistenzhund dabei' });
+  let held = '';
+  for (let d = 1; d <= 10 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'A', idempotencyKey: 'ax-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  const ab = getBooking(held)!;
+  assert.ok(ab.accessNote!.includes('♿') && ab.accessNote!.includes('Assistenzhund'), 'the floor reads the needs');
+  setAccessFacts(shop.id, { stepFree: true, wheelchairWC: false, quietCorner: true });
+  assert.equal(accessFactsOf(shop.id)!.stepFree, true);
+}
+
+// Journal: only the owner pins, only completed visits.
+{
+  assert.throws(() => setWouldRepeat(rhythmIds[0], 'stranger', true), /not_yours/);
+  const pinned = setWouldRepeat(rhythmIds[0], rhythmDev, true);
+  assert.equal(pinned.wouldRepeat, true);
+}
+
+console.log('OK — every prior batch plus care & safety (minors, birthday club, access profile, the journal) all check out');

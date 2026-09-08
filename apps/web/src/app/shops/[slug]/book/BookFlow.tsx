@@ -201,6 +201,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [partySize, setPartySize] = useState(2);
   const [friendNames, setFriendNames] = useState<string[]>(['', '', '']);
   const [groupHolds, setGroupHolds] = useState<Hold[]>([]);
+  // Minors: named guardian required; chemical services are refused outright.
+  const [forMinor, setForMinor] = useState(false);
+  const [guardianName, setGuardianName] = useState('');
   const [hold2, setHold2] = useState<Hold | null>(null);
   // Family & friends: who this visit is for ('' = the device owner). A
   // ?for= deep link (the "Milo is due" nudge) arrives with the person chosen.
@@ -467,6 +470,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   /** what must be paid now for one hold: the deposit, or everything */
   const dueOf = (h: Hold) => (h.quote.depositCents > 0 ? h.quote.depositCents : h.quote.totalCents);
+  const minorChemical = forMinor && menu.filter((sv) => serviceIds.includes(sv.id)).some((sv) => sv.requiresPatchTest);
   // one shape for pair and party: every seat beyond the first
   const extraHolds = hold2 ? [hold2] : groupHolds;
   const extrasDue = extraHolds.reduce((n, h) => n + dueOf(h), 0);
@@ -519,6 +523,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       useStampReward: (!usePackage && useStamp) || undefined,
       usePackageId: usePackage && eligiblePackage ? eligiblePackage.id : undefined,
       forPersonId: forPerson || undefined,
+      forMinor: forMinor || undefined,
+      guardianName: forMinor ? guardianName : undefined,
     };
     const outcome = duo
       ? partySize === 2
@@ -1306,6 +1312,32 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               {selected.some((s) => /colou?r|balayage|toner|blond|gloss|tint/i.test(s.name.en)) && (
                 <p className="patch-hint">🧪 {t('patch_hint')}</p>
               )}
+              {/* Minors: the guardian answers; chemistry is off the menu. */}
+              <label style={{ display: 'flex', gap: 8, cursor: 'pointer', margin: '4px 0 8px', fontSize: '0.85rem' }}>
+                <input type="checkbox" checked={forMinor} onChange={(e) => setForMinor(e.target.checked)} />
+                <span>🧒 {t('mn_toggle')}</span>
+              </label>
+              {forMinor && (
+                <>
+                  <input
+                    className="input"
+                    style={{ marginBottom: 8 }}
+                    placeholder={t('mn_guardian_ph')}
+                    value={guardianName}
+                    onChange={(e) => setGuardianName(e.target.value)}
+                    maxLength={60}
+                  />
+                  {minorChemical ? (
+                    <p className="patch-hint" style={{ color: 'var(--danger)' }}>🚫 {t('mn_chemical')}</p>
+                  ) : (
+                    <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', marginBottom: 8 }}>{t('mn_hint')}</p>
+                  )}
+                </>
+              )}
+              {/* Contraindications: an honest heads-up, not a questionnaire. */}
+              {selected.some((sv) => sv.requiresPatchTest) && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', marginBottom: 8 }}>ℹ️ {t('ct_hint')}</p>
+              )}
               {/* Not a hint but a gate: colour chemistry on untested skin is
                   the one thing a booking tool should refuse to wave through. */}
               {ptRequired && (
@@ -1496,7 +1528,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   name.trim().length === 0 ||
                   (duo && friendNames.slice(0, partySize - 1).some((n) => !n.trim())) ||
                   (ptRequired && !ptAck) ||
-                  (cfRequired && !cfAck)
+                  (cfRequired && !cfAck) ||
+                  minorChemical ||
+                  (forMinor && !guardianName.trim())
                 }
                 onClick={() => void createHold(slot.start, staffId)}
               >
