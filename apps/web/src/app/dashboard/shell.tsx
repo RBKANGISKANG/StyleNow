@@ -51,6 +51,7 @@ export interface Overview {
     tier: 'senior' | 'stylist';
     locationId: string | null;
     commissionPercent: number;
+    languages: string[];
     shifts: Partial<Record<number, Array<{ startMin: number; endMin: number }>>>;
     working: Array<{ start: number; end: number }>;
     blocks: Array<{

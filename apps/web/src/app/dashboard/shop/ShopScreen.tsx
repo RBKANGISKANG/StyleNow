@@ -42,9 +42,14 @@ import {
   apiSetAccessFacts,
   apiBirthdayPerk,
   apiSetBirthdayPerk,
+  apiStockItems,
+  apiSaveStockItem,
+  apiAdjustStock,
+  apiDeleteStockItem,
+  apiColourServicesThisWeek,
   type ShopClosure,
 } from '@/lib/api';
-import type { ChecklistTemplate as ChecklistTemplateT, PackageOffer as PackageOfferT } from '@/core/store';
+import type { ChecklistTemplate as ChecklistTemplateT, PackageOffer as PackageOfferT, StockItem as StockItemT } from '@/core/store';
 import { weekdayShort, money } from '@/lib/format';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
@@ -210,6 +215,11 @@ function ShopTab({
       <section className="section">
         <h2>🎂 {t('bp_title')}</h2>
         <BirthdayPerkPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🧴 {t('sk_title')}</h2>
+        <StockPanel shopId={shopId} />
       </section>
 
       <section className="section">
@@ -1102,6 +1112,59 @@ function BirthdayPerkPanel({ shopId, onChanged }: { shopId: string; onChanged: (
           {[0, 10, 15, 20].map((n) => (<option key={n} value={n}>{n === 0 ? t('qd_off') : `−${n}%`}</option>))}
         </select>
       </label>
+    </div>
+  );
+}
+
+/** The back bar: shelf levels, the reorder line, and the shopping list. */
+function StockPanel({ shopId }: { shopId: string }) {
+  const { t } = useI18n();
+  const [items, setItems] = useState<StockItemT[]>([]);
+  const [colourWeek, setColourWeek] = useState(0);
+  const [name, setName] = useState('');
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiStockItems(shopId).then(setItems);
+    void apiColourServicesThisWeek(shopId).then(setColourWeek);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  const low = items.filter((i) => i.level <= i.reorderAt);
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>
+        {t('sk_hint')}
+        {colourWeek > 0 && ` ${t('sk_colour_week', { n: colourWeek })}`}
+      </p>
+      {items.map((i) => (
+        <div className="wi-row" key={i.id}>
+          <span className={`wi-state ${i.level <= i.reorderAt ? 'queued' : 'serving'}`} />
+          <span className="wi-name">{i.name}</span>
+          <span className="wi-meta">{t('sk_reorder_at', { n: i.reorderAt })}</span>
+          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button className="btn btn-ghost sm" aria-label="−1" onClick={() => void apiAdjustStock(shopId, i.id, -1).then(load)}>−</button>
+            <strong style={{ minWidth: 22, textAlign: 'center' }}>{i.level}</strong>
+            <button className="btn btn-ghost sm" aria-label="+1" onClick={() => void apiAdjustStock(shopId, i.id, 1).then(load)}>＋</button>
+            <button className="btn btn-ghost sm" aria-label={t('a11y_delete')} onClick={() => void apiDeleteStockItem(shopId, i.id).then(load)}>✕</button>
+          </span>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <input className="input" style={{ flex: 1, minWidth: 160 }} placeholder={t('sk_name_ph')} value={name}
+          maxLength={60} onChange={(e) => setName(e.target.value)} />
+        <button
+          className="btn btn-primary sm"
+          disabled={!name.trim()}
+          onClick={() => void apiSaveStockItem(shopId, { name, level: 5, reorderAt: 2 }).then(() => { setName(''); load(); })}
+        >
+          ＋ {t('sk_add')}
+        </button>
+      </div>
+      {low.length > 0 && (
+        <p style={{ fontSize: '0.82rem', fontWeight: 700, marginTop: 10 }}>
+          🛒 {t('sk_list')}: {low.map((i) => i.name).join(', ')}
+        </p>
+      )}
     </div>
   );
 }

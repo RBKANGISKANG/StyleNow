@@ -15,10 +15,10 @@ import { MonthPicker } from '@/components/MonthPicker';
 import { GridIcon, ListIcon } from '@/components/ViewIcons';
 import { PayMethod } from '@/components/PayMethod';
 import { rememberPayment, type PaymentChoice } from '@/lib/payments';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type MsgKey as MsgKeyT } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -294,6 +294,23 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       ? packages.find((pk) => pk.shopId === shop.id && pk.serviceId === serviceIds[0] && pk.remaining > 0) ?? null
       : null;
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
+
+  // Watch a stylist for a free day; languages ride the picker chips.
+  const [watchDow, setWatchDow] = useState('');
+  const [watchSet, setWatchSet] = useState(false);
+  useEffect(() => setWatchSet(false), [staffId, serviceIds.join(',')]);
+  const [staffLangs, setStaffLangs] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    let alive = true;
+    void Promise.all(
+      shop.staff.map((st) => apiShopStaffMeta(shop.id, st.id).then((l) => [st.id, l] as const)),
+    ).then((pairs) => {
+      if (alive) setStaffLangs(Object.fromEntries(pairs));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [shop.id, shop.staff]);
 
   // Flexible saver: the five cheapest times of the coming week, on demand.
   const [flex, setFlex] = useState(false);
@@ -854,6 +871,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                 >
                   {insights[s.id]?.mostBooked ? '⭐ ' : ''}
                   {s.name}
+                  {staffLangs[s.id] && staffLangs[s.id].length > 0 && (
+                    <span style={{ fontSize: '0.65rem', opacity: 0.75, marginLeft: 4 }}>
+                      {staffLangs[s.id].map((l) => l.toUpperCase()).join('·')}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -862,6 +884,31 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             )}
             {/* The honest facts behind the chosen name: derived from this
                 shop's completed bookings, never typed in. */}
+            {/* the standing constraint: watch this stylist for a free day */}
+            {staffId !== null && serviceIds.length > 0 && (
+              <div className="addon-row" style={{ marginTop: 8 }}>
+                <label className="chip">
+                  🔔 {t('wt_when')}
+                  <select value={watchDow} onChange={(e) => setWatchDow(e.target.value)}>
+                    <option value="">{t('wt_any')}</option>
+                    {[1, 2, 3, 4, 5, 6, 7].map((d) => (
+                      <option key={d} value={d}>{t(`dow_${d}` as MsgKeyT)}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="chip"
+                  disabled={watchSet}
+                  onClick={() => {
+                    void apiAddWatch(shop.id, serviceIds[0], staffId, watchDow ? Number(watchDow) : null).then((w) => {
+                      if (w) setWatchSet(true);
+                    });
+                  }}
+                >
+                  {watchSet ? '✅ ' + t('wt_set') : t('wt_add')}
+                </button>
+              </div>
+            )}
             {staffId !== null && insights[staffId] && (
               <p className="ins-line">
                 {insights[staffId].mostBooked && <span className="ins-chip">⭐ {t('ins_top')}</span>}

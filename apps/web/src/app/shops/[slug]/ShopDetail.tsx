@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -253,13 +253,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         <h2>{t('team')}</h2>
         <div className="team-grid">
           {shop.staff.map((s, i) => (
-            <div className="team-card" key={s.id}>
-              <div className="avatar" style={{ background: AVATAR_COLORS[i % AVATAR_COLORS.length] }}>
-                {s.name[0]}
-              </div>
-              <div className="name">{s.name}</div>
-              <div className="role">{s.role[lang]}</div>
-            </div>
+            <TeamCard key={s.id} shopId={shop.id} staff={s} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
           ))}
         </div>
       </section>
@@ -524,6 +518,44 @@ function MembershipPromo({ shopId, shopName }: { shopId: string; shopName: strin
         <button className="btn btn-primary sm" onClick={() => void apiJoinMembership(shopId).then(load)}>
           {t('mb_join')}
         </button>
+      )}
+    </div>
+  );
+}
+
+
+/** One stylist: name, role, the languages they serve in, and their work. */
+function TeamCard({
+  shopId,
+  staff,
+  color,
+}: {
+  shopId: string;
+  staff: { id: string; name: string; role: { en: string; de: string }; tier: string };
+  color: string;
+}) {
+  const { lang } = useI18n();
+  const [photos, setPhotos] = useState<Array<{ id: string; dataUrl: string; caption: string }>>([]);
+  const [langs, setLangs] = useState<string[]>([]);
+  useEffect(() => {
+    void apiStaffPhotos(staff.id).then(setPhotos);
+    void apiShopStaffMeta(shopId, staff.id).then((l) => setLangs(l));
+  }, [shopId, staff.id]);
+  return (
+    <div className="team-card">
+      <div className="avatar" style={{ background: color }}>{staff.name[0]}</div>
+      <div className="name">{staff.name}</div>
+      <div className="role">{staff.role[lang]}</div>
+      {langs.length > 0 && (
+        <div className="role" style={{ marginTop: 2 }}>🗣 {langs.map((l) => l.toUpperCase()).join(' · ')}</div>
+      )}
+      {photos.length > 0 && (
+        <div className="tc-shots">
+          {photos.slice(0, 3).map((ph) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={ph.id} src={ph.dataUrl} alt={ph.caption} />
+          ))}
+        </div>
       )}
     </div>
   );

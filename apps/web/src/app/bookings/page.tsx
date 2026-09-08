@@ -24,6 +24,10 @@ import {
   apiDayDrift,
   apiMyPackages,
   apiSetWouldRepeat,
+  apiMyWatches,
+  apiRemoveWatch,
+  apiOpenDispute,
+  apiMyDisputes,
   type GiftCard,
 } from '@/lib/api';
 import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
@@ -96,6 +100,10 @@ export default function BookingsPage() {
   const [personFilter, setPersonFilter] = useState<string>('all');
   const [recap, setRecap] = useState<YearRecap | null>(null);
   const [myPacks, setMyPacks] = useState<Awaited<ReturnType<typeof apiMyPackages>>>([]);
+  const [watches, setWatches] = useState<Awaited<ReturnType<typeof apiMyWatches>>>([]);
+  useEffect(() => {
+    void apiMyWatches().then(setWatches);
+  }, []);
   // Live day-drift per salon, only asked for salons where I sit today.
   const [drift, setDrift] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -600,6 +608,44 @@ export default function BookingsPage() {
           ))}
         </section>
       )}
+      {/* Standing constraints: "tell me when Yara has a Saturday". */}
+      {watches.length > 0 && (
+        <section className="section" style={{ marginTop: 18 }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>🔔 {t('wt_title')}</h2>
+          {watches.map((w) => (
+            <div className="due-card" key={w.id}>
+              <span className="due-emoji">🔔</span>
+              <span className="due-main">
+                <b>
+                  {w.serviceName[lang]}
+                  {w.staffName ? ` · ${w.staffName}` : ''}
+                  {w.dow ? ` · ${t(`dow_${w.dow}` as MsgKey)}` : ''}
+                </b>
+                <span>
+                  {w.shopName} ·{' '}
+                  {w.hit ? `✅ ${dateOf(w.hit.start, lang)} ${timeOf(w.hit.start, lang)}` : t('wt_none_yet')}
+                </span>
+              </span>
+              {w.hit && (
+                <Link
+                  className="btn btn-primary sm"
+                  href={`/shops/${w.slug}/book?service=${w.serviceId}${w.staffId ? `&staff=${w.staffId}` : ''}&date=${w.hit.iso}&at=${w.hit.start}`}
+                >
+                  {t('due_book')}
+                </Link>
+              )}
+              <button
+                className="btn btn-ghost sm"
+                aria-label={t('a11y_delete')}
+                onClick={() => void apiRemoveWatch(w.id).then(() => apiMyWatches().then(setWatches))}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* Prepaid cards: what is left to sit through, where. */}
       {myPacks.length > 0 && (
         <section className="section" style={{ marginTop: 18 }}>
@@ -785,6 +831,7 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
         </button>
         <AftercareTip colour={booking.needsPatchTest || booking.services.some((sv) => /colou?r|balayage|strähn|toner/i.test(sv.name.en + sv.name.de))} />
       </div>
+      <DisputeBox bookingId={booking.id} />
       {booking.shop && (
         <div style={{ marginTop: 10 }}>
           <Link
@@ -829,5 +876,65 @@ function AftercareTip({ colour }: { colour: boolean }) {
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * The remedy path: a structured complaint with a paper trail, instead of an
+ * argument at the till. One open dispute per booking; the answer shows here.
+ */
+function DisputeBox({ bookingId }: { bookingId: string }) {
+  const { t } = useI18n();
+  const [mine, setMine] = useState<Awaited<ReturnType<typeof apiMyDisputes>>>([]);
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<'result' | 'fee' | 'other'>('result');
+  const [text, setText] = useState('');
+  const load = useCallback(() => {
+    void apiMyDisputes().then(setMine);
+  }, []);
+  useEffect(load, [load]);
+  const existing = mine.find((d) => d.bookingId === bookingId);
+  if (existing) {
+    return (
+      <p style={{ marginTop: 10, fontSize: '0.8rem' }}>
+        ⚖️ {t(`dq_${existing.kind}` as MsgKey)}:{' '}
+        {existing.status === 'open' ? (
+          <em>{t('dq_open')}</em>
+        ) : (
+          <b>
+            {t(`dq_res_${existing.resolution!.kind}` as MsgKey)}
+            {existing.resolution?.note ? ` — “${existing.resolution.note}”` : ''}
+          </b>
+        )}
+      </p>
+    );
+  }
+  return (
+    <div style={{ marginTop: 10 }}>
+      {!open ? (
+        <button className="btn btn-ghost sm" onClick={() => setOpen(true)}>
+          ⚖️ {t('dq_report')}
+        </button>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label className="chip">
+            <select value={kind} onChange={(e) => setKind(e.target.value as 'result' | 'fee' | 'other')}>
+              <option value="result">{t('dq_result')}</option>
+              <option value="fee">{t('dq_fee')}</option>
+              <option value="other">{t('dq_other')}</option>
+            </select>
+          </label>
+          <input className="input" style={{ flex: 1, minWidth: 160 }} placeholder={t('dq_ph')} value={text}
+            maxLength={500} onChange={(e) => setText(e.target.value)} />
+          <button
+            className="btn btn-primary sm"
+            disabled={!text.trim()}
+            onClick={() => void apiOpenDispute(bookingId, kind, text).then((r) => r.ok && load())}
+          >
+            {t('dq_send')}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

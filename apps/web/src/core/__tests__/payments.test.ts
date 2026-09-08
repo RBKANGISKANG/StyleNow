@@ -32,6 +32,9 @@ import {
   savePackageOffer, buyPackage, myPackages, packageRemaining, packagesForShop,
   setMembershipOffer, joinMembership, leaveMembership, giftTreatment, createGroupHold, lastMinuteDeals,
   setBirthday, setBirthdayPerk, setAccessNeeds, setAccessFacts, accessFactsOf, setWouldRepeat,
+  addAvailabilityWatch, myWatches, removeAvailabilityWatch,
+  addStaffPhoto, staffPhotos, saveStockItem, adjustStock, stockItems, colourServicesThisWeek,
+  openDispute, resolveDispute, disputesForShop, myDisputes,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -1057,4 +1060,50 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(pinned.wouldRepeat, true);
 }
 
-console.log('OK — every prior batch plus care & safety (minors, birthday club, access profile, the journal) all check out');
+// ---------------------------------------------------------------------------
+// discovery & ops batch: watches, portfolios, stock, disputes
+// ---------------------------------------------------------------------------
+
+// Watch: a standing constraint that reports its first genuine hit.
+{
+  const dev = 'dev-watch';
+  const w = addAvailabilityWatch(dev, shop.id, svc.id, staff.id, null);
+  const mine = myWatches(dev);
+  assert.equal(mine.length, 1);
+  const hit = mine[0].hit;
+  if (hit) {
+    const real = availability(shop.id, [svc.id], hit.iso, dev, staff.id).slots.some((s) => s.start === hit.start);
+    assert.ok(real, 'a reported hit is a genuinely bookable slot');
+  }
+  removeAvailabilityWatch(dev, w.id);
+  assert.equal(myWatches(dev).length, 0);
+}
+
+// Portfolio: capped at six, images only.
+{
+  addStaffPhoto(shop.id, staff.id, 'data:image/png;base64,iVBOR', 'Balayage im Herbstlicht');
+  assert.equal(staffPhotos(staff.id).length, 1);
+  assert.throws(() => addStaffPhoto(shop.id, staff.id, 'https://example.com/x.png'), /bad_image/);
+}
+
+// Stock: levels never go negative; the depletion hint is derived.
+{
+  const item = saveStockItem(shop.id, { name: 'Blondor 800g', level: 2, reorderAt: 2 });
+  adjustStock(shop.id, item.id, -5);
+  assert.equal(stockItems(shop.id).find((x) => x.id === item.id)!.level, 0, 'the shelf never holds −3 tubes');
+  assert.ok(colourServicesThisWeek(shop.id) >= 0);
+}
+
+// Disputes: one open per booking, the goodwill answer mints the voucher.
+{
+  const done = getBooking(rhythmIds[1])!;
+  const d = openDispute(done.id, rhythmDev, 'result', 'Der Ton ist viel zu warm geraten.');
+  assert.throws(() => openDispute(done.id, rhythmDev, 'fee', 'noch eins'), /already_open/);
+  assert.equal(disputesForShop(shop.id).find((x) => x.id === d.id)!.status, 'open');
+  const cardsBefore = cardsOf(rhythmDev).length;
+  resolveDispute(shop.id, d.id, { kind: 'goodwill' });
+  assert.equal(myDisputes(rhythmDev)[0].status, 'resolved');
+  assert.equal(cardsOf(rhythmDev).length, cardsBefore + 1, 'the apology is money, not words');
+}
+
+console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, and discovery & ops');

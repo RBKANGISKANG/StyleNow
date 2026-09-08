@@ -4,14 +4,15 @@
  * set here are the first input to availability: everything else (absences,
  * bookings, buffers) only ever subtracts from them.
  */
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { Glyph } from '@/components/Icon';
 import { usePaged, Pager } from '@/components/Pager';
-import { apiAddStaff, apiPatchStaff, apiArchiveStaff } from '@/lib/api';
+import { apiAddStaff, apiPatchStaff, apiArchiveStaff , apiStaffPhotos, apiAddStaffPhoto, apiDeleteStaffPhoto } from '@/lib/api';
 import { ConflictGuard } from '@/components/ConflictGuard';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
+import { fileToPhotoDataUrl } from '@/lib/image';
 import { useToast } from '../toast';
 import { OperatorShell, useOverview, type Overview } from '../shell';
 import { StaffWeekGrid } from '@/components/StaffWeekGrid';
@@ -253,6 +254,7 @@ function StaffDialog({
   const [tier, setTier] = useState<'senior' | 'stylist'>('stylist');
   const [locationId, setLocationId] = useState('');
   const [commission, setCommission] = useState(0);
+  const [langs, setLangs] = useState('');
 
   // every opening mirrors the person (or starts blank for a new one)
   useEffect(() => {
@@ -262,6 +264,7 @@ function StaffDialog({
     setTier(row?.tier ?? 'stylist');
     setLocationId(row?.locationId ?? '');
     setCommission(row?.commissionPercent ?? 0);
+    setLangs((row?.languages ?? []).join(', '));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.staffId]);
 
@@ -274,6 +277,7 @@ function StaffDialog({
         tier,
         locationId: locationId || undefined,
         commissionPercent: commission || undefined,
+        languages: langs.split(',').map((l) => l.trim().toLowerCase()).filter((l) => /^[a-z]{2}$/.test(l)),
       }).then(() => {
         onChanged('💾 ' + t('team_saved'));
         onClose();
@@ -362,6 +366,11 @@ function StaffDialog({
             ))}
           </select>
         </label>
+        <label>
+          <span>🗣 {t('team_langs')}</span>
+          <input className="input" placeholder="de, en, tr" value={langs} maxLength={30}
+            onChange={(e) => setLangs(e.target.value)} />
+        </label>
         {row && (
           <label>
             <span>{t('team_commission')}</span>
@@ -373,6 +382,7 @@ function StaffDialog({
           </label>
         )}
       </div>
+      {row && <PortfolioEditor shopId={shopId} staffId={row.staffId} />}
 
       {row ? (
         <div style={{ marginTop: 14 }}>
@@ -450,5 +460,55 @@ function StaffDialog({
         <p style={{ fontSize: '0.76rem', color: 'var(--ink-soft)', marginTop: 12 }}>{t('team_hours_after')}</p>
       )}
     </Modal>
+  );
+}
+
+
+/** Up to six work photos per stylist — shown on the public team card. */
+function PortfolioEditor({ shopId, staffId }: { shopId: string; staffId: string }) {
+  const { t } = useI18n();
+  const [photos, setPhotos] = useState<Array<{ id: string; dataUrl: string; caption: string }>>([]);
+  const load = useCallback(() => {
+    void apiStaffPhotos(staffId).then(setPhotos);
+  }, [staffId]);
+  useEffect(load, [load]);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>📸 {t('team_portfolio')}</span>
+      <div className="tc-shots" style={{ marginTop: 6 }}>
+        {photos.map((ph) => (
+          <span key={ph.id} style={{ position: 'relative' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={ph.dataUrl} alt={ph.caption} />
+            <button
+              className="btn btn-ghost sm"
+              aria-label={t('a11y_delete')}
+              style={{ position: 'absolute', top: -6, right: -6, padding: '0 6px' }}
+              onClick={() => void apiDeleteStaffPhoto(shopId, staffId, ph.id).then(load)}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        {photos.length < 6 && (
+          <label className="btn btn-soft sm" style={{ cursor: 'pointer' }}>
+            ＋
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                void fileToPhotoDataUrl(f).then((dataUrl) =>
+                  apiAddStaffPhoto(shopId, staffId, dataUrl).then(load),
+                );
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
+      </div>
+    </div>
   );
 }

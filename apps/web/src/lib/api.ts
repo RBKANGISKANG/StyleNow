@@ -2187,3 +2187,122 @@ export async function apiSetWouldRepeat(bookingId: string, on: boolean): Promise
     return false;
   }
 }
+
+// ---- discovery & ops batch: watches, portfolios, stock, disputes ----------
+
+export async function apiAddWatch(
+  shopId: string,
+  serviceId: string,
+  staffId: string | null,
+  dow: number | null,
+): Promise<store.AvailabilityWatch | null> {
+  await localWrite();
+  try {
+    return store.addAvailabilityWatch(deviceId(), shopId, serviceId, staffId, dow);
+  } catch {
+    return null;
+  }
+}
+
+export async function apiRemoveWatch(watchId: string): Promise<void> {
+  await localWrite();
+  store.removeAvailabilityWatch(deviceId(), watchId);
+}
+
+export async function apiMyWatches(): Promise<ReturnType<typeof store.myWatches>> {
+  await readyForRead();
+  return store.myWatches(deviceId());
+}
+
+export async function apiStaffPhotos(staffId: string): Promise<store.ShopPhoto[]> {
+  await readyForRead();
+  return store.staffPhotos(staffId);
+}
+
+export async function apiAddStaffPhoto(shopId: string, staffId: string, dataUrl: string, caption?: string): Promise<boolean> {
+  await localWrite();
+  try {
+    store.addStaffPhoto(shopId, staffId, dataUrl, caption);
+    syncConfig(shopId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiDeleteStaffPhoto(shopId: string, staffId: string, photoId: string): Promise<void> {
+  await localWrite();
+  store.deleteStaffPhoto(shopId, staffId, photoId);
+  syncConfig(shopId);
+}
+
+export async function apiStockItems(shopId: string): Promise<store.StockItem[]> {
+  await readyForRead();
+  return store.stockItems(shopId);
+}
+
+export async function apiSaveStockItem(
+  shopId: string,
+  item: { id?: string; name: string; level: number; reorderAt: number; perColourUse?: number },
+): Promise<void> {
+  await localWrite();
+  store.saveStockItem(shopId, item);
+  syncConfig(shopId);
+}
+
+export async function apiAdjustStock(shopId: string, itemId: string, delta: number): Promise<void> {
+  await localWrite();
+  store.adjustStock(shopId, itemId, delta);
+  syncConfig(shopId);
+}
+
+export async function apiDeleteStockItem(shopId: string, itemId: string): Promise<void> {
+  await localWrite();
+  store.deleteStockItem(shopId, itemId);
+  syncConfig(shopId);
+}
+
+export async function apiColourServicesThisWeek(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.colourServicesThisWeek(shopId);
+}
+
+export async function apiOpenDispute(
+  bookingId: string,
+  kind: store.DisputeKind,
+  text: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await localWrite();
+  try {
+    store.openDispute(bookingId, deviceId(), kind, text);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function apiMyDisputes(): Promise<store.Dispute[]> {
+  await readyForRead();
+  return store.myDisputes(deviceId());
+}
+
+export async function apiDisputesForShop(shopId: string): Promise<ReturnType<typeof store.disputesForShop>> {
+  await readyForRead();
+  return store.disputesForShop(shopId);
+}
+
+export async function apiResolveDispute(
+  shopId: string,
+  disputeId: string,
+  resolution: { kind: 'redo' | 'goodwill' | 'declined'; note?: string },
+): Promise<void> {
+  await localWrite();
+  store.resolveDispute(shopId, disputeId, resolution);
+  syncConfig(shopId);
+}
+
+/** A stylist's public metadata (today: their languages). */
+export async function apiShopStaffMeta(shopId: string, staffId: string): Promise<string[]> {
+  await readyForRead();
+  return store.effectiveStaff(shopId).find((s) => s.id === staffId)?.languages ?? [];
+}

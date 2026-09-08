@@ -191,6 +191,8 @@ export interface StaffMember {
   notes?: string;
   /** share of own completed service revenue paid as commission */
   commissionPercent?: number;
+  /** ISO 639-1 codes the person can serve customers in ("de", "en", "tr"…) */
+  languages?: string[];
 }
 
 export type AbsenceKind = 'vacation' | 'sick' | 'training' | 'other';
@@ -265,6 +267,45 @@ export interface Membership {
   discountPct: number;
 }
 
+/** "Tell me when Yara has a free Saturday" — a standing constraint, watched. */
+export interface AvailabilityWatch {
+  id: string;
+  deviceId: string;
+  shopId: string;
+  serviceId: string;
+  staffId: string | null;
+  /** 1=Mon … 7=Sun; null = any day */
+  dow: number | null;
+  createdAt: number;
+}
+
+/** One shelf item of the back bar. */
+export interface StockItem {
+  id: string;
+  name: string;
+  /** whole units on the shelf (tubes, bottles, boxes) */
+  level: number;
+  /** the shopping list starts here */
+  reorderAt: number;
+  /** rough units a colour service consumes — feeds the depletion hint */
+  perColourUse?: number;
+}
+
+export type DisputeKind = 'result' | 'fee' | 'other';
+
+/** A complaint with a paper trail, instead of an argument at the till. */
+export interface Dispute {
+  id: string;
+  bookingId: string;
+  shopId: string;
+  deviceId: string;
+  kind: DisputeKind;
+  text: string;
+  at: number;
+  status: 'open' | 'resolved';
+  resolution?: { kind: 'redo' | 'goodwill' | 'declined'; note?: string; at: number };
+}
+
 /** The physical bottlenecks a salon has besides stylists. 0 = not tracked. */
 export interface ShopResources {
   basins: number;
@@ -285,6 +326,8 @@ export interface AccessNeeds {
   wheelchair?: boolean;
   quiet?: boolean;
   extraTime?: boolean;
+  /** prefers written contact only (e.g. deaf or hard of hearing customers) */
+  writtenOnly?: boolean;
   note?: string;
 }
 
@@ -389,6 +432,10 @@ interface State {
   memberships: Map<string, Membership>; // `${deviceId}:${shopId}` → active membership
   accessFacts: Map<string, AccessFacts>; // shopId → what the premises can promise
   birthdayPerks: Map<string, number>; // shopId → percent off in the birthday window
+  watches: Map<string, AvailabilityWatch>; // watchId → "tell me when Yara has a Saturday"
+  staffPhotos: Map<string, ShopPhoto[]>; // staffId → portfolio (work photos)
+  stock: Map<string, StockItem[]>; // shopId → the back-bar shelf
+  disputes: Map<string, Dispute>; // disputeId → a complaint and what became of it
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -466,6 +513,10 @@ const state: State =
     memberships: new Map(),
     accessFacts: new Map(),
     birthdayPerks: new Map(),
+    watches: new Map(),
+    staffPhotos: new Map(),
+    stock: new Map(),
+    disputes: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -548,6 +599,10 @@ function persist(): boolean {
         memberships: [...state.memberships.entries()],
         accessFacts: [...state.accessFacts.entries()],
         birthdayPerks: [...state.birthdayPerks.entries()],
+        watches: [...state.watches.entries()],
+        staffPhotos: [...state.staffPhotos.entries()],
+        stock: [...state.stock.entries()],
+        disputes: [...state.disputes.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -607,6 +662,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
         memberships?: Array<[string, Membership]>;
         accessFacts?: Array<[string, AccessFacts]>;
         birthdayPerks?: Array<[string, number]>;
+        watches?: Array<[string, AvailabilityWatch]>;
+        staffPhotos?: Array<[string, ShopPhoto[]]>;
+        stock?: Array<[string, StockItem[]]>;
+        disputes?: Array<[string, Dispute]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -653,6 +712,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.memberships = new Map(d.memberships ?? []);
       state.accessFacts = new Map(d.accessFacts ?? []);
       state.birthdayPerks = new Map(d.birthdayPerks ?? []);
+      state.watches = new Map(d.watches ?? []);
+      state.staffPhotos = new Map(d.staffPhotos ?? []);
+      state.stock = new Map(d.stock ?? []);
+      state.disputes = new Map(d.disputes ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -882,6 +945,9 @@ export interface ShopConfig {
   membershipOffer?: MembershipOffer;
   accessFacts?: AccessFacts;
   birthdayPerkPct?: number;
+  staffPhotos?: Array<[string, ShopPhoto[]]>;
+  stock?: StockItem[];
+  disputes?: Dispute[];
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -941,6 +1007,9 @@ export function exportShopConfig(shopId: string): ShopConfig {
     membershipOffer: state.membershipOffers.get(shopId),
     accessFacts: state.accessFacts.get(shopId),
     birthdayPerkPct: state.birthdayPerks.get(shopId),
+    staffPhotos: [...state.staffPhotos.entries()].filter(([id]) => staffIds.has(id)),
+    stock: state.stock.get(shopId) ?? [],
+    disputes: [...state.disputes.values()].filter((d) => d.shopId === shopId),
   };
 }
 
@@ -1004,6 +1073,13 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.birthdayPerkPct !== undefined) {
     if (doc.birthdayPerkPct > 0) state.birthdayPerks.set(shopId, doc.birthdayPerkPct);
     else state.birthdayPerks.delete(shopId);
+  }
+  if (doc.staffPhotos) {
+    for (const [id] of doc.staffPhotos) state.staffPhotos.set(id, doc.staffPhotos.find(([k]) => k === id)![1]);
+  }
+  if (doc.stock) state.stock.set(shopId, doc.stock);
+  if (doc.disputes) {
+    for (const d of doc.disputes) state.disputes.set(d.id, d);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -3337,7 +3413,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       });
     }
     blocks.sort((a, b) => a.start - b.start);
-    return { staffId: st.id, name: st.name, role: st.role, tier: st.tier, locationId: st.locationId ?? null, commissionPercent: st.commissionPercent ?? 0, shifts: st.shifts, working, blocks };
+    return { staffId: st.id, name: st.name, role: st.role, tier: st.tier, locationId: st.locationId ?? null, commissionPercent: st.commissionPercent ?? 0, languages: st.languages ?? [], shifts: st.shifts, working, blocks };
   });
 
   const todaysBookings = [...state.bookings.values()]
@@ -6322,10 +6398,11 @@ export function setAccessNeeds(deviceId: string, access: AccessNeeds | null): vo
         wheelchair: access.wheelchair || undefined,
         quiet: access.quiet || undefined,
         extraTime: access.extraTime || undefined,
+        writtenOnly: access.writtenOnly || undefined,
         note: access.note?.trim().slice(0, 120) || undefined,
       }
     : undefined;
-  const empty = !clean || (!clean.wheelchair && !clean.quiet && !clean.extraTime && !clean.note);
+  const empty = !clean || (!clean.wheelchair && !clean.quiet && !clean.extraTime && !clean.writtenOnly && !clean.note);
   state.careProfiles.set(deviceId, { ...profile, access: empty ? undefined : clean });
   persist();
 }
@@ -6338,6 +6415,7 @@ function accessNoteOf(deviceId: string): string {
   if (a.wheelchair) bits.push('♿');
   if (a.quiet) bits.push('🤫 quiet');
   if (a.extraTime) bits.push('⏳ extra time');
+  if (a.writtenOnly) bits.push('✍️ written contact');
   if (a.note) bits.push(a.note);
   return bits.join(' · ');
 }
@@ -6837,6 +6915,269 @@ export function membersOfShop(shopId: string): number {
   let n = 0;
   for (const ms of state.memberships.values()) if (ms.shopId === shopId) n += 1;
   return n;
+}
+
+// ---------------------------------------------------------------------------
+// discovery & ops batch: watches, portfolios, stock, disputes
+// ---------------------------------------------------------------------------
+
+export const WATCH_HORIZON_DAYS = 21;
+
+export function addAvailabilityWatch(
+  deviceId: string,
+  shopId: string,
+  serviceId: string,
+  staffId: string | null,
+  dow: number | null,
+): AvailabilityWatch {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  if (dow !== null && (dow < 1 || dow > 7)) throw new Error('bad_dow');
+  const w: AvailabilityWatch = {
+    id: `wa-${state.seq++}-${Date.now().toString(36)}`,
+    deviceId,
+    shopId,
+    serviceId,
+    staffId,
+    dow,
+    createdAt: Date.now(),
+  };
+  state.watches.set(w.id, w);
+  persist();
+  return w;
+}
+
+export function removeAvailabilityWatch(deviceId: string, watchId: string): void {
+  const w = state.watches.get(watchId);
+  if (w && w.deviceId === deviceId) {
+    state.watches.delete(watchId);
+    persist();
+  }
+}
+
+const watchHitCache = new Map<string, { v: number; hit: { iso: string; start: number } | null }>();
+
+/** The first slot that satisfies the watch, or null. Memoised per stateVersion
+ *  because the bell polls this. */
+export function watchHit(w: AvailabilityWatch): { iso: string; start: number } | null {
+  const cached = watchHitCache.get(w.id);
+  if (cached && cached.v === stateVersion) return cached.hit;
+  const now = Date.now();
+  let hit: { iso: string; start: number } | null = null;
+  for (let d = 0; d < WATCH_HORIZON_DAYS && !hit; d++) {
+    const iso = addDays(isoDateOf(now), d);
+    if (w.dow !== null && isoDow(dayStart(iso) + 12 * 60 * MIN) !== w.dow) continue;
+    try {
+      const first = availability(w.shopId, [w.serviceId], iso, w.deviceId, w.staffId).slots.find(
+        (s) => s.start > now,
+      );
+      if (first) hit = { iso, start: first.start };
+    } catch {
+      break; // service archived — the watch is stale, not the day
+    }
+  }
+  watchHitCache.set(w.id, { v: stateVersion, hit });
+  return hit;
+}
+
+export function myWatches(deviceId: string): Array<
+  AvailabilityWatch & {
+    shopName: string;
+    slug: string;
+    staffName: string | null;
+    serviceName: { en: string; de: string };
+    hit: { iso: string; start: number } | null;
+  }
+> {
+  return [...state.watches.values()]
+    .filter((w) => w.deviceId === deviceId)
+    .map((w) => {
+      const shop = shopById(w.shopId);
+      const svc = shop ? serviceOf(shop, w.serviceId) : undefined;
+      return {
+        ...w,
+        shopName: shop?.name ?? '',
+        slug: shop?.slug ?? '',
+        staffName: w.staffId ? effectiveStaff(w.shopId).find((s) => s.id === w.staffId)?.name ?? null : null,
+        serviceName: svc?.name ?? { en: w.serviceId, de: w.serviceId },
+        hit: watchHit(w),
+      };
+    });
+}
+
+// --- stylist portfolios -----------------------------------------------------
+
+export const STAFF_PHOTO_MAX = 6;
+
+export function staffPhotos(staffId: string): ShopPhoto[] {
+  return state.staffPhotos.get(staffId) ?? [];
+}
+
+export function addStaffPhoto(shopId: string, staffId: string, dataUrl: string, caption = ''): ShopPhoto {
+  if (!effectiveStaff(shopId).some((s) => s.id === staffId)) throw new Error('not_found');
+  if (!dataUrl.startsWith('data:image/')) throw new Error('bad_image');
+  const list = staffPhotos(staffId);
+  if (list.length >= STAFF_PHOTO_MAX) throw new Error('portfolio_full');
+  const photo: ShopPhoto = {
+    id: `sp-${state.seq++}-${Date.now().toString(36)}`,
+    dataUrl,
+    caption: caption.trim().slice(0, 80),
+    addedAt: Date.now(),
+  };
+  state.staffPhotos.set(staffId, [...list, photo]);
+  persist();
+  return photo;
+}
+
+export function deleteStaffPhoto(shopId: string, staffId: string, photoId: string): void {
+  if (!effectiveStaff(shopId).some((s) => s.id === staffId)) throw new Error('not_found');
+  state.staffPhotos.set(staffId, staffPhotos(staffId).filter((p) => p.id !== photoId));
+  persist();
+}
+
+// --- back-bar stock ----------------------------------------------------------
+
+export function stockItems(shopId: string): StockItem[] {
+  return state.stock.get(shopId) ?? [];
+}
+
+export function saveStockItem(
+  shopId: string,
+  item: { id?: string; name: string; level: number; reorderAt: number; perColourUse?: number },
+): StockItem {
+  const name = item.name.trim().slice(0, 60);
+  if (!name) throw new Error('bad_name');
+  const saved: StockItem = {
+    id: item.id || `sk-${state.seq++}`,
+    name,
+    level: Math.max(0, Math.round(item.level)),
+    reorderAt: Math.max(0, Math.round(item.reorderAt)),
+    perColourUse: item.perColourUse || undefined,
+  };
+  const list = [...stockItems(shopId)];
+  const at = list.findIndex((x) => x.id === saved.id);
+  if (at >= 0) list[at] = saved;
+  else list.push(saved);
+  state.stock.set(shopId, list);
+  persist();
+  return saved;
+}
+
+export function adjustStock(shopId: string, itemId: string, delta: number): void {
+  const list = stockItems(shopId);
+  if (!list.some((x) => x.id === itemId)) throw new Error('not_found');
+  // a fresh array, so a UI holding the old reference actually re-renders
+  state.stock.set(
+    shopId,
+    list.map((x) => (x.id === itemId ? { ...x, level: Math.max(0, x.level + Math.round(delta)) } : x)),
+  );
+  persist();
+}
+
+export function deleteStockItem(shopId: string, itemId: string): void {
+  state.stock.set(shopId, stockItems(shopId).filter((x) => x.id !== itemId));
+  persist();
+}
+
+/** Colour services completed in the last 7 days — the depletion hint's basis. */
+export function colourServicesThisWeek(shopId: string): number {
+  const cutoff = Date.now() - 7 * 864e5;
+  const shop = shopById(shopId);
+  if (!shop) return 0;
+  let n = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed' || b.startsAt < cutoff) continue;
+    if (b.serviceIds.some((id) => serviceOf(shop, id)?.resource === 'colour')) n += 1;
+  }
+  return n;
+}
+
+// --- dispute & remedy center -------------------------------------------------
+
+export function openDispute(
+  bookingId: string,
+  deviceId: string,
+  kind: DisputeKind,
+  text: string,
+): Dispute {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  if (!['completed', 'no_show', 'cancelled_by_customer', 'cancelled_by_shop'].includes(b.status)) {
+    throw new Error('not_disputable');
+  }
+  if ([...state.disputes.values()].some((d) => d.bookingId === bookingId && d.status === 'open')) {
+    throw new Error('already_open');
+  }
+  const clean = text.trim().slice(0, 500);
+  if (!clean) throw new Error('bad_text');
+  const d: Dispute = {
+    id: `dp-${state.seq++}-${Date.now().toString(36)}`,
+    bookingId,
+    shopId: b.shopId,
+    deviceId,
+    kind,
+    text: clean,
+    at: Date.now(),
+    status: 'open',
+  };
+  state.disputes.set(d.id, d);
+  persist();
+  return d;
+}
+
+export function disputesForShop(shopId: string): Array<Dispute & { reference: string; guestName: string }> {
+  return [...state.disputes.values()]
+    .filter((d) => d.shopId === shopId)
+    .map((d) => {
+      const b = state.bookings.get(d.bookingId);
+      return { ...d, reference: b?.reference ?? '—', guestName: b?.guestName ?? '—' };
+    })
+    .sort((a, b) => Number(a.status === 'resolved') - Number(b.status === 'resolved') || b.at - a.at);
+}
+
+export function myDisputes(deviceId: string): Dispute[] {
+  return [...state.disputes.values()].filter((d) => d.deviceId === deviceId).sort((a, b) => b.at - a.at);
+}
+
+/**
+ * The shop answers. 'goodwill' mints the €5 sorry-voucher on the spot;
+ * 'redo' is a promise the next booking cashes in person; 'declined' is at
+ * least an answer with a reason on the record.
+ */
+export function resolveDispute(
+  shopId: string,
+  disputeId: string,
+  resolution: { kind: 'redo' | 'goodwill' | 'declined'; note?: string },
+): Dispute {
+  const d = state.disputes.get(disputeId);
+  if (!d || d.shopId !== shopId) throw new Error('not_found');
+  if (d.status === 'resolved') return d;
+  d.status = 'resolved';
+  d.resolution = { kind: resolution.kind, note: resolution.note?.trim().slice(0, 300) || undefined, at: Date.now() };
+  if (resolution.kind === 'goodwill') {
+    const b = state.bookings.get(d.bookingId);
+    if (b && !b.goodwill) {
+      // reuse the goodwill mint by faking the window: the card is the point
+      let code = '';
+      do {
+        const part = () =>
+          Array.from({ length: 4 }, () => GIFT_ALPHABET[Math.floor(Math.random() * GIFT_ALPHABET.length)]).join('');
+        code = `GC-${part()}-${part()}`;
+      } while (state.giftCards.has(code));
+      state.giftCards.set(code, {
+        code,
+        shopId: d.shopId,
+        initialCents: GOODWILL_CENTS,
+        balanceCents: GOODWILL_CENTS,
+        buyerDeviceId: d.deviceId,
+        fromName: 'Goodwill',
+        createdAt: Date.now(),
+        redemptions: [],
+      });
+      b.goodwill = { code, at: Date.now() };
+    }
+  }
+  persist();
+  return d;
 }
 
 // The demo history has to be written after the module has finished defining

@@ -35,6 +35,8 @@ import {
   apiChecklistTicks,
   apiTickChecklistItem,
   apiGapWindows,
+  apiDisputesForShop,
+  apiResolveDispute,
   type ShopWaitlistRow,
 } from '@/lib/api';
 import type { WalkInEntry, LogEntry, ChecklistTemplate, ChecklistTick, GapWindow as GapWindowT } from '@/core/store';
@@ -509,6 +511,7 @@ function TodayTab({ shopId }: { shopId: string }) {
       {data && (
         <ChecklistToday shopId={shopId} staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))} />
       )}
+      <DisputesPanel shopId={shopId} />
 
       <AppointmentDialog
         shopId={shopId}
@@ -1203,6 +1206,54 @@ function GapPanel({
             >
               ＋ {t('gap_book')}
             </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+
+/** Open complaints, answered on the record: redo, €5 goodwill, or declined. */
+function DisputesPanel({ shopId }: { shopId: string }) {
+  const { t, lang } = useI18n();
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof apiDisputesForShop>>>([]);
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiDisputesForShop(shopId).then(setRows);
+  }, [shopId]);
+  useEffect(load, [load]);
+
+  const open = rows.filter((d) => d.status === 'open');
+  if (rows.length === 0) return null;
+  return (
+    <section className="section">
+      <h2>⚖️ {t('dq_title')}{open.length > 0 ? ` (${open.length})` : ''}</h2>
+      <div className="panel">
+        {rows.slice(0, 6).map((d) => (
+          <div className="lb-row" key={d.id}>
+            <div className="lb-head">
+              <b>{d.guestName}</b>
+              <span>{d.reference} · {t(`dq_${d.kind}` as MsgKey)} · {dateOf(d.at, lang)}</span>
+            </div>
+            <p>“{d.text}”</p>
+            {d.status === 'open' ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button className="btn btn-soft sm" onClick={() => void apiResolveDispute(shopId, d.id, { kind: 'redo' }).then(load)}>
+                  🔁 {t('dq_res_redo')}
+                </button>
+                <button className="btn btn-soft sm" onClick={() => void apiResolveDispute(shopId, d.id, { kind: 'goodwill' }).then(load)}>
+                  🎁 {t('dq_res_goodwill')}
+                </button>
+                <button className="btn btn-ghost sm" onClick={() => void apiResolveDispute(shopId, d.id, { kind: 'declined', note: '' }).then(load)}>
+                  {t('dq_res_declined')}
+                </button>
+              </div>
+            ) : (
+              <p style={{ fontSize: '0.78rem', color: 'var(--teal)', fontWeight: 700 }}>
+                ✅ {t(`dq_res_${d.resolution!.kind}` as MsgKey)}
+              </p>
+            )}
           </div>
         ))}
       </div>
