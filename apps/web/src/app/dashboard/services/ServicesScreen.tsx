@@ -36,7 +36,7 @@ function ServicesTab({ shopId }: { shopId: string }) {
 
   const patchService = async (
     sid: string,
-    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean },
+    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined },
   ) => {
     await apiPatchService(shopId, sid, patch);
     setToast('💾 OK');
@@ -64,6 +64,8 @@ function ServicesTab({ shopId }: { shopId: string }) {
               <th>{t('duration')}</th>
               <th>{t('smart_pricing')}</th>
               <th title={t('pt_col_hint')}><span role="img" aria-label={t('pt_col_hint')}>🧪</span></th>
+              <th title={t('cf_col_hint')}><span role="img" aria-label={t('cf_col_hint')}>💬</span></th>
+              <th title={t('rs_col_hint')}><span role="img" aria-label={t('rs_col_hint')}>🚿</span></th>
               <th />
             </tr>
           </thead>
@@ -135,6 +137,32 @@ function ServicesTab({ shopId }: { shopId: string }) {
                     />
                     <span className="knob" />
                   </label>
+                </td>
+                <td>
+                  {/* consultation-first: complex treatments talk before they book */}
+                  <label className="switch" title={t('cf_col_hint')}>
+                    <input
+                      type="checkbox"
+                      aria-label={t('cf_col_hint')}
+                      checked={Boolean(s.consultationFirst)}
+                      onChange={(e) => void patchService(s.id, { consultationFirst: e.target.checked })}
+                    />
+                    <span className="knob" />
+                  </label>
+                </td>
+                <td>
+                  {/* which bottleneck the service occupies besides the chair */}
+                  <select
+                    aria-label={t('rs_col_hint')}
+                    value={s.resource ?? ''}
+                    onChange={(e) =>
+                      void patchService(s.id, { resource: (e.target.value || undefined) as 'basin' | 'colour' | undefined })
+                    }
+                  >
+                    <option value="">—</option>
+                    <option value="basin">🚿</option>
+                    <option value="colour">🎨</option>
+                  </select>
                 </td>
                 <td>
                   <button

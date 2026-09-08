@@ -27,6 +27,8 @@ import {
   addCashEntry, drawerReport, deleteCashEntry, rescheduleBooking, checklistTicks as checklistTicksOf,
   staffEarningsReport, patchStaff, utilizationReport,
   setReview, reviewTagStats, recordPatchTest, patchTestValid, careProfile as careOf, setAllergies,
+  setResources, resourcesOf, gapWindows, dayDriftMin, ensureConsultService, consultDone,
+  joinWaitlist, waitlistForDevice,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -756,4 +758,116 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(getBooking(id)!.needsPatchTest, true, 'booking for a saved person always flags');
 }
 
-console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, all four feature batches and the review regressions check out');
+// ---------------------------------------------------------------------------
+// scheduling core batch: auto-offers, resources, gaps, drift, consultation
+// ---------------------------------------------------------------------------
+
+// Auto waitlist offer: a cancellation hands the exact freed start to the
+// first person waiting for that day.
+{
+  const shop3 = allShops()[2];
+  const svc3 = shop3.services[0];
+  let heldId = '';
+  let heldStart = 0;
+  for (let d = 1; d <= 21 && !heldId; d++) {
+    const s = availability(shop3.id, [svc3.id], addDays(todayIso(), d), 'dev-freed', null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop3.id, serviceIds: [svc3.id], staffId: null, startsAt: s.start, deviceId: 'dev-freed', guestName: 'F', idempotencyKey: 'ao-1' });
+      confirmBooking(h.bookingId);
+      heldId = h.bookingId;
+      heldStart = s.start;
+    } catch { /* next day */ }
+  }
+  assert.ok(heldId, 'fixture: a confirmed seat');
+  joinWaitlist('dev-waiting', shop3.id, [svc3.id], isoDateOf(heldStart));
+  cancelBooking(heldId, { preview: false, by: 'customer' });
+  const wl = waitlistForDevice('dev-waiting');
+  assert.ok(wl.some((w) => w.offer?.startsAt === heldStart), 'the freed slot was offered automatically');
+}
+
+// Resources: two colour chairs booked, a third colour slot must not exist.
+{
+  const shop4 = allShops()[0];
+  setResources(shop4.id, { basins: 0, colourStations: 1 });
+  assert.equal(resourcesOf(shop4.id)!.colourStations, 1);
+  const colourSvc = shop4.services.find((s) => s.resource === 'colour')!;
+  // find a day with at least one colour slot, book it, then the same window
+  // must vanish for a second colour booking (any stylist)
+  let booked: { start: number; iso: string } | null = null;
+  for (let d = 1; d <= 21 && !booked; d++) {
+    const iso = addDays(todayIso(), d);
+    const s = availability(shop4.id, [colourSvc.id], iso, 'dev-res-1', null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop4.id, serviceIds: [colourSvc.id], staffId: null, startsAt: s.start, deviceId: 'dev-res-1', guestName: 'R1', idempotencyKey: 'res-1' });
+      confirmBooking(h.bookingId);
+      booked = { start: s.start, iso };
+    } catch { /* next day */ }
+  }
+  assert.ok(booked, 'fixture: one colour seat taken');
+  const again = availability(shop4.id, [colourSvc.id], booked!.iso, 'dev-res-2', null).slots;
+  assert.ok(!again.some((s) => s.start === booked!.start), 'the single colour station is not sold twice');
+  setResources(shop4.id, { basins: 0, colourStations: 0 });
+  const freeAgain = availability(shop4.id, [colourSvc.id], booked!.iso, 'dev-res-2', null).slots;
+  assert.ok(freeAgain.length >= again.length, 'untracking releases the constraint');
+}
+
+// Einwirkzeit: a colour booking with a processing gap lists a sellable gap.
+{
+  const shop5 = allShops()[0];
+  const gapSvc = shop5.services.find((s) => s.processingGapMin >= 20)!;
+  let iso = '';
+  for (let d = 1; d <= 21 && !iso; d++) {
+    const dayIso = addDays(todayIso(), d);
+    const s = availability(shop5.id, [gapSvc.id], dayIso, 'dev-gap', null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop5.id, serviceIds: [gapSvc.id], staffId: null, startsAt: s.start, deviceId: 'dev-gap', guestName: 'G', idempotencyKey: 'gap-1' });
+      confirmBooking(h.bookingId);
+      iso = dayIso;
+    } catch { /* next day */ }
+  }
+  assert.ok(iso, 'fixture: a colour booking');
+  const gaps = gapWindows(shop5.id, iso);
+  assert.ok(gaps.length >= 1, 'its Einwirkzeit shows as a sellable gap');
+  assert.ok(gaps[0].end - gaps[0].start >= 15 * 60000);
+}
+
+// Drift: a confirmed booking past its end that nobody marked done = late day.
+{
+  const b = getBooking(rhythmIds[1])!; // completed → no drift from this one
+  assert.ok(dayDriftMin(shop.id) >= 0);
+  const drifted = getBooking(rhythmIds[2])!;
+  const was = { status: drifted.status, startsAt: drifted.startsAt, endsAt: drifted.endsAt };
+  drifted.status = 'confirmed';
+  drifted.startsAt = Date.now() - 60 * 60000;
+  drifted.endsAt = Date.now() - 25 * 60000;
+  assert.ok(dayDriftMin(shop.id) >= 25, 'an unfinished seat 25 min past its end reads as drift');
+  drifted.status = was.status as typeof drifted.status;
+  drifted.startsAt = was.startsAt;
+  drifted.endsAt = was.endsAt;
+  void b;
+}
+
+// Consultation-first: flagged, until any completed visit answers it.
+{
+  const cSvc = shop.services.find((s) => s.consultationFirst)!;
+  assert.ok(cSvc, 'seed carries consultation-first services');
+  assert.equal(consultDone('dev-fresh-consult', shop.id), false);
+  assert.equal(consultDone(rhythmDev, shop.id), true, 'a completed visit IS a conversation');
+  const consult = ensureConsultService(shop.id);
+  assert.equal(consult.basePriceCents, 0);
+  assert.equal(ensureConsultService(shop.id).id, consult.id, 'created once, found after');
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [cSvc.id], addDays(todayIso(), d), 'dev-fresh-consult', null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [cSvc.id], staffId: null, startsAt: s.start, deviceId: 'dev-fresh-consult', guestName: 'C', idempotencyKey: 'cf-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.equal(getBooking(held)!.needsConsult, true, 'the floor sees the missing conversation');
+}
+
+console.log('OK — Luhn, brands, expiry, IBAN mod-97, masked labels, per-method revenue, Tagesabschluss, gift cards, the ledger CSV, referrals, memos, auto-replies, forecasts, announcements, VIPs, goals, counter sales, the digest, the Stempelkarte, four feature batches, the review regressions and the scheduling core all check out');

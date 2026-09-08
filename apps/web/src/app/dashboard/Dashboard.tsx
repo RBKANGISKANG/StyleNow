@@ -34,9 +34,10 @@ import {
   apiChecklists,
   apiChecklistTicks,
   apiTickChecklistItem,
+  apiGapWindows,
   type ShopWaitlistRow,
 } from '@/lib/api';
-import type { WalkInEntry, LogEntry, ChecklistTemplate, ChecklistTick } from '@/core/store';
+import type { WalkInEntry, LogEntry, ChecklistTemplate, ChecklistTick, GapWindow as GapWindowT } from '@/core/store';
 import { deviceId } from '@/lib/device';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { ShopCalendar, CALENDAR_SPANS, spanKey } from '@/components/ShopCalendar';
@@ -416,6 +417,9 @@ function TodayTab({ shopId }: { shopId: string }) {
                         {b.needsPatchTest && (
                           <span className="cus-tag risk" title={t('pt_row_hint')} style={{ marginLeft: 4 }}>🧪</span>
                         )}
+                        {b.needsConsult && (
+                          <span className="cus-tag risk" title={t('cf_row_hint')} style={{ marginLeft: 4 }}>💬</span>
+                        )}
                         {b.allergies.length > 0 && (
                           <span className="bk-note" title={b.allergies.join(', ')}>🚫 {b.allergies.join(', ')}</span>
                         )}
@@ -483,6 +487,8 @@ function TodayTab({ shopId }: { shopId: string }) {
   )}
 
       <Waitlist shopId={shopId} />
+
+      {data && <GapPanel shopId={shopId} date={date} onBook={(staffId, minute) => setAddFor({ date, staffId, minute })} />}
 
       {data && (
         <WalkInQueue
@@ -1145,6 +1151,54 @@ function ChecklistToday({ shopId, staff }: { shopId: string; staff: Array<{ id: 
             </div>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The Einwirkzeit board: while colour processes, the chair is free. Every
+ * released stretch that is still open shows here with a one-tap fill — the
+ * double-booking good salons run on, visible instead of remembered.
+ */
+function GapPanel({
+  shopId,
+  date,
+  onBook,
+}: {
+  shopId: string;
+  date: string;
+  onBook: (staffId: string, minute: number) => void;
+}) {
+  const { t, lang } = useI18n();
+  const [gaps, setGaps] = useState<GapWindowT[]>([]);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiGapWindows(shopId, date).then(setGaps);
+  }, [shopId, date]);
+
+  if (gaps.length === 0) return null;
+  return (
+    <section className="section">
+      <h2>⏳ {t('gap_title')}</h2>
+      <div className="panel">
+        <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginBottom: 8 }}>{t('gap_hint')}</p>
+        {gaps.map((g) => (
+          <div className="wi-row" key={`${g.staffId}-${g.start}`}>
+            <span className="wi-name">{g.staffName}</span>
+            <span className="wi-meta">
+              {timeOf(g.start, lang)}–{timeOf(g.end, lang)} · {Math.round((g.end - g.start) / 60000)} {t('min')} ·{' '}
+              {t('gap_of', { ref: g.bookingRef })}
+            </span>
+            <button
+              className="btn btn-primary sm"
+              onClick={() => onBook(g.staffId, minOfDay(g.start))}
+            >
+              ＋ {t('gap_book')}
+            </button>
+          </div>
+        ))}
       </div>
     </section>
   );

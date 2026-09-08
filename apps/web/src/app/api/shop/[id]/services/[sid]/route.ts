@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
   const body = await req.json().catch(() => ({}));
-  const patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string } = {};
+  const patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined } = {};
   if (typeof body.categoryId === 'string' && body.categoryId) patch.categoryId = body.categoryId;
   if (typeof body.basePriceCents === 'number' && body.basePriceCents >= 0) {
     patch.basePriceCents = Math.round(body.basePriceCents);
@@ -14,6 +14,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     patch.durationMin = Math.round(body.durationMin);
   }
   if (typeof body.dynamicPricing === 'boolean') patch.dynamicPricing = body.dynamicPricing;
+  if (typeof body.requiresPatchTest === 'boolean') patch.requiresPatchTest = body.requiresPatchTest;
+  if (typeof body.consultationFirst === 'boolean') patch.consultationFirst = body.consultationFirst;
+  if ('resource' in body) patch.resource = body.resource === 'basin' || body.resource === 'colour' ? body.resource : undefined;
   try {
     patchService(params.id, params.sid, patch);
     return NextResponse.json({ ok: true });

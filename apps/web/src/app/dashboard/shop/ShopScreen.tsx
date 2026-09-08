@@ -29,6 +29,8 @@ import {
   apiChecklists,
   apiSaveChecklist,
   apiDeleteChecklist,
+  apiResources,
+  apiSetResources,
   type ShopClosure,
 } from '@/lib/api';
 import type { ChecklistTemplate as ChecklistTemplateT } from '@/core/store';
@@ -168,6 +170,11 @@ function ShopTab({
       <section className="section">
         <h2>🌙 {t('qd_title')}</h2>
         <QuietDiscountPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🚿 {t('rs_title')}</h2>
+        <ResourcesPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -460,6 +467,52 @@ function QuietDiscountPanel({ shopId, onChanged }: { shopId: string; onChanged: 
               .join(' · ')}
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The physical bottlenecks: a salon with five chairs but two wash basins gets
+ * impossible schedules unless the engine knows. 0 = not tracked (unlimited).
+ * Which services occupy which resource is set per service on the Services tab.
+ */
+function ResourcesPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [res, setRes] = useState<{ basins: number; colourStations: number }>({ basins: 0, colourStations: 0 });
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiResources(shopId).then((r) => {
+      setRes(r ?? { basins: 0, colourStations: 0 });
+      setLoaded(true);
+    });
+  }, [shopId]);
+
+  const save = (next: { basins: number; colourStations: number }) => {
+    setRes(next);
+    void apiSetResources(shopId, next).then(() => onChanged('🚿 ' + t('rs_saved')));
+  };
+
+  if (!loaded) return <div className="spinner" />;
+  const opts = [0, 1, 2, 3, 4, 5, 6];
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('rs_hint')}</p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <label className="chip">
+          🚿 {t('rs_basins')}
+          <select value={res.basins} onChange={(e) => save({ ...res, basins: Number(e.target.value) })}>
+            {opts.map((n) => (<option key={n} value={n}>{n === 0 ? '∞' : n}</option>))}
+          </select>
+        </label>
+        <label className="chip">
+          🎨 {t('rs_colour')}
+          <select value={res.colourStations} onChange={(e) => save({ ...res, colourStations: Number(e.target.value) })}>
+            {opts.map((n) => (<option key={n} value={n}>{n === 0 ? '∞' : n}</option>))}
+          </select>
+        </label>
       </div>
     </div>
   );

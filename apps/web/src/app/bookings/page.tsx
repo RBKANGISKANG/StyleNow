@@ -21,6 +21,7 @@ import {
   apiCustomerRecap,
   apiCheckIn,
   apiRecordPatchTest,
+  apiDayDrift,
   type GiftCard,
 } from '@/lib/api';
 import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
@@ -91,6 +92,25 @@ export default function BookingsPage() {
   const [people, setPeople] = useState<SavedPerson[]>([]);
   const [personFilter, setPersonFilter] = useState<string>('all');
   const [recap, setRecap] = useState<YearRecap | null>(null);
+  // Live day-drift per salon, only asked for salons where I sit today.
+  const [drift, setDrift] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const today = new Date().toDateString();
+    const shops = new Set(
+      (bookings ?? [])
+        .filter((b) => b.status === 'confirmed' && b.startsAt > Date.now() && new Date(b.startsAt).toDateString() === today && b.shop)
+        .map((b) => b.shop!.id),
+    );
+    let alive = true;
+    for (const id of shops) {
+      void apiDayDrift(id).then((n) => {
+        if (alive && n >= 10) setDrift((cur) => ({ ...cur, [id]: n }));
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [bookings]);
 
   const load = useCallback(async () => {
     // One round-trip's worth of waiting, not eight: these reads are
@@ -271,6 +291,12 @@ export default function BookingsPage() {
                 </div>
                 {tab === 'upcoming' && (
                   <div className="pol">🛈 {t('free_until', { h: b.policy.freeUntilHours })}</div>
+                )}
+                {/* the waiting-room question, answered before leaving home */}
+                {tab === 'upcoming' && b.shop && drift[b.shop.id] !== undefined && (
+                  <div className="pol" style={{ color: 'var(--amber, #b8860b)', fontWeight: 700 }}>
+                    ⏱ {t('drift_line', { n: drift[b.shop.id] })}
+                  </div>
                 )}
                 {b.cancellation && (
                   <div className="pol">

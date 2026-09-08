@@ -128,6 +128,8 @@ export interface Booking {
   checkedInAt?: number;
   /** A flagged service without a recent patch test at this shop — the floor sees it. */
   needsPatchTest?: boolean;
+  /** A consultation-first treatment booked without a prior consultation here. */
+  needsConsult?: boolean;
   /** Rezeptkarte: the colour formula this visit used, written by the stylist. */
   techRecord?: TechRecord;
   createdAt: number;
@@ -216,6 +218,12 @@ export interface CashEntry {
   amountCents: number;
   note?: string;
   at: number;
+}
+
+/** The physical bottlenecks a salon has besides stylists. 0 = not tracked. */
+export interface ShopResources {
+  basins: number;
+  colourStations: number;
 }
 
 /** Allergies and patch tests travel with the person, not the booking. */
@@ -311,6 +319,7 @@ interface State {
   checklistTicks: Map<string, ChecklistTick[]>; // `${shopId}:${iso}` → what got done that day
   cashEntries: Map<string, CashEntry[]>; // `${shopId}:${iso}` → the day's Kassenbuch
   careProfiles: Map<string, CareProfile>; // deviceId → allergies & patch tests
+  resources: Map<string, ShopResources>; // shopId → how many basins / colour stations exist
   referralCodes: Map<string, string>; // REF-code → the device that owns it
   exitFeedback: ExitFeedback[]; // why people deleted an account or dropped a shop
   seq: number;
@@ -381,6 +390,7 @@ const state: State =
     checklistTicks: new Map(),
     cashEntries: new Map(),
     careProfiles: new Map(),
+    resources: new Map(),
     referralCodes: new Map(),
     exitFeedback: [],
     seq: 1,
@@ -456,6 +466,7 @@ function persist(): boolean {
         checklistTicks: [...state.checklistTicks.entries()],
         cashEntries: [...state.cashEntries.entries()],
         careProfiles: [...state.careProfiles.entries()],
+        resources: [...state.resources.entries()],
         referralCodes: [...state.referralCodes.entries()],
         exitFeedback: state.exitFeedback,
         seq: state.seq,
@@ -508,6 +519,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         checklistTicks?: Array<[string, ChecklistTick[]]>;
         cashEntries?: Array<[string, CashEntry[]]>;
         careProfiles?: Array<[string, CareProfile]>;
+        resources?: Array<[string, ShopResources]>;
         referralCodes?: Array<[string, string]>;
         exitFeedback?: ExitFeedback[];
         seq: number;
@@ -547,6 +559,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.checklistTicks = new Map(d.checklistTicks ?? []);
       state.cashEntries = new Map(d.cashEntries ?? []);
       state.careProfiles = new Map(d.careProfiles ?? []);
+      state.resources = new Map(d.resources ?? []);
       state.referralCodes = new Map(d.referralCodes ?? []);
       state.exitFeedback = d.exitFeedback ?? [];
       state.seq = d.seq ?? state.bookings.size + 1;
@@ -771,6 +784,7 @@ export interface ShopConfig {
   checklists?: ChecklistTemplate[];
   checklistTicks?: Array<[string, ChecklistTick[]]>;
   cashEntries?: Array<[string, CashEntry[]]>;
+  resources?: ShopResources;
 }
 
 /** Every staff id this shop knows about — seeded, added, or archived. */
@@ -825,6 +839,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     checklists: state.checklists.get(shopId) ?? [],
     checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
     cashEntries: [...state.cashEntries.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
+    resources: state.resources.get(shopId),
   };
 }
 
@@ -871,6 +886,10 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.cashEntries) {
     for (const k of [...state.cashEntries.keys()]) if (k.startsWith(`${shopId}:`)) state.cashEntries.delete(k);
     for (const [k, v] of doc.cashEntries) state.cashEntries.set(k, v);
+  }
+  if (doc.resources !== undefined) {
+    if (doc.resources && (doc.resources.basins > 0 || doc.resources.colourStations > 0)) state.resources.set(shopId, doc.resources);
+    else state.resources.delete(shopId);
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -1950,16 +1969,20 @@ export function availability(
     return slotsForStaff(day, timing, shop.rules, projectFrom);
   });
 
-  const slots = aggregateSlots(perStaff, loadByStaff).map((s) => {
-    const tier = effectiveStaff(shopId).find((st) => st.id === s.suggestedStaffId)?.tier ?? 'stylist';
-    const q = priceBasket(shop, services, s.start, now, deviceId, tier);
-    return {
-      ...s,
-      priceCents: q.subtotalCents,
-      basePriceCents: q.baseCents,
-      appliedNames: q.applied.filter((a) => a.deltaCents !== 0).map((a) => a.name),
-    };
-  });
+  const slots = aggregateSlots(perStaff, loadByStaff)
+    // A slot the basin count cannot serve is not a slot — filtering here keeps
+    // the 409 in createHold a race-only path instead of a routine surprise.
+    .filter((s) => !resourceConflict(shopId, services, s.start, s.start + timing.durationMin * MIN))
+    .map((s) => {
+      const tier = effectiveStaff(shopId).find((st) => st.id === s.suggestedStaffId)?.tier ?? 'stylist';
+      const q = priceBasket(shop, services, s.start, now, deviceId, tier);
+      return {
+        ...s,
+        priceCents: q.subtotalCents,
+        basePriceCents: q.baseCents,
+        appliedNames: q.applied.filter((a) => a.deltaCents !== 0).map((a) => a.name),
+      };
+    });
 
   return { slots, timing };
 }
@@ -2499,6 +2522,13 @@ export function createHold(input: HoldInput): HoldResult {
         .sort((a, b) => a.start - b.start);
       throw new SlotTaken(alternatives);
     }
+
+    // Five stylists but two basins: the chair being free is not enough when
+    // the bottleneck resource is already at capacity in that window.
+    if (resourceConflict(input.shopId, services, input.startsAt, input.startsAt + timing.durationMin * MIN)) {
+      const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null, past);
+      throw new SlotTaken(slots.filter((s) => s.start !== input.startsAt).slice(0, 6));
+    }
   }
 
   const tier = effectiveStaff(input.shopId).find((s) => s.id === staffId)?.tier ?? 'stylist';
@@ -2599,6 +2629,12 @@ export function createHold(input: HoldInput): HoldResult {
     needsPatchTest:
       services.some((s) => s.requiresPatchTest) &&
       (input.forPersonId ? true : !patchTestValid(input.deviceId, input.shopId))
+        ? true
+        : undefined,
+    // A complex treatment booked without ever having talked to the salon —
+    // flagged so the stylist plans extra time for the missing conversation.
+    needsConsult:
+      services.some((s) => s.consultationFirst) && !consultDone(input.deviceId, input.shopId)
         ? true
         : undefined,
     policySnapshot: { ...shop.policy },
@@ -2742,9 +2778,33 @@ export function cancelBooking(
     // A shop cancelling on short notice ruined someone's plan. The apology is
     // automatic and paid by the shop — policy, not mood.
     if (opts.by === 'shop' && !opts.isNoShow && wasConfirmed) mintGoodwill(b);
+    // The freed seat is worth money the moment it exists: offer it to the
+    // first person already waiting for that day, without a human in between.
+    if (wasConfirmed) autoOfferFreedSlot(b);
     persist();
   }
   return { ...outcome, booking: b };
+}
+
+/**
+ * A cancellation just freed a seat — walk the day's waitlist (oldest first)
+ * and hand the exact start to the first entry whose own services genuinely
+ * fit it. One live offer at a time; the 30-minute lapse rules are unchanged.
+ */
+function autoOfferFreedSlot(b: Booking): void {
+  if (b.startsAt <= Date.now()) return;
+  const iso = isoDateOf(b.startsAt);
+  const candidates = [...state.waitlist.values()]
+    .filter((w) => w.shopId === b.shopId && w.isoDate === iso && !liveOffer(w) && w.deviceId !== b.deviceId)
+    .sort((a, c) => a.createdAt - c.createdAt);
+  for (const w of candidates) {
+    try {
+      offerWaitlistSlot(b.shopId, w.id, b.startsAt);
+      return; // first taker gets it; the next lapse is the next chance
+    } catch {
+      // their services don't fit this exact start — try the next person
+    }
+  }
 }
 
 export const GOODWILL_CENTS = 500;
@@ -3178,6 +3238,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       // the last colour formula on file for this customer — for the stand-in
       techFormula: latestTechRecord(shopId, customerKeyOf(b))?.record.formula ?? null,
       needsPatchTest: b.needsPatchTest ?? false,
+      needsConsult: b.needsConsult ?? false,
       allergies: careProfile(b.deviceId).allergies,
     })),
     week,
@@ -3207,7 +3268,7 @@ export function setBookingStatus(
 export function patchService(
   shopId: string,
   serviceId: string,
-  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string },
+  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined },
 ): void {
   const shop = shopById(shopId);
   if (!shop || !effectiveServices(shopId).some((s) => s.id === serviceId)) throw new Error('not_found');
@@ -6072,6 +6133,149 @@ export function patchTestValid(deviceId: string, shopId: string): boolean {
   const pt = careProfile(deviceId).patchTests.find((x) => x.shopId === shopId);
   if (!pt) return false;
   return dayStart(pt.iso) >= Date.now() - PATCH_TEST_VALID_DAYS * 864e5;
+}
+
+// ---------------------------------------------------------------------------
+// scheduling core batch: resources, gap-selling, drift, consultation-first
+// ---------------------------------------------------------------------------
+
+export function resourcesOf(shopId: string): ShopResources | null {
+  return state.resources.get(shopId) ?? null;
+}
+
+export function setResources(shopId: string, res: ShopResources): void {
+  const basins = Math.max(0, Math.min(20, Math.round(res.basins)));
+  const colourStations = Math.max(0, Math.min(20, Math.round(res.colourStations)));
+  if (basins === 0 && colourStations === 0) state.resources.delete(shopId);
+  else state.resources.set(shopId, { basins, colourStations });
+  persist();
+}
+
+/**
+ * Is the bottleneck (basin / colour station) already at capacity somewhere in
+ * this window? 0 or unset capacity means the resource is not tracked.
+ */
+function resourceConflict(
+  shopId: string,
+  services: SeedService[],
+  startsAt: number,
+  endsAt: number,
+  excludeBookingId?: string,
+): boolean {
+  const caps = state.resources.get(shopId);
+  if (!caps) return false;
+  const kinds = new Set(services.map((s) => s.resource).filter(Boolean)) as Set<'basin' | 'colour'>;
+  if (kinds.size === 0) return false;
+  const menu = new Map(effectiveServices(shopId).map((s) => [s.id, s]));
+  const now = Date.now();
+  for (const kind of kinds) {
+    const cap = kind === 'basin' ? caps.basins : caps.colourStations;
+    if (cap === 0) continue; // not tracked
+    let used = 0;
+    for (const b of state.bookings.values()) {
+      if (b.shopId !== shopId || b.id === excludeBookingId || !bookingBlocks(b, now)) continue;
+      if (!overlaps({ start: b.startsAt, end: b.endsAt }, { start: startsAt, end: endsAt })) continue;
+      if (b.serviceIds.some((id) => menu.get(id)?.resource === kind)) used += 1;
+    }
+    if (used >= cap) return true;
+  }
+  return false;
+}
+
+export interface GapWindow {
+  staffId: string;
+  staffName: string;
+  start: number;
+  end: number;
+  /** the reference of the colour appointment whose Einwirkzeit this is */
+  bookingRef: string;
+}
+
+/**
+ * The Einwirkzeit windows of the day: a colour booking releases its
+ * processing gap (staffRanges splits in two), and this lists every such
+ * released stretch that is still genuinely free — the classic double-booking
+ * a good salon runs on, made visible instead of remembered.
+ */
+export function gapWindows(shopId: string, isoDate: string): GapWindow[] {
+  const dStart = dayStart(isoDate);
+  const dEnd = dStart + 24 * 60 * MIN;
+  const now = Date.now();
+  const team = effectiveStaff(shopId);
+  const out: GapWindow[] = [];
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !bookingBlocks(b, now)) continue;
+    if (b.startsAt < dStart || b.startsAt >= dEnd) continue;
+    if (b.staffRanges.length < 2) continue;
+    const gap = { start: b.staffRanges[0].end, end: b.staffRanges[1].start };
+    if (gap.end - gap.start < 15 * MIN || gap.end <= now) continue;
+    // still free? nothing else of this stylist may sit inside it
+    const taken = [...state.bookings.values()].some(
+      (o) =>
+        o.id !== b.id &&
+        o.staffId === b.staffId &&
+        bookingBlocks(o, now) &&
+        o.staffRanges.some((r) => overlaps(r, gap)),
+    );
+    if (taken) continue;
+    const st = team.find((s) => s.id === b.staffId);
+    if (!st) continue;
+    out.push({ staffId: st.id, staffName: st.name, start: gap.start, end: gap.end, bookingRef: b.reference });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * How far behind the day is running: confirmed appointments already past
+ * their end that nobody marked done. Old ghosts (ended over two hours ago)
+ * are forgotten paperwork, not live drift.
+ */
+export function dayDriftMin(shopId: string): number {
+  const now = Date.now();
+  let worst = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'confirmed') continue;
+    if (b.endsAt >= now || now - b.endsAt > 2 * 36e5) continue;
+    worst = Math.max(worst, now - b.endsAt);
+  }
+  return Math.min(90, Math.round(worst / 60_000));
+}
+
+// --- consultation-first -----------------------------------------------------
+
+export const CONSULT_VALID_DAYS = 180;
+export const CONSULT_DURATION_MIN = 10;
+
+/** The shop's free consultation service — created once, on first need. */
+export function ensureConsultService(shopId: string): SeedService {
+  const id = `svc-consult-${shopId}`;
+  const existing = effectiveServices(shopId).find((s) => s.id === id);
+  if (existing) return existing;
+  const svc: SeedService = {
+    id,
+    emoji: '💬',
+    name: { en: 'Consultation (free)', de: 'Beratung (kostenlos)' },
+    durationMin: CONSULT_DURATION_MIN,
+    processingGapMin: 0,
+    finishMin: 0,
+    basePriceCents: 0,
+    vatRateBps: 1900,
+    dynamicPricing: false,
+  };
+  state.customServices.set(shopId, [...(state.customServices.get(shopId) ?? []), svc]);
+  persist();
+  return svc;
+}
+
+/** Has this device sat through a consultation (or any completed visit) here recently? */
+export function consultDone(deviceId: string, shopId: string): boolean {
+  const cutoff = Date.now() - CONSULT_VALID_DAYS * 864e5;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || b.shopId !== shopId) continue;
+    if (b.status !== 'completed' || b.startsAt < cutoff) continue;
+    return true; // a completed visit IS a conversation with the salon
+  }
+  return false;
 }
 
 // The demo history has to be written after the module has finished defining

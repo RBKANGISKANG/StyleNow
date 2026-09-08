@@ -34,6 +34,8 @@ export interface Overview {
       dynamicPricing: boolean;
       categoryId?: string;
       requiresPatchTest?: boolean;
+      consultationFirst?: boolean;
+      resource?: 'basin' | 'colour';
     }>;
     pricingRules: Array<{ id: string; name: string; enabled: boolean }>;
     locations: Array<{ id: string; label: string; street: string; zip: string; city: string; district: string }>;
@@ -81,6 +83,7 @@ export interface Overview {
     checkedInAt: number | null;
     techFormula: string | null;
     needsPatchTest: boolean;
+    needsConsult: boolean;
     allergies: string[];
   }>;
   week: Array<{ iso: string; revenueCents: number }>;

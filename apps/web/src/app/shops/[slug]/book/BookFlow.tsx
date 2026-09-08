@@ -18,7 +18,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -37,6 +37,7 @@ interface Svc {
   dynamicPricing: boolean;
   popular: boolean;
   requiresPatchTest?: boolean;
+  consultationFirst?: boolean;
 }
 interface ShopInfo {
   id: string;
@@ -209,6 +210,38 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     if (step === 2) void apiSavedPeople().then(setPeople);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  // Consultation-first: a complex treatment with no prior visit here offers
+  // the free consultation route, or an explicit "I know what I need".
+  const [cfRequired, setCfRequired] = useState(false);
+  const [cfAck, setCfAck] = useState(false);
+  useEffect(() => {
+    if (step !== 2) return;
+    const flagged = menu.filter((s) => serviceIds.includes(s.id)).some((s) => s.consultationFirst);
+    if (!flagged) {
+      setCfRequired(false);
+      return;
+    }
+    let alive = true;
+    void apiConsultDone(shop.id).then((done) => {
+      if (alive) setCfRequired(!done);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, serviceIds, menu, shop.id]);
+
+  const bookConsultInstead = () => {
+    void apiEnsureConsultService(shop.id).then((svc) => {
+      const full = svc as unknown as Svc;
+      setMenu((cur) => (cur.some((s) => s.id === full.id) ? cur : [...cur, full]));
+      setServiceIds([full.id]);
+      setSlot(null);
+      setCfRequired(false);
+      setStep(1);
+    });
+  };
 
   // Patch-test passport: a flagged service without a recent recorded test at
   // this salon needs an explicit acknowledgement before the seat is held.
@@ -1244,6 +1277,20 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   <span>🧪 {t('pt_gate')}</span>
                 </label>
               )}
+              {/* Consultation-first: the honest route is a free ten minutes. */}
+              {cfRequired && (
+                <div className="patch-hint" style={{ display: 'block' }}>
+                  <p style={{ fontWeight: 800, marginBottom: 4 }}>💬 {t('cf_gate_title')}</p>
+                  <p style={{ marginBottom: 8 }}>{t('cf_gate_body', { n: 10 })}</p>
+                  <button className="btn btn-primary sm" onClick={bookConsultInstead}>
+                    💬 {t('cf_book')}
+                  </button>
+                  <label style={{ display: 'flex', gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                    <input type="checkbox" checked={cfAck} onChange={(e) => setCfAck(e.target.checked)} />
+                    <span>{t('cf_ack')}</span>
+                  </label>
+                </div>
+              )}
               <input
                 className="input"
                 placeholder={t('your_name')}
@@ -1385,7 +1432,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   holding ||
                   name.trim().length === 0 ||
                   (duo && friendName.trim().length === 0) ||
-                  (ptRequired && !ptAck)
+                  (ptRequired && !ptAck) ||
+                  (cfRequired && !cfAck)
                 }
                 onClick={() => void createHold(slot.start, staffId)}
               >

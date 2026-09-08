@@ -385,7 +385,7 @@ export async function apiSetStatus(
 export async function apiPatchService(
   shopId: string,
   serviceId: string,
-  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string },
+  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined },
 ): Promise<void> {
   const mode = backendMode();
   if (mode === 'server') {
@@ -1987,4 +1987,39 @@ export async function apiRecordPatchTest(shopId: string): Promise<void> {
 export async function apiPatchTestValid(shopId: string): Promise<boolean> {
   await readyForRead();
   return store.patchTestValid(deviceId(), shopId);
+}
+
+// ---- scheduling core batch: resources, gaps, drift, consultation-first ----
+
+export async function apiResources(shopId: string): Promise<store.ShopResources | null> {
+  await readyForRead();
+  return store.resourcesOf(shopId);
+}
+
+export async function apiSetResources(shopId: string, res: store.ShopResources): Promise<void> {
+  await localWrite();
+  store.setResources(shopId, res);
+  syncConfig(shopId);
+}
+
+export async function apiGapWindows(shopId: string, iso: string): Promise<store.GapWindow[]> {
+  await readyForRead();
+  return store.gapWindows(shopId, iso);
+}
+
+export async function apiDayDrift(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.dayDriftMin(shopId);
+}
+
+export async function apiEnsureConsultService(shopId: string): Promise<{ id: string }> {
+  await localWrite();
+  const svc = store.ensureConsultService(shopId);
+  syncConfig(shopId);
+  return svc;
+}
+
+export async function apiConsultDone(shopId: string): Promise<boolean> {
+  await readyForRead();
+  return store.consultDone(deviceId(), shopId);
 }
