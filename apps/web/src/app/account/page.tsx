@@ -426,6 +426,7 @@ function CarePanel() {
   const [extraTime, setExtraTime] = useState(false);
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState(false);
+  const [bdError, setBdError] = useState(false);
 
   useEffect(() => {
     void apiCareProfile().then((cp) => {
@@ -440,8 +441,20 @@ function CarePanel() {
   }, []);
 
   if (!loaded) return null;
+  // Month first — and a German day-first "24-12" must bounce visibly, not
+  // silently erase or corrupt a saved birthday.
+  const bdValid = (v: string): boolean => {
+    if (!/^\d{2}-\d{2}$/.test(v)) return false;
+    const [mm, dd] = v.split('-').map(Number);
+    return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
+  };
   const save = async () => {
-    await apiSetBirthday(/^\d{2}-\d{2}$/.test(birthday) ? birthday : null);
+    if (birthday && !bdValid(birthday)) {
+      setBdError(true);
+      return;
+    }
+    setBdError(false);
+    await apiSetBirthday(birthday || null);
     await apiSetAllergies(allergies.split(',').map((a) => a.trim()).filter(Boolean));
     await apiSetAccessNeeds({ wheelchair, quiet, extraTime, note });
     setSaved(true);
@@ -454,8 +467,14 @@ function CarePanel() {
       <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: 4 }}>
         🎂 {t('care_birthday')}
       </label>
-      <input className="input" style={{ maxWidth: 140 }} placeholder="MM-DD" value={birthday} maxLength={5}
-        onChange={(e) => setBirthdayV(e.target.value.replace(/[^\d-]/g, ''))} />
+      <input className="input" style={{ maxWidth: 140 }} placeholder={t('care_bd_ph')} aria-label={t('care_birthday')}
+        aria-invalid={bdError || undefined} value={birthday} maxLength={5}
+        onChange={(e) => { setBirthdayV(e.target.value.replace(/[^\d-]/g, '')); setBdError(false); }} />
+      {bdError && (
+        <div role="alert" style={{ color: 'var(--danger)', fontSize: '0.76rem', marginTop: 4 }}>
+          {t('care_bd_err')}
+        </div>
+      )}
       <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, margin: '10px 0 4px' }}>
         🚫 {t('care_allergies')}
       </label>

@@ -425,9 +425,19 @@ function TodayTab({ shopId }: { shopId: string }) {
                         {b.guardianName && (
                           <span className="cus-tag risk" title={t('mn_row_hint', { who: b.guardianName })} style={{ marginLeft: 4 }}>🧒</span>
                         )}
-                        {b.accessNote && (
-                          <span className="bk-note" title={b.accessNote}>♿ {b.accessNote}</span>
-                        )}
+                        {b.access && (() => {
+                          // Composed here, not stored: the floor reads the
+                          // needs in its own language.
+                          const bits = [
+                            b.access.wheelchair ? '♿' : null,
+                            b.access.quiet ? t('ac_line_quiet') : null,
+                            b.access.extraTime ? t('ac_line_extra') : null,
+                            b.access.writtenOnly ? t('ac_line_written') : null,
+                            b.access.note ?? null,
+                          ].filter(Boolean);
+                          const line = bits.join(' · ');
+                          return line ? <span className="bk-note" title={line}>♿ {line}</span> : null;
+                        })()}
                         {b.allergies.length > 0 && (
                           <span className="bk-note" title={b.allergies.join(', ')}>🚫 {b.allergies.join(', ')}</span>
                         )}

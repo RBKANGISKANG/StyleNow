@@ -31,8 +31,10 @@ export interface SeedService {
   requiresPatchTest?: boolean;
   /** Complex treatments: a short consultation should come before the first booking. */
   consultationFirst?: boolean;
-  /** The bottleneck this service occupies besides the stylist, if any. */
-  resource?: 'basin' | 'colour';
+  /** The bottleneck this service occupies besides the stylist, if any.
+   *  null is an explicit "none" (a shop override clearing a seeded marker) —
+   *  unlike undefined it survives JSON persistence. */
+  resource?: 'basin' | 'colour' | null;
 }
 
 export interface SeedStaff {

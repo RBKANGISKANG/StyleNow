@@ -35,6 +35,8 @@ import {
   addAvailabilityWatch, myWatches, removeAvailabilityWatch,
   addStaffPhoto, staffPhotos, saveStockItem, adjustStock, stockItems, colourServicesThisWeek,
   openDispute, resolveDispute, disputesForShop, myDisputes,
+  createDuoHold, resourceRoomFor, myMembership, bookingsForDevice, effectiveServices,
+  exportShopConfig, applyShopConfig, patchService, serviceOverrideEntries,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -1048,7 +1050,7 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
     } catch { /* next day */ }
   }
   const ab = getBooking(held)!;
-  assert.ok(ab.accessNote!.includes('♿') && ab.accessNote!.includes('Assistenzhund'), 'the floor reads the needs');
+  assert.ok(ab.access!.wheelchair && ab.access!.note!.includes('Assistenzhund'), 'the floor reads the needs');
   setAccessFacts(shop.id, { stepFree: true, wheelchairWC: false, quietCorner: true });
   assert.equal(accessFactsOf(shop.id)!.stepFree, true);
 }
@@ -1104,6 +1106,290 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   resolveDispute(shop.id, d.id, { kind: 'goodwill' });
   assert.equal(myDisputes(rhythmDev)[0].status, 'resolved');
   assert.equal(cardsOf(rhythmDev).length, cardsBefore + 1, 'the apology is money, not words');
+}
+
+// ---------------------------------------------------------------------------
+// review-fix regressions (round 2): money clamps, group atomicity, peak
+// concurrency, privacy completeness, sync merges
+// ---------------------------------------------------------------------------
+
+// Gift card + membership: the card only covers what is still owed after the
+// percentage perk — the prepaid value must not silently over-debit. And on a
+// duo, the perk stays on the organizer's seat.
+{
+  const dev = 'dev-clamp';
+  setMembershipOffer(shop.id, { priceCents: 900, discountPct: 20 });
+  joinMembership(dev, shop.id);
+  const card = buyGiftCard(shop.id, dev, 20000);
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'C', voucherCode: card.code, idempotencyKey: 'clamp-1' }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a member visit paid by gift card');
+  const cb = getBooking(held)!;
+  const cut = Math.round((cb.quote.subtotalCents * 20) / 100);
+  assert.ok(cb.quote.breakdown.some((l) => l.key === 'ln_membership'), 'the perk applied');
+  assert.equal(cb.giftCents, cb.quote.subtotalCents - cut, 'the card covers the discounted bill, not the gross one');
+  assert.equal(cb.quote.totalCents, 0);
+  confirmBooking(held);
+  assert.equal(giftCard(card.code)!.balanceCents, 20000 - (cb.quote.subtotalCents - cut), 'no prepaid cent vanished');
+
+  // Organizer-only: the friend's seat shares the device, not the perk.
+  let pair: ReturnType<typeof createDuoHold> | null = null;
+  for (let d = 1; d <= 21 && !pair; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find(
+      (x) => x.start > Date.now() && x.staffIds.length >= 2,
+    );
+    if (!s) continue;
+    try {
+      pair = createDuoHold(
+        { shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'C', idempotencyKey: `clamp-duo-${d}` },
+        'Mira',
+      );
+    } catch { /* next day */ }
+  }
+  assert.ok(pair, 'fixture: a member duo');
+  assert.ok(getBooking(pair!.first.bookingId)!.quote.breakdown.some((l) => l.key === 'ln_membership'));
+  assert.ok(
+    !getBooking(pair!.second.bookingId)!.quote.breakdown.some((l) => l.key === 'ln_membership'),
+    'the friend does not ride the membership',
+  );
+  leaveMembership(dev, shop.id);
+  setMembershipOffer(shop.id, null);
+}
+
+// Duo strips the 5er-Karte: one duo visit costs one prepaid use, and the
+// friend's seat pays its own way.
+{
+  const dev = 'dev-duo-pk';
+  const offer = savePackageOffer(shop.id, { serviceId: svc.id, count: 5, priceCents: 9900 });
+  const pk = buyPackage(shop.id, offer.id, dev);
+  let pair: ReturnType<typeof createDuoHold> | null = null;
+  for (let d = 1; d <= 21 && !pair; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find(
+      (x) => x.start > Date.now() && x.staffIds.length >= 2,
+    );
+    if (!s) continue;
+    try {
+      pair = createDuoHold(
+        { shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'D', usePackageId: pk.id, idempotencyKey: `duopk-${d}` },
+        'Jo',
+      );
+    } catch { /* next day */ }
+  }
+  assert.ok(pair, 'fixture: a duo on a card');
+  assert.equal(getBooking(pair!.first.bookingId)!.quote.totalCents, 0, 'the organizer rides the card');
+  assert.ok(getBooking(pair!.second.bookingId)!.quote.totalCents > 0, 'the friend pays normally');
+  assert.equal(packageRemaining(pk), 4, 'one visit, one use — not two');
+
+  // No-show keeps the use spent: a prepaid card is not free stand-up licence.
+  let held2 = '';
+  for (let d = 1; d <= 21 && !held2; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held2 = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'D', usePackageId: pk.id, idempotencyKey: `duopk-ns-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held2, 'fixture: another card visit');
+  confirmBooking(held2);
+  const before = packageRemaining(pk);
+  setBookingStatus(shop.id, held2, 'no_show');
+  assert.equal(packageRemaining(pk), before, 'the no-show does not refund the use');
+}
+
+// Group atomicity: when the basin count refuses a later seat, the earlier
+// seats dissolve — no orphan holds poisoning the grid.
+{
+  const bsShop = allShops().find((x) => x.services.some((s) => s.resource === 'basin'))!;
+  const basinSvc = bsShop.services.find((s) => s.resource === 'basin')!;
+  setResources(bsShop.id, { basins: 1, colourStations: 0 });
+  const dev = 'dev-grp-roll';
+  let attempted = false;
+  for (let d = 1; d <= 21 && !attempted; d++) {
+    const s = availability(bsShop.id, [basinSvc.id], addDays(todayIso(), d), dev, null).slots.find(
+      (x) => x.start > Date.now() && x.staffIds.length >= 3,
+    );
+    if (!s) continue;
+    attempted = true;
+    assert.throws(
+      () =>
+        createGroupHold(
+          { shopId: bsShop.id, serviceIds: [basinSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'G', idempotencyKey: `grpb-${d}` },
+          ['Anna', 'Ben'],
+        ),
+      SlotTaken,
+      'one basin cannot seat a party of three',
+    );
+  }
+  assert.ok(attempted, 'fixture: a group attempt on a basin service');
+  assert.equal(bookingsForDevice(dev).length, 0, 'the failed group left no orphan seats behind');
+  setResources(bsShop.id, { basins: 0, colourStations: 0 });
+}
+
+// Peak, not count: two strictly sequential colour seats are one station at a
+// time — a window spanning both must still find room; simultaneous seats
+// fill the house.
+{
+  const sh = allShops()[0];
+  const colourSvc = sh.services.find((s) => s.resource === 'colour')!;
+  setResources(sh.id, { basins: 0, colourStations: 2 });
+  const dev = 'dev-peak';
+  const ids: string[] = [];
+  for (let d = 1; d <= 21 && ids.length < 2; d++) {
+    for (const s of availability(sh.id, [colourSvc.id], addDays(todayIso(), d), dev, null).slots) {
+      if (ids.length >= 2 || s.start <= Date.now()) continue;
+      try {
+        const h = createHold({ shopId: sh.id, serviceIds: [colourSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'P', idempotencyKey: `peak-${ids.length}` });
+        confirmBooking(h.bookingId);
+        ids.push(h.bookingId);
+      } catch { /* taken */ }
+    }
+  }
+  assert.equal(ids.length, 2, 'fixture: two colour seats');
+  const A = getBooking(ids[0])!;
+  const B = getBooking(ids[1])!;
+  // test-only surgery (same licence the drift block takes): park both far
+  // outside the seeded horizon, strictly back to back
+  const T = dayStart(addDays(todayIso(), 40)) + 10 * 3600_000;
+  const park = (b: typeof A, start: number) => {
+    const shift = start - b.startsAt;
+    b.startsAt += shift;
+    b.endsAt += shift;
+    b.staffRanges = b.staffRanges.map((r) => ({ start: r.start + shift, end: r.end + shift }));
+  };
+  park(A, T);
+  // B begins the instant A's last occupied range ends (the finish segment can
+  // outlive endsAt, so "after A" means after its ranges, not after endsAt)
+  const aEnd = Math.max(A.endsAt, ...A.staffRanges.map((r) => r.end));
+  park(B, aEnd);
+  assert.equal(
+    resourceRoomFor(sh.id, [colourSvc.id], T + 60000, aEnd + 60000),
+    1,
+    'sequential seats are one station, not two',
+  );
+  park(B, T); // now truly simultaneous
+  assert.equal(resourceRoomFor(sh.id, [colourSvc.id], T + 60000, T + 30 * 60000), 0, 'simultaneous seats fill both stations');
+  setResources(sh.id, { basins: 0, colourStations: 0 });
+}
+
+// Reschedule obeys the bottleneck: the front desk cannot move a colour seat
+// onto a window where the only station is taken.
+{
+  const sh = allShops()[0];
+  const colourSvc = sh.services.find((s) => s.resource === 'colour')!;
+  const dev = 'dev-res-move';
+  let target: { start: number; staffIds: string[] } | null = null;
+  let aId = '';
+  let cId = '';
+  for (let d = 1; d <= 21 && !cId; d++) {
+    const day = availability(sh.id, [colourSvc.id], addDays(todayIso(), d), dev, null).slots.filter((x) => x.start > Date.now());
+    const s = day.find((x) => x.staffIds.length >= 2);
+    const s2 = day.find((x) => x.start !== s?.start);
+    if (!s || !s2) continue;
+    try {
+      const a = createHold({ shopId: sh.id, serviceIds: [colourSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'A', idempotencyKey: `mv-a-${d}` });
+      confirmBooking(a.bookingId);
+      const c = createHold({ shopId: sh.id, serviceIds: [colourSvc.id], staffId: null, startsAt: s2.start, deviceId: dev, guestName: 'C', idempotencyKey: `mv-c-${d}` });
+      confirmBooking(c.bookingId);
+      aId = a.bookingId;
+      cId = c.bookingId;
+      target = s;
+    } catch { /* next day */ }
+  }
+  assert.ok(cId, 'fixture: two colour seats to collide');
+  const otherStaff = target!.staffIds.find((id) => id !== getBooking(aId)!.staffId)!;
+  setResources(sh.id, { basins: 0, colourStations: 1 });
+  assert.throws(
+    () => rescheduleBooking(sh.id, cId, target!.start, otherStaff),
+    SlotTaken,
+    'a move cannot overbook the single colour station',
+  );
+  setResources(sh.id, { basins: 0, colourStations: 0 });
+  rescheduleBooking(sh.id, cId, target!.start, otherStaff); // untracked → the same move is fine
+}
+
+// Watches dedupe: the same wish twice is one bell.
+{
+  const dev = 'dev-watch-dupe';
+  const w1 = addAvailabilityWatch(dev, shop.id, svc.id, null, 6);
+  const w2 = addAvailabilityWatch(dev, shop.id, svc.id, null, 6);
+  assert.equal(w1.id, w2.id, 'no duplicate watch minted');
+  assert.equal(myWatches(dev).length, 1);
+  const w3 = addAvailabilityWatch(dev, shop.id, svc.id, null, 2); // a different day IS a different wish
+  assert.notEqual(w1.id, w3.id);
+  removeAvailabilityWatch(dev, w1.id);
+  removeAvailabilityWatch(dev, w3.id);
+}
+
+// Clearing a service's resource marker survives persistence: null, not a
+// JSON-dropped undefined that resurrects the seed.
+{
+  const sh = allShops()[0];
+  const colourSvc = sh.services.find((s) => s.resource === 'colour')!;
+  patchService(sh.id, colourSvc.id, { resource: null });
+  assert.ok(!effectiveServices(sh.id).find((s) => s.id === colourSvc.id)!.resource, 'cleared in the merged view');
+  const roundTripped = JSON.parse(JSON.stringify(Object.fromEntries(serviceOverrideEntries())))[colourSvc.id];
+  assert.equal(roundTripped.resource, null, 'the cleared marker survives a JSON round trip');
+  patchService(sh.id, colourSvc.id, { resource: 'colour' });
+  assert.equal(effectiveServices(sh.id).find((s) => s.id === colourSvc.id)!.resource, 'colour');
+}
+
+// A stale device's sync cannot reopen an answered dispute — resolved wins.
+{
+  const d2 = openDispute(rhythmIds[0], rhythmDev, 'other', 'Musik zu laut.');
+  const stale = exportShopConfig(shop.id); // still carries the open copy
+  resolveDispute(shop.id, d2.id, { kind: 'declined', note: 'War Konzertabend.' });
+  applyShopConfig(shop.id, stale);
+  assert.equal(
+    myDisputes(rhythmDev).find((x) => x.id === d2.id)!.status,
+    'resolved',
+    'the stale document does not resurrect the open copy',
+  );
+}
+
+// Erasure now reaches everything this batch added; the export names it all.
+{
+  const dev = 'dev-erase2';
+  setAccessNeeds(dev, { quiet: true, note: 'bitte leise' });
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'E', forMinor: true, guardianName: 'Oma Erna', idempotencyKey: `er2-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a minor booking with access needs');
+  const w = addAvailabilityWatch(dev, shop.id, svc.id, null, null);
+  const offer = savePackageOffer(shop.id, { serviceId: svc.id, count: 5, priceCents: 9900 });
+  buyPackage(shop.id, offer.id, dev);
+  setMembershipOffer(shop.id, { priceCents: 900, discountPct: 10 });
+  joinMembership(dev, shop.id);
+
+  const ex = exportMyData(dev);
+  assert.equal((ex.packages as unknown[]).length, 1, 'the export names the prepaid card');
+  assert.equal((ex.memberships as unknown[]).length, 1, 'the export names the membership');
+  assert.equal((ex.watches as unknown[]).length, 1, 'the export names the watch');
+  assert.ok(Array.isArray(ex.disputes), 'the export carries the dispute history');
+
+  eraseMyData(dev);
+  const eb = getBooking(held)!;
+  assert.equal(eb.minor, undefined, 'the guardian name is gone');
+  assert.equal(eb.access, undefined, 'the access flags are gone');
+  assert.equal(myWatches(dev).length, 0, 'the watches stop firing');
+  assert.equal(myMembership(dev, shop.id), null, 'the membership is gone');
+  assert.equal(myPackages(dev).length, 0, 'the cards are gone');
+  setMembershipOffer(shop.id, null);
+  void w;
+
+  // and the complaint words on the earlier device go too
+  eraseMyData(rhythmDev);
+  assert.ok(myDisputes(rhythmDev).every((x) => x.text === '—'), 'erasure blanks the complaint words');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, and discovery & ops');

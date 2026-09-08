@@ -25,7 +25,7 @@
  * nothing itself, and pretending otherwise would be a form that goes nowhere.
  */
 import { useEffect, useState } from 'react';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, dateOf, fullDateOf } from '@/lib/format';
 import { apiBillingProfile, type BillingProfile } from '@/lib/api';
 import { buildXRechnung } from '@/lib/xrechnung';
@@ -38,7 +38,7 @@ export interface ReceiptData {
   shopName: string;
   shopAddress: string;
   guestName?: string;
-  breakdown: Array<{ label: string; cents: number }>;
+  breakdown: Array<{ label: string; cents: number; key?: string; vars?: Record<string, string | number> }>;
   totalCents: number;
   vatCents: number;
   paidCents: number;
@@ -84,6 +84,11 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
 
   const netCents = data.totalCents - data.vatCents;
 
+  // Machine-made quote lines (package, membership, birthday) carry an i18n
+  // key and localise on the printed sheet too.
+  const lineLabel = (l: { label: string; key?: string; vars?: Record<string, string | number> }): string =>
+    l.key ? t(l.key as MsgKey, l.vars) : l.label;
+
   const textVersion = (): string => {
     const b = billing;
     const lines = [
@@ -96,7 +101,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
       `${t('rc_issued')}: ${dateOf(Date.now(), lang)}`,
       data.guestName ? `${t('rc_customer')}: ${data.guestName}` : '',
       '',
-      ...data.breakdown.map((l) => `${l.label}: ${money(l.cents, lang)}`),
+      ...data.breakdown.map((l) => `${lineLabel(l)}: ${money(l.cents, lang)}`),
       '',
       `${t('rc_total')}: ${money(data.totalCents, lang)}`,
       ...(b?.smallBusiness
@@ -160,7 +165,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
           <tbody>
             {data.breakdown.map((l, i) => (
               <tr key={i}>
-                <td>{l.label}</td>
+                <td>{lineLabel(l)}</td>
                 <td className="num">{money(l.cents, lang)}</td>
               </tr>
             ))}

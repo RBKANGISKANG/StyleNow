@@ -59,6 +59,14 @@ interface Slot {
   priceCents: number;
   basePriceCents: number;
   appliedNames: string[];
+  /** free seats left at the tracked bottleneck (basin/colour station) */
+  resourceRoom?: number;
+}
+interface BreakdownLine {
+  label: string;
+  cents: number;
+  key?: string;
+  vars?: Record<string, string | number>;
 }
 interface Hold {
   bookingId: string;
@@ -70,7 +78,7 @@ interface Hold {
     vatCents: number;
     totalCents: number;
     depositCents: number;
-    breakdown: Array<{ label: string; cents: number }>;
+    breakdown: BreakdownLine[];
   };
 }
 
@@ -86,6 +94,9 @@ export function BookFlow({ shop }: { shop: ShopInfo }) {
 
 function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const { t, lang } = useI18n();
+  // Machine-made quote lines carry a key; those render in the viewer's
+  // language, everything else shows its stored label.
+  const lineLabel = (line: BreakdownLine) => (line.key ? t(line.key as MsgKeyT, line.vars) : line.label);
   const { user } = useAuth();
   const params = useSearchParams();
   const initialServiceId = params.get('service');
@@ -293,12 +304,20 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     serviceIds.length === 1
       ? packages.find((pk) => pk.shopId === shop.id && pk.serviceId === serviceIds[0] && pk.remaining > 0) ?? null
       : null;
+  // The toggle must not outlive the card it belongs to: changing the basket
+  // makes the package box vanish, and a stale `true` would silently strip an
+  // applied voucher from the hold.
+  useEffect(() => {
+    if (!eligiblePackage) setUsePackage(false);
+  }, [eligiblePackage]);
   const [waitlisted, setWaitlisted] = useState<string[]>([]);
 
   // Watch a stylist for a free day; languages ride the picker chips.
   const [watchDow, setWatchDow] = useState('');
   const [watchSet, setWatchSet] = useState(false);
-  useEffect(() => setWatchSet(false), [staffId, serviceIds.join(',')]);
+  // A different stylist, service OR day-of-week is a different wish — the
+  // button un-disables for it (the engine dedupes identical re-adds anyway).
+  useEffect(() => setWatchSet(false), [staffId, serviceIds.join(','), watchDow]);
   const [staffLangs, setStaffLangs] = useState<Record<string, string[]>>({});
   useEffect(() => {
     let alive = true;
@@ -492,8 +511,18 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const extraHolds = hold2 ? [hold2] : groupHolds;
   const extrasDue = extraHolds.reduce((n, h) => n + dueOf(h), 0);
 
-  // Together mode only shows times where a second chair is genuinely free.
-  const shownSlots = slots === null ? null : duo ? slots.filter((s) => s.staffIds.length >= partySize) : slots;
+  // Together mode only shows times where enough chairs AND enough of the
+  // bottleneck resource (basins, colour stations) are genuinely free.
+  const shownSlots =
+    slots === null
+      ? null
+      : duo
+        ? slots.filter(
+            (s) =>
+              s.staffIds.length >= partySize &&
+              (s.resourceRoom === undefined || s.resourceRoom >= partySize),
+          )
+        : slots;
 
   // A saver chip picked on another day: the day's slots just arrived —
   // select the promised time and move on, exactly like tapping it directly.
@@ -628,7 +657,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           <div className="receipt-rows">
             {q.breakdown.map((line, i) => (
               <div className="quote-line" key={i}>
-                <span>{line.label}</span>
+                <span>{lineLabel(line)}</span>
                 <span className={line.cents < 0 ? 'neg' : ''}>{money(line.cents, lang)}</span>
               </div>
             ))}
@@ -1248,7 +1277,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   const cls = line.cents < 0 ? 'neg' : !isService && line.cents > 0 ? 'pos-adj' : '';
                   return (
                     <div className="quote-line" key={i}>
-                      <span>{line.label}</span>
+                      <span>{lineLabel(line)}</span>
                       <span className={cls}>{money(line.cents, lang)}</span>
                     </div>
                   );

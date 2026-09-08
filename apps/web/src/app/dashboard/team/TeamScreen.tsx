@@ -4,7 +4,7 @@
  * set here are the first input to availability: everything else (absences,
  * bookings, buffers) only ever subtracts from them.
  */
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { Glyph } from '@/components/Icon';
 import { usePaged, Pager } from '@/components/Pager';
@@ -468,6 +468,7 @@ function StaffDialog({
 function PortfolioEditor({ shopId, staffId }: { shopId: string; staffId: string }) {
   const { t } = useI18n();
   const [photos, setPhotos] = useState<Array<{ id: string; dataUrl: string; caption: string }>>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
   const load = useCallback(() => {
     void apiStaffPhotos(staffId).then(setPhotos);
   }, [staffId]);
@@ -491,12 +492,18 @@ function PortfolioEditor({ shopId, staffId }: { shopId: string; staffId: string 
           </span>
         ))}
         {photos.length < 6 && (
-          <label className="btn btn-soft sm" style={{ cursor: 'pointer' }}>
-            ＋
+          <>
+            {/* A real button, so the keyboard reaches the upload too. */}
+            <button type="button" className="btn btn-soft sm" onClick={() => fileRef.current?.click()}>
+              ＋ {t('tp_add')}
+            </button>
             <input
+              ref={fileRef}
               type="file"
               accept="image/*"
               style={{ display: 'none' }}
+              aria-hidden="true"
+              tabIndex={-1}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (!f) return;
@@ -506,7 +513,7 @@ function PortfolioEditor({ shopId, staffId }: { shopId: string; staffId: string 
                 e.target.value = '';
               }}
             />
-          </label>
+          </>
         )}
       </div>
     </div>

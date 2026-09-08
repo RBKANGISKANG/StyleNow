@@ -58,6 +58,18 @@ export type BookingStatus =
 
 export type PaymentMethod = 'card' | 'paypal' | 'apple_pay' | 'google_pay' | 'sepa' | 'at_salon';
 
+/**
+ * One line of a price quote. `label` is the stored English/German fallback;
+ * when `key` is set the UI renders t(key, vars) instead, so machine-made
+ * lines (package, membership, birthday) localise at display time.
+ */
+export interface BreakdownLine {
+  label: string;
+  cents: number;
+  key?: string;
+  vars?: Record<string, string | number>;
+}
+
 export interface Booking {
   id: string;
   reference: string;
@@ -77,7 +89,7 @@ export interface Booking {
     vatCents: number;
     totalCents: number;
     depositCents: number;
-    breakdown: Array<{ label: string; cents: number }>;
+    breakdown: BreakdownLine[];
   };
   paidCents: number;
   /** money actually returned to the customer after a cancellation */
@@ -134,8 +146,12 @@ export interface Booking {
   needsConsult?: boolean;
   /** The visit is for a minor; the named adult answers for it. */
   minor?: { guardianName: string };
-  /** What the person needs from the visit, copied from their care profile at booking. */
-  accessNote?: string;
+  /**
+   * What the person needs from the visit, copied from their care profile at
+   * booking. Stored as the structured flags — the floor's one-line summary is
+   * composed at render time in the viewer's language.
+   */
+  access?: AccessNeeds;
   /** Customer-private: "do exactly this again next time". */
   wouldRepeat?: boolean;
   /** The birthday-window perk applied to this booking. */
@@ -1079,7 +1095,13 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   }
   if (doc.stock) state.stock.set(shopId, doc.stock);
   if (doc.disputes) {
-    for (const d of doc.disputes) state.disputes.set(d.id, d);
+    for (const d of doc.disputes) {
+      // Resolved wins: a stale device that still holds the open copy must not
+      // resurrect a dispute another device already answered.
+      const mine = state.disputes.get(d.id);
+      if (mine && mine.status === 'resolved' && d.status !== 'resolved') continue;
+      state.disputes.set(d.id, d);
+    }
   }
 
   // Re-derive the ids this shop owns *after* its custom lists landed, so a
@@ -2084,6 +2106,12 @@ export interface ApiSlot {
   priceCents: number;
   basePriceCents: number;
   appliedNames: string[];
+  /**
+   * How many more seats the tracked bottleneck (basin / colour station) can
+   * take in this window. Absent when the shop tracks no resource for these
+   * services — group flows read this to hide times a party cannot fit.
+   */
+  resourceRoom?: number;
 }
 
 /**
@@ -2162,8 +2190,9 @@ export function availability(
   const slots = aggregateSlots(perStaff, loadByStaff)
     // A slot the basin count cannot serve is not a slot — filtering here keeps
     // the 409 in createHold a race-only path instead of a routine surprise.
-    .filter((s) => !resourceConflict(shopId, services, s.start, s.start + timing.durationMin * MIN))
-    .map((s) => {
+    .map((s) => ({ s, room: resourceRoom(shopId, services, s.start, s.start + timing.durationMin * MIN) }))
+    .filter(({ room }) => room >= 1)
+    .map(({ s, room }) => {
       const tier = effectiveStaff(shopId).find((st) => st.id === s.suggestedStaffId)?.tier ?? 'stylist';
       const q = priceBasket(shop, services, s.start, now, deviceId, tier);
       return {
@@ -2171,6 +2200,7 @@ export function availability(
         priceCents: q.subtotalCents,
         basePriceCents: q.baseCents,
         appliedNames: q.applied.filter((a) => a.deltaCents !== 0).map((a) => a.name),
+        resourceRoom: Number.isFinite(room) ? room : undefined,
       };
     });
 
@@ -2636,6 +2666,12 @@ export interface HoldInput {
   /** The visit is for someone under 16; a guardian must be named. */
   forMinor?: boolean;
   guardianName?: string;
+  /**
+   * Internal: set on duo/group friend seats. The organizer's standing perks
+   * (membership, birthday window) belong to the organizer's seat only — a
+   * friend seat shares the deviceId but not the perks.
+   */
+  skipAutoPerks?: boolean;
   idempotencyKey: string;
 }
 
@@ -2743,7 +2779,7 @@ export function createHold(input: HoldInput): HoldResult {
   let giftCents = 0;
   let stampFree = false;
   let packageUsed = false;
-  const discountLines: Array<{ label: string; cents: number }> = [];
+  const discountLines: BreakdownLine[] = [];
   if (input.usePackageId) {
     // A 5er-Karte visit: prepaid, so the whole (single-service) subtotal is
     // covered. The engine re-derives the remaining uses from live bookings —
@@ -2754,7 +2790,7 @@ export function createHold(input: HoldInput): HoldResult {
     if (packageRemaining(pk) < 1) throw new Error('package_empty');
     packageUsed = true;
     discountCents += q.subtotalCents;
-    discountLines.push({ label: `5er-Karte (${pk.total}er)`, cents: -q.subtotalCents });
+    discountLines.push({ label: `5er-Karte (${pk.total}er)`, key: 'ln_package', vars: { n: pk.total }, cents: -q.subtotalCents });
   }
   if (input.useStampReward) {
     if (packageUsed) throw new Error('no_stamp_reward'); // one funding source per visit
@@ -2767,42 +2803,50 @@ export function createHold(input: HoldInput): HoldResult {
     discountLines.push({ label: `Stempelkarte — ${st.required}. Besuch frei`, cents: -q.subtotalCents });
   }
   // Membership: the club discount applies to what is still payable, before
-  // codes and points — a standing perk, not a coupon.
-  if (!stampFree && !packageUsed) {
+  // codes and points — a standing perk, not a coupon. Friend seats of a
+  // duo/group share the organizer's deviceId but not the organizer's perks.
+  if (!stampFree && !packageUsed && !input.skipAutoPerks) {
     const ms = state.memberships.get(`${input.deviceId}:${input.shopId}`);
     if (ms && ms.discountPct > 0) {
       const cut = Math.round((q.subtotalCents * ms.discountPct) / 100);
       if (cut > 0) {
         discountCents += cut;
-        discountLines.push({ label: `Membership −${ms.discountPct}%`, cents: -cut });
+        discountLines.push({ label: `Membership −${ms.discountPct}%`, key: 'ln_membership', vars: { pct: ms.discountPct }, cents: -cut });
       }
     }
   }
   // Birthday club: the shop opted in, the profile carries a birthday, and the
   // visit lands inside the window — the perk applies itself.
   let birthdayApplied = false;
-  if (!stampFree && !packageUsed && !input.forPersonId) {
+  if (!stampFree && !packageUsed && !input.forPersonId && !input.skipAutoPerks) {
     const perkPct = state.birthdayPerks.get(input.shopId) ?? 0;
     if (perkPct > 0 && birthdayWindow(input.deviceId, input.startsAt)) {
       const cut = Math.round((q.subtotalCents * perkPct) / 100);
       if (cut > 0) {
         birthdayApplied = true;
         discountCents += cut;
-        discountLines.push({ label: `🎂 Birthday −${perkPct}%`, cents: -cut });
+        discountLines.push({ label: `🎂 Birthday −${perkPct}%`, key: 'ln_birthday', vars: { pct: perkPct }, cents: -cut });
       }
     }
   }
   if (!stampFree && !packageUsed && input.voucherCode) {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
     if (!v.ok) throw new Error('voucher_invalid');
-    discountCents += v.discountCents;
     // The engine, not the UI, is the referral gate: own code and second uses bounce.
     if (input.voucherCode.toUpperCase().startsWith('REF-') && !referralUsable(input.voucherCode, input.deviceId)) {
       throw new Error('voucher_invalid');
     }
     const isGift = v.giftBalanceCents !== undefined;
-    if (isGift) giftCents = v.discountCents;
-    discountLines.push({ label: `${isGift ? 'Gift card' : 'Voucher'} ${v.voucher.code}`, cents: -v.discountCents });
+    // A gift card pays real stored value, so it may only cover what is still
+    // owed AFTER the percentage perks above — otherwise a membership visit
+    // would silently burn more of the card than the bill.
+    const payableSoFar = Math.max(q.subtotalCents + primeCents + travelFeeCents - discountCents, 0);
+    const applied = isGift ? Math.min(v.discountCents, payableSoFar) : v.discountCents;
+    discountCents += applied;
+    if (isGift) giftCents = applied;
+    if (applied > 0) {
+      discountLines.push({ label: `${isGift ? 'Gift card' : 'Voucher'} ${v.voucher.code}`, cents: -applied });
+    }
   }
   let pointsSpent = 0;
   if (!stampFree && !packageUsed && input.pointsToSpend && input.pointsToSpend > 0) {
@@ -2830,7 +2874,7 @@ export function createHold(input: HoldInput): HoldResult {
   }, 0);
   const depositCents = Math.round((totalCents * shop.depositPercent) / 100);
 
-  const breakdown: Array<{ label: string; cents: number }> = services.map((s) => ({
+  const breakdown: BreakdownLine[] = services.map((s) => ({
     label: s.name.en,
     cents: s.basePriceCents,
   }));
@@ -2868,7 +2912,7 @@ export function createHold(input: HoldInput): HoldResult {
     isPrime: input.prime || undefined,
     forPersonId: input.forPersonId || undefined,
     minor: input.forMinor ? { guardianName: input.guardianName!.trim().slice(0, 60) } : undefined,
-    accessNote: accessNoteOf(input.deviceId) || undefined,
+    access: input.skipAutoPerks ? undefined : careProfile(input.deviceId).access,
     birthdayPerk: birthdayApplied || undefined,
     // The test belongs to a person's skin, and the device only vouches for
     // its owner: booking for a saved person never inherits the owner's test.
@@ -2944,26 +2988,52 @@ export function createDuoHold(
     }
   }
 
-  if (!partnerId) {
+  const rollback = (): never => {
     deleteBooking(first.bookingId);
     state.idempotency.delete(input.idempotencyKey);
-    // Offer only times where the pair actually fits.
+    state.idempotency.delete(`${input.idempotencyKey}-duo`);
+    // Offer only times where the pair actually fits — chairs AND resources.
     const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null);
     throw new SlotTaken(
-      slots.filter((s) => s.staffIds.length >= 2 && s.start !== input.startsAt).slice(0, 6),
+      slots
+        .filter(
+          (s) =>
+            s.staffIds.length >= 2 &&
+            (s.resourceRoom === undefined || s.resourceRoom >= 2) &&
+            s.start !== input.startsAt,
+        )
+        .slice(0, 6),
     );
-  }
+  };
 
-  const second = createHold({
-    ...input,
-    staffId: partnerId,
-    guestName: friendName.trim() || 'Guest',
-    guestPhone: undefined,
-    guestNote: undefined,
-    voucherCode: undefined,
-    pointsToSpend: undefined,
-    idempotencyKey: `${input.idempotencyKey}-duo`,
-  });
+  if (!partnerId) rollback();
+
+  // The friend's seat pays its own way: no codes, points, prepaid cards,
+  // stamp rewards or personal flags ride over from the organizer's device.
+  let second: HoldResult;
+  try {
+    second = createHold({
+      ...input,
+      staffId: partnerId,
+      guestName: friendName.trim() || 'Guest',
+      guestPhone: undefined,
+      guestNote: undefined,
+      voucherCode: undefined,
+      pointsToSpend: undefined,
+      useStampReward: undefined,
+      usePackageId: undefined,
+      forPersonId: undefined,
+      forMinor: undefined,
+      guardianName: undefined,
+      skipAutoPerks: true,
+      idempotencyKey: `${input.idempotencyKey}-duo`,
+    });
+  } catch {
+    // A half-booked pair is worse than none: the first hold must not survive
+    // a second seat that bounced off resource capacity or a race.
+    rollback();
+    throw new Error('unreachable');
+  }
 
   firstBooking.duoId = first.bookingId;
   const secondBooking = state.bookings.get(second.bookingId)!;
@@ -3136,6 +3206,13 @@ export function rescheduleBooking(
       (w) => newStartsAt >= w.start && newStartsAt + timing.durationMin * MIN <= w.end,
     );
     if (!inWindow || held.some((h) => day.busy.some((x) => overlaps(h, x)))) {
+      const { slots } = availability(shopId, b.serviceIds, isoDate, b.deviceId, newStaffId ?? null);
+      throw new SlotTaken(slots.slice(0, 6));
+    }
+    // A move obeys the same bottleneck as a fresh hold: the chair being free
+    // is not enough when every basin/colour station is already taken. The
+    // booking's own current seat does not count against it.
+    if (resourceConflict(shopId, services, newStartsAt, newStartsAt + timing.durationMin * MIN, b.id)) {
       const { slots } = availability(shopId, b.serviceIds, isoDate, b.deviceId, newStaffId ?? null);
       throw new SlotTaken(slots.slice(0, 6));
     }
@@ -3487,7 +3564,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       needsConsult: b.needsConsult ?? false,
       allergies: careProfile(b.deviceId).allergies,
       guardianName: b.minor?.guardianName ?? null,
-      accessNote: b.accessNote ?? null,
+      access: b.access ?? null,
     })),
     week,
   };
@@ -3516,12 +3593,18 @@ export function setBookingStatus(
 export function patchService(
   shopId: string,
   serviceId: string,
-  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined },
+  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | null },
 ): void {
   const shop = shopById(shopId);
   if (!shop || !effectiveServices(shopId).some((s) => s.id === serviceId)) throw new Error('not_found');
   const current = state.serviceOverrides.get(serviceId) ?? {};
-  state.serviceOverrides.set(serviceId, { ...current, ...patch });
+  // "No resource" must survive persistence: undefined-valued keys vanish in
+  // JSON, which would resurrect a seeded marker on reload — null is the
+  // explicit, serialisable "cleared" that wins over the seed in the spread.
+  const { resource, ...rest } = patch;
+  const merged: Partial<SeedService> = { ...current, ...rest };
+  if (resource !== undefined) merged.resource = resource;
+  state.serviceOverrides.set(serviceId, merged);
   persist();
 }
 
@@ -3560,7 +3643,7 @@ export interface BookingView {
   isPrime: boolean;
   /** what the receipt needs: the priced lines and the VAT inside the total */
   vatCents: number;
-  breakdown: Array<{ label: string; cents: number }>;
+  breakdown: BreakdownLine[];
   /** the shop's street address at the time of viewing — a Beleg must carry it */
   shopAddress: string;
   /** how the online part was paid, presentation-safe — null means at the salon */
@@ -5833,6 +5916,10 @@ export function exportMyData(deviceId: string): Record<string, unknown> {
     referralCode: myReferralCode(deviceId),
     people: savedPeople(deviceId),
     careProfile: careProfile(deviceId),
+    packages: myPackages(deviceId),
+    memberships: [...state.memberships.values()].filter((m) => m.deviceId === deviceId),
+    watches: [...state.watches.values()].filter((w) => w.deviceId === deviceId),
+    disputes: myDisputes(deviceId),
   };
 }
 
@@ -5856,6 +5943,9 @@ export function eraseMyData(deviceId: string): number {
     // the formula stays (the shop's business record); the free-text about
     // the person does not
     if (b.techRecord) delete b.techRecord.note;
+    // a third party's real name, and health/disability flags — both go
+    delete b.minor;
+    delete b.access;
     touched += 1;
   }
   for (const [k, thread] of state.messages) {
@@ -5864,6 +5954,11 @@ export function eraseMyData(deviceId: string): number {
     for (const m of thread) if (m.from === 'customer') m.text = '—';
   }
   for (const [id, w] of state.waitlist) if (w.deviceId === deviceId) state.waitlist.delete(id);
+  for (const [id, w] of state.watches) if (w.deviceId === deviceId) state.watches.delete(id);
+  for (const [k, m] of state.memberships) if (m.deviceId === deviceId) state.memberships.delete(k);
+  for (const [id, pk] of state.packages) if (pk.deviceId === deviceId) state.packages.delete(id);
+  // the complaint's paper trail stays for the shop, the words do not
+  for (const d of state.disputes.values()) if (d.deviceId === deviceId) d.text = '—';
   state.people.delete(deviceId);
   // health data is the most sensitive record in the system — it goes first
   state.careProfiles.delete(deviceId);
@@ -6386,7 +6481,13 @@ export function recordPatchTest(deviceId: string, shopId: string): void {
 
 export function setBirthday(deviceId: string, mmdd: string | null): void {
   const profile = careProfile(deviceId);
-  if (mmdd && !/^\d{2}-\d{2}$/.test(mmdd)) throw new Error('bad_birthday');
+  if (mmdd) {
+    if (!/^\d{2}-\d{2}$/.test(mmdd)) throw new Error('bad_birthday');
+    // A German day-first "24-12" must bounce loudly, not store month 24 and
+    // fire the birthday club in the wrong fortnight.
+    const [mm, dd] = mmdd.split('-').map(Number);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) throw new Error('bad_birthday');
+  }
   state.careProfiles.set(deviceId, { ...profile, birthday: mmdd || undefined });
   persist();
 }
@@ -6407,18 +6508,6 @@ export function setAccessNeeds(deviceId: string, access: AccessNeeds | null): vo
   persist();
 }
 
-/** The one line the floor needs: the profile's needs, spelled out. */
-function accessNoteOf(deviceId: string): string {
-  const a = careProfile(deviceId).access;
-  if (!a) return '';
-  const bits: string[] = [];
-  if (a.wheelchair) bits.push('♿');
-  if (a.quiet) bits.push('🤫 quiet');
-  if (a.extraTime) bits.push('⏳ extra time');
-  if (a.writtenOnly) bits.push('✍️ written contact');
-  if (a.note) bits.push(a.note);
-  return bits.join(' · ');
-}
 
 export const BIRTHDAY_WINDOW_DAYS = 14;
 
@@ -6489,9 +6578,71 @@ export function setResources(shopId: string, res: ShopResources): void {
 }
 
 /**
- * Is the bottleneck (basin / colour station) already at capacity somewhere in
- * this window? 0 or unset capacity means the resource is not tracked.
+ * How many more simultaneous seats the tracked bottleneck (basin / colour
+ * station) can take in this window. Infinity when nothing is tracked for
+ * these services. The measure is PEAK concurrency, not overlap count: two
+ * back-to-back basin bookings are one basin, not two — and a booking only
+ * occupies its resource during its staffRanges, so a released Einwirkzeit
+ * gap frees the station for someone else.
  */
+function resourceRoom(
+  shopId: string,
+  services: SeedService[],
+  startsAt: number,
+  endsAt: number,
+  excludeBookingId?: string,
+): number {
+  const caps = state.resources.get(shopId);
+  if (!caps) return Number.POSITIVE_INFINITY;
+  const kinds = new Set(services.map((s) => s.resource).filter(Boolean)) as Set<'basin' | 'colour'>;
+  if (kinds.size === 0) return Number.POSITIVE_INFINITY;
+  const menu = new Map(effectiveServices(shopId).map((s) => [s.id, s]));
+  const now = Date.now();
+  let room = Number.POSITIVE_INFINITY;
+  for (const kind of kinds) {
+    const cap = kind === 'basin' ? caps.basins : caps.colourStations;
+    if (cap === 0) continue; // not tracked
+    const events: Array<[number, number]> = [];
+    for (const b of state.bookings.values()) {
+      if (b.shopId !== shopId || b.id === excludeBookingId || !bookingBlocks(b, now)) continue;
+      if (!b.serviceIds.some((id) => menu.get(id)?.resource === kind)) continue;
+      // Prime holds no staffRanges but still sits at a station — full span.
+      const ranges = b.staffRanges.length ? b.staffRanges : [{ start: b.startsAt, end: b.endsAt }];
+      for (const r of ranges) {
+        const s = Math.max(r.start, startsAt);
+        const e = Math.min(r.end, endsAt);
+        if (s < e) events.push([s, 1], [e, -1]);
+      }
+    }
+    // Ends sort before starts at the same instant: back-to-back ≠ concurrent.
+    events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    let cur = 0;
+    let peak = 0;
+    for (const [, d] of events) {
+      cur += d;
+      if (cur > peak) peak = cur;
+    }
+    room = Math.min(room, cap - peak);
+  }
+  return room;
+}
+
+/** The peak-concurrency room for a basket in a window, by service ids. */
+export function resourceRoomFor(
+  shopId: string,
+  serviceIds: string[],
+  startsAt: number,
+  endsAt: number,
+): number {
+  const shop = shopById(shopId);
+  if (!shop) throw new Error('shop_not_found');
+  const services = serviceIds
+    .map((id) => serviceOf(shop, id))
+    .filter((s): s is SeedService => Boolean(s));
+  return resourceRoom(shopId, services, startsAt, endsAt);
+}
+
+/** Is the bottleneck already at capacity somewhere in this window? */
 function resourceConflict(
   shopId: string,
   services: SeedService[],
@@ -6499,24 +6650,7 @@ function resourceConflict(
   endsAt: number,
   excludeBookingId?: string,
 ): boolean {
-  const caps = state.resources.get(shopId);
-  if (!caps) return false;
-  const kinds = new Set(services.map((s) => s.resource).filter(Boolean)) as Set<'basin' | 'colour'>;
-  if (kinds.size === 0) return false;
-  const menu = new Map(effectiveServices(shopId).map((s) => [s.id, s]));
-  const now = Date.now();
-  for (const kind of kinds) {
-    const cap = kind === 'basin' ? caps.basins : caps.colourStations;
-    if (cap === 0) continue; // not tracked
-    let used = 0;
-    for (const b of state.bookings.values()) {
-      if (b.shopId !== shopId || b.id === excludeBookingId || !bookingBlocks(b, now)) continue;
-      if (!overlaps({ start: b.startsAt, end: b.endsAt }, { start: startsAt, end: endsAt })) continue;
-      if (b.serviceIds.some((id) => menu.get(id)?.resource === kind)) used += 1;
-    }
-    if (used >= cap) return true;
-  }
-  return false;
+  return resourceRoom(shopId, services, startsAt, endsAt, excludeBookingId) < 1;
 }
 
 export interface GapWindow {
@@ -6652,7 +6786,9 @@ export function packageRemaining(pk: OwnedPackage): number {
   let used = 0;
   for (const b of state.bookings.values()) {
     if (b.packageId !== pk.id) continue;
-    if (b.status === 'completed' || bookingBlocks(b, now)) used += 1;
+    // A no-show spends the use: the seat and the stylist hour are gone, and a
+    // prepaid card is not a licence to stand people up for free.
+    if (b.status === 'completed' || b.status === 'no_show' || bookingBlocks(b, now)) used += 1;
   }
   return Math.max(0, pk.total - used);
 }
@@ -6828,13 +6964,21 @@ export function createGroupHold(input: HoldInput, friendNames: string[]): HoldRe
   const isoDate = isoDateOf(input.startsAt);
   const now = Date.now();
 
+  const partySize = extra.length + 1;
   const rollback = (): never => {
     for (const r of results) deleteBooking(r.bookingId);
     state.idempotency.delete(input.idempotencyKey);
     for (let i = 0; i < extra.length; i++) state.idempotency.delete(`${input.idempotencyKey}-g${i}`);
     const { slots } = availability(input.shopId, input.serviceIds, isoDate, input.deviceId, null);
     throw new SlotTaken(
-      slots.filter((s) => s.staffIds.length >= extra.length + 1 && s.start !== input.startsAt).slice(0, 6),
+      slots
+        .filter(
+          (s) =>
+            s.staffIds.length >= partySize &&
+            (s.resourceRoom === undefined || s.resourceRoom >= partySize) &&
+            s.start !== input.startsAt,
+        )
+        .slice(0, 6),
     );
   };
 
@@ -6853,19 +6997,30 @@ export function createGroupHold(input: HoldInput, friendNames: string[]): HoldRe
       }
     }
     if (!partnerId) rollback();
-    const seat = createHold({
-      ...input,
-      staffId: partnerId,
-      guestName: extra[i],
-      guestPhone: undefined,
-      guestNote: undefined,
-      voucherCode: undefined,
-      pointsToSpend: undefined,
-      useStampReward: undefined,
-      usePackageId: undefined,
-      forPersonId: undefined,
-      idempotencyKey: `${input.idempotencyKey}-g${i}`,
-    });
+    // The seat contract can still refuse — a basin at capacity, a race — and
+    // a partly seated group must dissolve whole, not leave orphan holds.
+    let seat: HoldResult;
+    try {
+      seat = createHold({
+        ...input,
+        staffId: partnerId,
+        guestName: extra[i],
+        guestPhone: undefined,
+        guestNote: undefined,
+        voucherCode: undefined,
+        pointsToSpend: undefined,
+        useStampReward: undefined,
+        usePackageId: undefined,
+        forPersonId: undefined,
+        forMinor: undefined,
+        guardianName: undefined,
+        skipAutoPerks: true,
+        idempotencyKey: `${input.idempotencyKey}-g${i}`,
+      });
+    } catch {
+      rollback();
+      throw new Error('unreachable');
+    }
     usedStaff.add(state.bookings.get(seat.bookingId)!.staffId);
     results.push(seat);
   }
@@ -6932,6 +7087,18 @@ export function addAvailabilityWatch(
 ): AvailabilityWatch {
   if (!shopById(shopId)) throw new Error('shop_not_found');
   if (dow !== null && (dow < 1 || dow > 7)) throw new Error('bad_dow');
+  // Same wish twice is one bell, not two.
+  for (const existing of state.watches.values()) {
+    if (
+      existing.deviceId === deviceId &&
+      existing.shopId === shopId &&
+      existing.serviceId === serviceId &&
+      existing.staffId === staffId &&
+      existing.dow === dow
+    ) {
+      return existing;
+    }
+  }
   const w: AvailabilityWatch = {
     id: `wa-${state.seq++}-${Date.now().toString(36)}`,
     deviceId,

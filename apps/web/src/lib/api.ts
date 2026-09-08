@@ -385,7 +385,7 @@ export async function apiSetStatus(
 export async function apiPatchService(
   shopId: string,
   serviceId: string,
-  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined },
+  patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | null },
 ): Promise<void> {
   const mode = backendMode();
   if (mode === 'server') {
@@ -2274,7 +2274,10 @@ export async function apiOpenDispute(
 ): Promise<{ ok: boolean; error?: string }> {
   await localWrite();
   try {
-    store.openDispute(bookingId, deviceId(), kind, text);
+    const d = store.openDispute(bookingId, deviceId(), kind, text);
+    // Disputes travel inside the shop config doc — same pattern as customer
+    // messages: the customer's device pushes so the shop's device can see it.
+    syncConfig(d.shopId);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
@@ -2297,8 +2300,15 @@ export async function apiResolveDispute(
   resolution: { kind: 'redo' | 'goodwill' | 'declined'; note?: string },
 ): Promise<void> {
   await localWrite();
-  store.resolveDispute(shopId, disputeId, resolution);
+  const d = store.resolveDispute(shopId, disputeId, resolution);
   syncConfig(shopId);
+  // Goodwill lives on the booking (b.goodwill), and bookings sync via
+  // set_booking, not the config doc — without this push the customer's
+  // device would never see the €5 apology.
+  if (backendMode() === 'supabase') {
+    const b = store.getBooking(d.bookingId);
+    if (b) await sb.pushBooking(b).catch(() => {});
+  }
 }
 
 /** A stylist's public metadata (today: their languages). */

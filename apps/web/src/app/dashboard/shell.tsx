@@ -87,7 +87,13 @@ export interface Overview {
     needsConsult: boolean;
     allergies: string[];
     guardianName: string | null;
-    accessNote: string | null;
+    access: {
+      wheelchair?: boolean;
+      quiet?: boolean;
+      extraTime?: boolean;
+      writtenOnly?: boolean;
+      note?: string;
+    } | null;
   }>;
   week: Array<{ iso: string; revenueCents: number }>;
 }

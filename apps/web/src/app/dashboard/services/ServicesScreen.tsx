@@ -36,7 +36,7 @@ function ServicesTab({ shopId }: { shopId: string }) {
 
   const patchService = async (
     sid: string,
-    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | undefined },
+    patch: { basePriceCents?: number; durationMin?: number; dynamicPricing?: boolean; categoryId?: string; requiresPatchTest?: boolean; consultationFirst?: boolean; resource?: 'basin' | 'colour' | null },
   ) => {
     await apiPatchService(shopId, sid, patch);
     setToast('💾 OK');
@@ -156,12 +156,13 @@ function ServicesTab({ shopId }: { shopId: string }) {
                     aria-label={t('rs_col_hint')}
                     value={s.resource ?? ''}
                     onChange={(e) =>
-                      void patchService(s.id, { resource: (e.target.value || undefined) as 'basin' | 'colour' | undefined })
+                      // null, not undefined: "cleared" must survive JSON.
+                      void patchService(s.id, { resource: (e.target.value || null) as 'basin' | 'colour' | null })
                     }
                   >
-                    <option value="">—</option>
-                    <option value="basin">🚿</option>
-                    <option value="colour">🎨</option>
+                    <option value="">{t('rs_none')}</option>
+                    <option value="basin">🚿 {t('rs_basins')}</option>
+                    <option value="colour">🎨 {t('rs_colour')}</option>
                   </select>
                 </td>
                 <td>

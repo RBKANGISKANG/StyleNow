@@ -56,7 +56,7 @@ interface Bk {
   staffId: string;
   staffName: string | null;
   vatCents: number;
-  breakdown: Array<{ label: string; cents: number }>;
+  breakdown: Array<{ label: string; cents: number; key?: string; vars?: Record<string, string | number> }>;
   shopAddress: string;
   guestName: string;
   seriesId: string | null;
@@ -918,7 +918,11 @@ function DisputeBox({ bookingId }: { bookingId: string }) {
       ) : (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <label className="chip">
-            <select value={kind} onChange={(e) => setKind(e.target.value as 'result' | 'fee' | 'other')}>
+            <select
+              aria-label={t('dq_kind')}
+              value={kind}
+              onChange={(e) => setKind(e.target.value as 'result' | 'fee' | 'other')}
+            >
               <option value="result">{t('dq_result')}</option>
               <option value="fee">{t('dq_fee')}</option>
               <option value="other">{t('dq_other')}</option>
