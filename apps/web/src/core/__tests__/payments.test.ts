@@ -1450,7 +1450,12 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   const dev = 'dev-corp';
   assert.throws(() => buyCorporateBatch(shop.id, dev, 'Tiny GmbH', 2, 5000), /bad_count/);
   assert.throws(() => buyCorporateBatch(shop.id, dev, '   ', 10, 5000), /company_required/);
+  const giftBefore = giftCardsForShop(shop.id);
   const batch = buyCorporateBatch(shop.id, dev, 'Späti Ventures GmbH', 10, 5000);
+  // no double books: the batch lives in the B2B section, not the gift KPIs
+  const giftAfter = giftCardsForShop(shop.id);
+  assert.equal(giftAfter.soldCents, giftBefore.soldCents, 'the gift-card KPIs do not re-count the batch at face value');
+  assert.ok(giftAfter.cards.every((c) => !batch.codes.includes(c.code)), 'batch codes stay out of the gift-card list');
   assert.equal(batch.codes.length, 10);
   assert.equal(batch.discountPct, 10);
   assert.equal(batch.paidCents, 45000, 'ten €50 cards cost €450 with the volume discount');
@@ -1469,7 +1474,38 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal((ex.corporateBatches as unknown[]).length, 1);
   eraseMyData(dev);
   assert.equal(myCorporateBatches(dev)[0].company, '—', 'erasure blanks the company name');
+  assert.equal(giftCard(batch.codes[0])!.fromName, undefined, 'the name is gone from every minted card too');
+  assert.equal(giftCard(batch.codes[0])!.balanceCents, 5000, 'the value stays for the recipient');
   assert.equal(corporateBatchesForShop(shop.id).paidCents, 45000, 'the books still add up');
+}
+
+// Feed honesty: a €0 planning call is not a price, and "at home" is a
+// property, not a genre.
+{
+  const eclat = feed({}).find((c) => c.shopId === 'shop-eclat');
+  assert.ok(eclat && eclat.priceFromCents > 0, 'the concierge suite is not "from €0"');
+  const priced = feed({ sortBy: 'price' });
+  assert.notEqual(priced[0]?.shopId, 'shop-eclat', 'the most expensive shop does not lead the price sort');
+  const atHome = feed({ category: 'mobile' });
+  assert.ok(atHome.some((c) => c.shopId === 'shop-mobile-physio'), 'the At-home chip finds the mobile physio');
+  assert.ok(atHome.every((c) => c.isMobile), 'and only shops that actually come to you');
+}
+
+// 18+ bookings always carry the ID flag — the studio checks at the door.
+{
+  const tat = allShops().find((s) => s.id === 'shop-schwarzwerk')!;
+  const pierce = tat.services.find((s) => s.adultsOnly && s.durationMin <= 30)!;
+  const dev = 'dev-idcheck';
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(tat.id, [pierce.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: tat.id, serviceIds: [pierce.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'A', forPersonId: 'p-cousin', idempotencyKey: `idc-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a piercing booked for someone else');
+  assert.equal(getBooking(held)!.needsIdCheck, true, 'booking for a third person still flags the ID check');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, and verticals');

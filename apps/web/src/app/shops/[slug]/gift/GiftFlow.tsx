@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { money, dateOf } from '@/lib/format';
-import { apiBuyGiftCard, apiGiftTreatment, apiShopServices, apiBuyCorporateBatch, type GiftCard } from '@/lib/api';
+import { apiBuyGiftCard, apiGiftTreatment, apiShopServices, apiBuyCorporateBatch, apiMyCorporateBatches, type GiftCard } from '@/lib/api';
 import { PayMethod } from '@/components/PayMethod';
 import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { GIFT_MIN_CENTS, GIFT_MAX_CENTS, corporateDiscountPct, type CorporateBatch } from '@/core/store';
@@ -152,9 +152,67 @@ const CORP_COUNTS = [5, 10, 20, 50];
 const CORP_AMOUNTS = [2500, 5000, 10000];
 
 /**
+ * Copy with a fallback: the async clipboard API is absent on plain-HTTP
+ * demos and some webviews, and "the button did nothing" is the worst
+ * possible outcome for the one artifact the purchase produced.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the legacy path
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** One batch's codes, with a screen-reader-announced copy button. */
+function BatchCodes({ batch }: { batch: CorporateBatch }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
+  return (
+    <>
+      <pre style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.82rem', lineHeight: 1.7, overflowX: 'auto', margin: 0 }}>
+        {batch.codes.join('\n')}
+      </pre>
+      <button
+        className="btn btn-soft sm"
+        style={{ marginTop: 10 }}
+        onClick={() => {
+          void copyText(batch.codes.join('\n')).then((ok) => {
+            setCopied(ok ? 'ok' : 'fail');
+            setTimeout(() => setCopied('idle'), 2500);
+          });
+        }}
+      >
+        📋 {copied === 'ok' ? t('corp_copied') : copied === 'fail' ? t('corp_copy_fail') : t('corp_copy')}
+      </button>
+      <span role="status" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+        {copied === 'ok' ? t('corp_copied') : copied === 'fail' ? t('corp_copy_fail') : ''}
+      </span>
+    </>
+  );
+}
+
+/**
  * The B2B door on the same page: N ordinary gift cards in one order, at a
  * volume discount. Each code redeems at checkout like any other card — the
- * discount was the company's, the face value is the employee's.
+ * discount was the company's, the face value is the employee's. Past orders
+ * are listed here too, so a closed tab does not eat the codes.
  */
 function CorporatePanel({ shop }: { shop: { id: string; name: string } }) {
   const { t, lang } = useI18n();
@@ -164,90 +222,102 @@ function CorporatePanel({ shop }: { shop: { id: string; name: string } }) {
   const [amount, setAmount] = useState(5000);
   const [pay, setPay] = useState<PaymentChoice | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [batch, setBatch] = useState<CorporateBatch | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [previous, setPrevious] = useState<CorporateBatch[]>([]);
+  const [showPrev, setShowPrev] = useState('');
+
+  useEffect(() => {
+    void apiMyCorporateBatches().then((all) => setPrevious(all.filter((b) => b.shopId === shop.id)));
+  }, [shop.id, batch]);
 
   const pct = corporateDiscountPct(count);
   const listCents = count * amount;
   const totalCents = Math.round((listCents * (100 - pct)) / 100);
 
-  if (batch) {
-    return (
-      <div className="panel" style={{ marginTop: 16 }}>
-        <h3>💼 {t('corp_done', { n: String(batch.count), company: batch.company })}</h3>
-        <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 10px' }}>{t('corp_codes_hint')}</p>
-        <pre style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.82rem', lineHeight: 1.7, overflowX: 'auto', margin: 0 }}>
-          {batch.codes.join('\n')}
-        </pre>
-        <button
-          className="btn btn-soft sm"
-          style={{ marginTop: 10 }}
-          onClick={() => {
-            void navigator.clipboard?.writeText(batch.codes.join('\n')).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            });
-          }}
-        >
-          📋 {copied ? t('corp_copied') : t('corp_copy')}
-        </button>
-      </div>
-    );
-  }
+  const prevList = previous.filter((b) => b.id !== batch?.id);
 
   return (
     <div className="panel" style={{ marginTop: 16 }}>
-      <h3>💼 {t('corp_title')}</h3>
-      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 10px', lineHeight: 1.5 }}>{t('corp_sub')}</p>
-      {!open ? (
-        <button className="btn btn-soft sm" onClick={() => setOpen(true)}>
-          {t('corp_open')}
-        </button>
+      {batch ? (
+        <>
+          <h3>💼 {t('corp_done', { n: String(batch.count), company: batch.company })}</h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 10px' }}>{t('corp_codes_hint')}</p>
+          <BatchCodes batch={batch} />
+        </>
       ) : (
         <>
-          <input className="input" placeholder={t('corp_company')} value={company} maxLength={60}
-            onChange={(e) => setCompany(e.target.value)} />
-          <div className="filter-row" style={{ marginTop: 8 }}>
-            <label className="chip">
-              🃏 {t('corp_count')}
-              <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
-                {CORP_COUNTS.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label className="chip">
-              💶 {t('gc_amount')}
-              <select value={amount} onChange={(e) => setAmount(Number(e.target.value))}>
-                {CORP_AMOUNTS.map((c) => (
-                  <option key={c} value={c}>{money(c, lang)}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p style={{ fontSize: '0.85rem', margin: '10px 0 0' }}>
-            {t('corp_maths', { list: money(listCents, lang), pct: String(pct) })}{' '}
-            <strong>{money(totalCents, lang)}</strong>
-          </p>
-          <PayMethod amountCents={totalCents} onChange={setPay} />
-          <button
-            className="btn btn-primary"
-            style={{ width: '100%', marginTop: 10 }}
-            disabled={!company.trim() || !pay || busy}
-            onClick={async () => {
-              if (!pay) return;
-              setBusy(true);
-              const r = await apiBuyCorporateBatch(shop.id, company, count, amount, pay);
-              setBusy(false);
-              if (r.ok) {
-                rememberPayment(pay);
-                setBatch(r.batch);
-              }
-            }}
-          >
-            {busy ? '…' : `💼 ${t('corp_buy')} · ${money(totalCents, lang)}`}
-          </button>
+          <h3>💼 {t('corp_title')}</h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 10px', lineHeight: 1.5 }}>{t('corp_sub')}</p>
+          {!open ? (
+            <button className="btn btn-soft sm" onClick={() => setOpen(true)}>
+              {t('corp_open')}
+            </button>
+          ) : (
+            <>
+              <input className="input" placeholder={t('corp_company')} aria-label={t('corp_company')} required
+                aria-required="true" value={company} maxLength={60} onChange={(e) => setCompany(e.target.value)} />
+              <div className="filter-row" style={{ marginTop: 8 }}>
+                <label className="chip">
+                  🃏 {t('corp_count')}
+                  <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
+                    {CORP_COUNTS.map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="chip">
+                  💶 {t('gc_amount')}
+                  <select value={amount} onChange={(e) => setAmount(Number(e.target.value))}>
+                    {CORP_AMOUNTS.map((c) => (
+                      <option key={c} value={c}>{money(c, lang)}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <p style={{ fontSize: '0.85rem', margin: '10px 0 0' }}>
+                {t('corp_maths', { list: money(listCents, lang), pct: String(pct) })}{' '}
+                <strong>{money(totalCents, lang)}</strong>
+              </p>
+              <PayMethod amountCents={totalCents} onChange={setPay} />
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: 10 }}
+                disabled={!company.trim() || !pay || busy}
+                onClick={async () => {
+                  if (!pay) return;
+                  setBusy(true);
+                  setError('');
+                  const r = await apiBuyCorporateBatch(shop.id, company, count, amount, pay);
+                  setBusy(false);
+                  if (r.ok) {
+                    rememberPayment(pay);
+                    setBatch(r.batch);
+                  } else {
+                    setError(t('corp_error'));
+                  }
+                }}
+              >
+                {busy ? '…' : `💼 ${t('corp_buy')} · ${money(totalCents, lang)}`}
+              </button>
+              {error && <p className="pm-err" role="alert">{error}</p>}
+            </>
+          )}
         </>
+      )}
+
+      {prevList.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <h3 style={{ fontSize: '0.85rem' }}>{t('corp_prev')}</h3>
+          {prevList.map((b) => (
+            <div key={b.id} style={{ marginTop: 6 }}>
+              <button className="btn btn-ghost sm" onClick={() => setShowPrev(showPrev === b.id ? '' : b.id)}>
+                {showPrev === b.id ? '▾' : '▸'} <strong>{b.company}</strong> · {b.count} × {money(b.amountCents, lang)} · {dateOf(b.createdAt, lang)}
+              </button>
+              {showPrev === b.id && <BatchCodes batch={b} />}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -144,6 +144,13 @@ export interface Booking {
   needsPatchTest?: boolean;
   /** A consultation-first treatment booked without a prior consultation here. */
   needsConsult?: boolean;
+  /**
+   * An 18+ service (tattoo, piercing). The device only vouches for its own
+   * declared age, so EVERY such booking carries the flag — the studio checks
+   * ID at the door, which is how the law is actually satisfied. Bookings
+   * declared for a minor are refused outright before this is ever set.
+   */
+  needsIdCheck?: boolean;
   /** The visit is for a minor; the named adult answers for it. */
   minor?: { guardianName: string };
   /**
@@ -2564,11 +2571,26 @@ export interface FeedCard {
   coverUrl: string | null;
 }
 
+/**
+ * "from €X" must be a price someone would pay: a free planning call or a €0
+ * consultation service must not make the concierge suite the cheapest shop
+ * in Berlin (price sort, budget fit, the card's own label).
+ */
+function priceFromOf(shopId: string): number {
+  const priced = effectiveServices(shopId)
+    .map((sv) => sv.basePriceCents)
+    .filter((c) => c > 0);
+  return priced.length ? Math.min(...priced) : 0;
+}
+
 export function feed(q: FeedQuery): FeedCard[] {
   const now = Date.now();
   const origin = q.lat !== undefined && q.lng !== undefined ? { lat: q.lat, lng: q.lng } : USER_LOCATION;
   let shops = allShops();
-  if (q.category) shops = shops.filter((s) => s.category === q.category);
+  // "At home" is a property, not a genre: a mobile physio is category
+  // 'physio' AND comes to you, so the chip filters on the flag.
+  if (q.category === 'mobile') shops = shops.filter((s) => s.isMobile);
+  else if (q.category) shops = shops.filter((s) => s.category === q.category);
   if (q.minRating) shops = shops.filter((s) => s.ratingAvg >= q.minRating!);
   // Parents filter for places built for children, not merely tolerant of them.
   if (q.kidsFriendly) shops = shops.filter((s) => s.kidsFriendly);
@@ -2599,7 +2621,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       ratingAvg: s.ratingAvg,
       ratingCount: s.ratingCount,
-      priceFromCents: Math.min(...effectiveServices(s.id).map((sv) => sv.basePriceCents)),
+      priceFromCents: priceFromOf(s.id),
       semanticSimilarity: s.semanticSimilarity,
       tagOverlap: q.category && s.category === q.category ? 1 : 0.3,
       minutesToFirstSlot: mins,
@@ -2635,7 +2657,7 @@ export function feed(q: FeedQuery): FeedCard[] {
       tagline: s.tagline,
       ratingAvg: s.ratingAvg,
       ratingCount: s.ratingCount,
-      priceFromCents: Math.min(...effectiveServices(s.id).map((sv) => sv.basePriceCents)),
+      priceFromCents: priceFromOf(s.id),
       distanceM: haversineM(origin, { lat: s.lat, lng: s.lng }),
       isNew: s.isNew,
       isMobile: s.isMobile,
@@ -2962,6 +2984,9 @@ export function createHold(input: HoldInput): HoldResult {
       services.some((s) => s.consultationFirst) && !consultDone(input.deviceId, input.shopId)
         ? true
         : undefined,
+    // 18+ services always get the ID flag — a booking "for" someone else
+    // especially, but a device's own claim is not proof of age either.
+    needsIdCheck: services.some((s) => s.adultsOnly) ? true : undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -3597,6 +3622,7 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       techFormula: latestTechRecord(shopId, customerKeyOf(b))?.record.formula ?? null,
       needsPatchTest: b.needsPatchTest ?? false,
       needsConsult: b.needsConsult ?? false,
+      needsIdCheck: b.needsIdCheck ?? false,
       allergies: careProfile(b.deviceId).allergies,
       guardianName: b.minor?.guardianName ?? null,
       access: b.access ?? null,
@@ -3778,7 +3804,8 @@ export const GIFT_MAX_CENTS = 50000;
 /** No 0/O, 1/I/L — a code read over the phone must survive the phone. */
 const GIFT_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
-export function buyGiftCard(
+/** Mint without persisting — buyCorporateBatch mints up to 50 in one go. */
+function mintGiftCard(
   shopId: string,
   deviceId: string,
   amountCents: number,
@@ -3807,6 +3834,17 @@ export function buyGiftCard(
     redemptions: [],
   };
   state.giftCards.set(code, card);
+  return card;
+}
+
+export function buyGiftCard(
+  shopId: string,
+  deviceId: string,
+  amountCents: number,
+  opts: { toName?: string; fromName?: string; message?: string } = {},
+  payment?: { method: PaymentMethod; label: string },
+): GiftCard {
+  const card = mintGiftCard(shopId, deviceId, amountCents, opts, payment);
   persist();
   return card;
 }
@@ -3848,8 +3886,9 @@ export function buyCorporateBatch(
   if (amountCents < GIFT_MIN_CENTS || amountCents > GIFT_MAX_CENTS) throw new Error('bad_amount');
   const discountPct = corporateDiscountPct(count);
   const codes: string[] = [];
+  // mint, don't buy: one persist for the whole order, not one per card
   for (let i = 0; i < count; i++) {
-    codes.push(buyGiftCard(shopId, deviceId, amountCents, { fromName: name }, payment).code);
+    codes.push(mintGiftCard(shopId, deviceId, amountCents, { fromName: name }, payment).code);
   }
   const batch: CorporateBatch = {
     id: `cb-${state.seq++}-${Date.now().toString(36)}`,
@@ -3892,15 +3931,23 @@ export function giftCardsForDevice(deviceId: string): GiftCard[] {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** The liability view: what was sold, and how much of it is still unredeemed. */
+/**
+ * The liability view: what was sold, and how much of it is still unredeemed.
+ * Corporate-batch cards are excluded — they live in the B2B section, and
+ * counting them here would book the same order twice (and at face value,
+ * when the company actually paid the discounted price).
+ */
 export function giftCardsForShop(shopId: string): {
   soldCount: number;
   soldCents: number;
   outstandingCents: number;
   cards: GiftCard[];
 } {
+  const corpCodes = new Set(
+    [...state.corporate.values()].filter((b) => b.shopId === shopId).flatMap((b) => b.codes),
+  );
   const cards = [...state.giftCards.values()]
-    .filter((c) => c.shopId === shopId)
+    .filter((c) => c.shopId === shopId && !corpCodes.has(c.code))
     .sort((a, b) => b.createdAt - a.createdAt);
   return {
     soldCount: cards.length,
@@ -6066,8 +6113,15 @@ export function eraseMyData(deviceId: string): number {
   for (const [id, pk] of state.packages) if (pk.deviceId === deviceId) state.packages.delete(id);
   // the complaint's paper trail stays for the shop, the words do not
   for (const d of state.disputes.values()) if (d.deviceId === deviceId) d.text = '—';
-  // the order's numbers stay (the shop's books), the company name does not
+  // the order's numbers stay (the shop's books), the company name does not —
+  // and the name was stamped onto every minted card, so those copies go too
   for (const cb of state.corporate.values()) if (cb.deviceId === deviceId) cb.company = '—';
+  for (const c of state.giftCards.values()) {
+    if (c.buyerDeviceId !== deviceId) continue;
+    delete c.fromName;
+    delete c.toName;
+    delete c.message;
+  }
   state.people.delete(deviceId);
   // health data is the most sensitive record in the system — it goes first
   state.careProfiles.delete(deviceId);

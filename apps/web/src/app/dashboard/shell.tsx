@@ -85,6 +85,7 @@ export interface Overview {
     techFormula: string | null;
     needsPatchTest: boolean;
     needsConsult: boolean;
+    needsIdCheck: boolean;
     allergies: string[];
     guardianName: string | null;
     access: {

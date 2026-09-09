@@ -2326,6 +2326,17 @@ export async function apiBuyCorporateBatch(
   amountCents: number,
   payment?: { method: PaymentMethod; label: string },
 ): Promise<{ ok: true; batch: store.CorporateBatch } | { ok: false; error: string }> {
+  if (backendMode() === 'server') {
+    // Same door as every gift-card sibling: the codes must exist where the
+    // booking checkout will validate them, not only in this browser.
+    const res = await fetch(`/api/shop/${shopId}/corporate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ company, count, amountCents, payment, deviceId: deviceId() }),
+    });
+    const body = await res.json().catch(() => ({}));
+    return res.ok ? { ok: true, batch: body.batch } : { ok: false, error: body.error ?? 'error' };
+  }
   await localWrite();
   try {
     return { ok: true, batch: store.buyCorporateBatch(shopId, deviceId(), company, count, amountCents, payment) };
@@ -2335,11 +2346,19 @@ export async function apiBuyCorporateBatch(
 }
 
 export async function apiMyCorporateBatches(): Promise<store.CorporateBatch[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/me/corporate?deviceId=${encodeURIComponent(deviceId())}`);
+    return res.ok ? (await res.json()).batches : [];
+  }
   await readyForRead();
   return store.myCorporateBatches(deviceId());
 }
 
-export async function apiCorporateForShop(shopId: string): Promise<ReturnType<typeof store.corporateBatchesForShop>> {
+export async function apiCorporateForShop(shopId: string): Promise<ReturnType<typeof store.corporateBatchesForShop> | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/corporate`);
+    return res.ok ? await res.json() : null;
+  }
   await readyForRead();
   return store.corporateBatchesForShop(shopId);
 }

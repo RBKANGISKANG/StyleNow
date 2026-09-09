@@ -84,13 +84,21 @@ console.log('moves: stranger refused, owner moved and was stamped, late move ref
 // --- standing appointments ----------------------------------------------------
 
 // The demo synthesises busy blocks for every stylist-day, so pick a parent
-// time that is verifiably free at +4 and +8 weeks too (times in the offered
-// slot list are guaranteed free — it is a thinned subset of the free grid).
-const week4 = availability(shop.id, [svc.id], addDays(iso2, 28), 'dev-cust', staff.id).slots.map((s) => s.start);
-const seed = slots.find((s) => s.start !== booking.startsAt && week4.includes(s.start + 28 * 864e5));
+// time that is verifiably free at +4 weeks too (times in the offered slot
+// list are guaranteed free — it is a thinned subset of the free grid). One
+// day is not always enough — the two thinned grids may simply not intersect
+// on a given weekday — so scan forward until a pair of days lines up.
+let seed: { start: number } | undefined;
+for (let d = 0; d < 15 && !seed; d++) {
+  const dayIso = addDays(iso2, d);
+  if (![1, 2, 3, 4, 5].includes(isoDow(dayStart(dayIso)))) continue;
+  const daySlots = d === 0 ? slots : availability(shop.id, [svc.id], dayIso, 'dev-cust', staff.id).slots;
+  const week4 = availability(shop.id, [svc.id], addDays(dayIso, 28), 'dev-cust', staff.id).slots.map((s) => s.start);
+  seed = daySlots.find((s) => s.start !== booking.startsAt && week4.includes(s.start + 28 * 864e5));
+}
 assert.ok(seed, 'fixture: no time free four weeks later — adjust the search');
 
-// Put the series parent on that time.
+// Put the series parent on that time (fixture surgery, same as line 76).
 booking.startsAt = seed!.start;
 
 // A stranger cannot start a series on someone else's booking.

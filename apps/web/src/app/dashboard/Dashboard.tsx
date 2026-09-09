@@ -422,6 +422,9 @@ function TodayTab({ shopId }: { shopId: string }) {
                         {b.needsConsult && (
                           <span className="cus-tag risk" title={t('cf_row_hint')} style={{ marginLeft: 4 }}>💬</span>
                         )}
+                        {b.needsIdCheck && (
+                          <span className="cus-tag risk" title={t('id_row_hint')} style={{ marginLeft: 4 }}>🪪</span>
+                        )}
                         {b.guardianName && (
                           <span className="cus-tag risk" title={t('mn_row_hint', { who: b.guardianName })} style={{ marginLeft: 4 }}>🧒</span>
                         )}
