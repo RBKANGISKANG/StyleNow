@@ -20,6 +20,7 @@ import {
   apiSavedPeople,
   apiCustomerRecap,
   apiCheckIn,
+  apiSetRunningLate,
   apiRecordPatchTest,
   apiDayDrift,
   apiMyPackages,
@@ -65,6 +66,7 @@ interface Bk {
   forPersonId: string | null;
   goodwillCode: string | null;
   checkedInAt: number | null;
+  lateByMin: number | null;
   needsPatchTest: boolean;
   wouldRepeat: boolean;
   review: { rating: number; text: string; date: string } | null;
@@ -433,6 +435,35 @@ export default function BookingsPage() {
                 <Link className="btn btn-soft sm" href={`/messages?shop=${b.shop.id}`}>
                   💬 {t('mg_shop_thread')}
                 </Link>
+                {/* "Stuck on the U-Bahn" — one tap, and the floor re-plans
+                    instead of wondering. Only near the start, like check-in. */}
+                {b.startsAt - now <= 12 * 36e5 && now < b.startsAt && !b.checkedInAt && (
+                  b.lateByMin ? (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--amber, #b45309)', fontWeight: 700, alignSelf: 'center' }}>
+                      🏃 {t('rl_set', { n: String(b.lateByMin) })}
+                    </span>
+                  ) : (
+                    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--ink-soft)' }}>{t('rl_q')}</span>
+                      {[10, 20, 30].map((n) => (
+                        <button
+                          key={n}
+                          className="btn btn-ghost sm"
+                          onClick={() => {
+                            void apiSetRunningLate(b.id, n).then((ok) => {
+                              if (ok) {
+                                setToast('🏃 ' + t('rl_toast'));
+                                void load();
+                              }
+                            });
+                          }}
+                        >
+                          +{n}
+                        </button>
+                      ))}
+                    </span>
+                  )
+                )}
                 {/* One tap at the door: the floor sees an arrived dot. */}
                 {Math.abs(b.startsAt - now) <= 45 * 60000 &&
                   (b.checkedInAt ? (

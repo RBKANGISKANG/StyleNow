@@ -38,6 +38,7 @@ import {
   createDuoHold, resourceRoomFor, myMembership, bookingsForDevice, effectiveServices,
   exportShopConfig, applyShopConfig, patchService, serviceOverrideEntries,
   feed, buyCorporateBatch, corporateDiscountPct, myCorporateBatches, corporateBatchesForShop,
+  setBundleDiscount, setRunningLate, shopStatus, threadsForDevice, shopThreads,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -1508,4 +1509,86 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(getBooking(held)!.needsIdCheck, true, 'booking for a third person still flags the ID check');
 }
 
-console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, and verticals');
+// ---------------------------------------------------------------------------
+// round 5: bundle discount, running late, occasions, quotes, open-now
+// ---------------------------------------------------------------------------
+
+// Bundle: two services in one visit get the combo cut; one service does not.
+{
+  const dev = 'dev-bundle';
+  setBundleDiscount(shop.id, 10);
+  const two = [shop.services[0].id, shop.services[1].id];
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, two, addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: two, staffId: null, startsAt: s.start, deviceId: dev, guestName: 'B', occasion: 'wedding', idempotencyKey: `bn-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a two-service basket');
+  const bb = getBooking(held)!;
+  const line = bb.quote.breakdown.find((l) => l.key === 'ln_bundle');
+  assert.ok(line, 'the combo line is on the bill');
+  assert.equal(-line!.cents, Math.round((bb.quote.subtotalCents * 10) / 100), 'ten percent of the whole basket');
+  assert.equal(bb.occasion, 'wedding', 'the occasion travels with the booking');
+
+  let solo = '';
+  for (let d = 1; d <= 21 && !solo; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      solo = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'B', occasion: 'nonsense' as never, idempotencyKey: `bn-solo-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  const sb2 = getBooking(solo)!;
+  assert.ok(!sb2.quote.breakdown.some((l) => l.key === 'ln_bundle'), 'one service earns no combo');
+  assert.equal(sb2.occasion, undefined, 'a made-up occasion is dropped, not stored');
+  setBundleDiscount(shop.id, 0);
+}
+
+// Running late: owner-only, today-only, capped — and the floor sees it.
+{
+  const dev = 'dev-late';
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'L', idempotencyKey: `rl-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  confirmBooking(held);
+  const lb = getBooking(held)!;
+  // fixture surgery: pull the visit to an hour from now, same licence as the
+  // drift block
+  const span = lb.endsAt - lb.startsAt;
+  lb.startsAt = Date.now() + 3600_000;
+  lb.endsAt = lb.startsAt + span;
+  assert.throws(() => setRunningLate(held, 'stranger', 15), /not_yours/);
+  assert.throws(() => setRunningLate(held, dev, 200), /bad_minutes/);
+  setRunningLate(held, dev, 20);
+  assert.equal(getBooking(held)!.lateByMin, 20, 'the heads-up sticks to the booking');
+}
+
+// Quote requests: a thread that exists before any booking reaches both sides.
+{
+  const dev = 'dev-quote';
+  const tat = allShops().find((s) => s.id === 'shop-schwarzwerk')!;
+  sendMessage(tat.id, `d:${dev}`, 'customer', '📋 Quote request — Small Tattoo Session: fine-line fox, forearm, ~8cm.');
+  const mine = threadsForDevice(dev);
+  assert.ok(mine.some((th) => th.shopId === tat.id), 'the customer sees the conversation they started');
+  const inbox = shopThreads(tat.id);
+  assert.ok(inbox.some((th) => th.customerKey === `d:${dev}` && th.unread > 0), 'the studio inbox shows the request as unread');
+}
+
+// Open-now: the feed's filter agrees with the shop pages' own derivation.
+{
+  const open = feed({ openNow: true });
+  assert.ok(open.every((c) => shopStatus(c.shopId).open), 'every returned shop is genuinely open');
+  const openIds = new Set(allShops().filter((s) => shopStatus(s.id).open).map((s) => s.id));
+  assert.ok(feed({}).filter((c) => !openIds.has(c.shopId)).every((c) => !open.some((o) => o.shopId === c.shopId)),
+    'closed shops are exactly the ones filtered away');
+}
+
+console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, and round 5');

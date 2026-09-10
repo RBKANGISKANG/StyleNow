@@ -18,7 +18,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n, type MsgKey as MsgKeyT } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -84,6 +84,8 @@ interface Hold {
 }
 
 const GUEST_KEY = 'stylenow.guest';
+
+const OCCASION_EMOJI: Record<string, string> = { birthday: '🎂', wedding: '👰', event: '🎉', interview: '💼' };
 
 export function BookFlow({ shop }: { shop: ShopInfo }) {
   return (
@@ -184,6 +186,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // and a note is where "I'm allergic to bleach" belongs, not a phone call.
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
+  const [occasion, setOccasion] = useState<'birthday' | 'wedding' | 'event' | 'interview' | null>(null);
+  // the shop's combo discount, for the nudge on the service list
+  const [bundlePct, setBundlePct] = useState(0);
+  useEffect(() => {
+    void apiBundleDiscount(shop.id).then(setBundlePct);
+  }, [shop.id]);
 
   // Nobody should type their own name a second time. The last booking's
   // details prefill the next one (notes stay per-visit — allergies travel,
@@ -574,6 +582,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       forPersonId: forPerson || undefined,
       forMinor: forMinor || undefined,
       guardianName: forMinor ? guardianName : undefined,
+      occasion: occasion ?? undefined,
     };
     const outcome = duo
       ? partySize === 2
@@ -755,6 +764,12 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       {step === 0 && (
         <div className="panel">
           <h3>{t('choose_service')}</h3>
+          {/* the combo nudge: one more service and the whole basket drops */}
+          {bundlePct > 0 && serviceIds.length === 1 && (
+            <p style={{ fontSize: '0.8rem', color: 'var(--primary-deep, var(--primary))', fontWeight: 700, margin: '0 0 8px' }}>
+              🧺 {t('bn_nudge', { pct: String(bundlePct) })}
+            </p>
+          )}
           {serviceRows}
           <button
             className="btn btn-primary"
@@ -1487,6 +1502,20 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     onClick={() => setNote((cur) => (cur.includes(t(k)) ? cur : `${cur ? cur + ' · ' : ''}${t(k)}`))}
                   >
                     + {t(k)}
+                  </button>
+                ))}
+              </div>
+              {/* What the visit is FOR — one tap of context for the chair. */}
+              <div className="filter-row" style={{ marginTop: 8 }} role="group" aria-label={t('oc_label')}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', alignSelf: 'center' }}>{t('oc_label')}</span>
+                {(['birthday', 'wedding', 'event', 'interview'] as const).map((k) => (
+                  <button
+                    key={k}
+                    className={`chip ${occasion === k ? 'on-primary' : ''}`}
+                    type="button"
+                    onClick={() => setOccasion(occasion === k ? null : k)}
+                  >
+                    {OCCASION_EMOJI[k]} {t(`oc_${k}` as MsgKeyT)}
                   </button>
                 ))}
               </div>

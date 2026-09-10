@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta, apiRequestQuote } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -236,6 +236,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         </div>
         <PackagesPromo shopId={shop.id} />
         <MembershipPromo shopId={shop.id} shopName={shop.name} />
+        <QuoteBox shop={shop} />
       </section>
 
       <HoursTable hours={hours} />
@@ -442,6 +443,84 @@ function ShopPulse({ shopId }: { shopId: string }) {
 }
 
 /** The 5er-Karten on sale: money up front, visits whenever — one tap to own. */
+/**
+ * Custom work starts with a conversation, not a slot: tattoos, bridal looks
+ * and concierge days have no fixed price on the menu. The request lands in
+ * the ordinary message thread — the one channel a shop already answers —
+ * and the reply arrives under "Messages". Only shown for shops that sell
+ * consultation-first or 18+ work; everything else has honest menu prices.
+ */
+function QuoteBox({ shop }: { shop: ShopData }) {
+  const { t, lang } = useI18n();
+  const quotable = shop.services.filter((s) => s.adultsOnly);
+  const [open, setOpen] = useState(false);
+  const [svcId, setSvcId] = useState('');
+  const [details, setDetails] = useState('');
+  const [sent, setSent] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (shop.services.length === 0) return null;
+  // "custom work" signal: 18+ services (needle work) or the shop's own
+  // consultation-first treatments surfaced via the booking flow.
+  const custom = quotable.length > 0 || ['tattoo', 'makeup'].includes(shop.category) || shop.premium;
+  if (!custom) return null;
+  if (sent) {
+    return (
+      <div className="panel" style={{ marginTop: 14 }}>
+        <p style={{ fontSize: '0.9rem', fontWeight: 700 }}>✅ {t('qr_sent')}</p>
+        <Link className="btn btn-soft sm" style={{ marginTop: 8 }} href={`/messages?shop=${shop.id}`}>
+          💬 {t('mg_shop_thread')}
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="panel" style={{ marginTop: 14 }}>
+      <h3>💬 {t('qr_title')}</h3>
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 10px', lineHeight: 1.5 }}>{t('qr_hint')}</p>
+      {!open ? (
+        <button className="btn btn-soft sm" onClick={() => setOpen(true)}>{t('qr_open')}</button>
+      ) : (
+        <>
+          <label className="chip">
+            {t('qr_service')}
+            <select value={svcId} onChange={(e) => setSvcId(e.target.value)}>
+              <option value="">{t('qr_service_any')}</option>
+              {shop.services.map((s) => (
+                <option key={s.id} value={s.id}>{s.emoji} {s.name[lang]}</option>
+              ))}
+            </select>
+          </label>
+          <textarea
+            className="input"
+            style={{ marginTop: 8, minHeight: 72, resize: 'vertical' }}
+            placeholder={t('qr_details_ph')}
+            aria-label={t('qr_details_ph')}
+            value={details}
+            maxLength={500}
+            onChange={(e) => setDetails(e.target.value)}
+          />
+          <button
+            className="btn btn-primary sm"
+            style={{ marginTop: 8 }}
+            disabled={!details.trim()}
+            onClick={() => {
+              const svc = shop.services.find((s) => s.id === svcId);
+              const text = `📋 ${t('qr_prefix')}${svc ? ` — ${svc.name[lang]}` : ''}: ${details.trim()}`;
+              void apiRequestQuote(shop.id, text).then((ok) => {
+                if (ok) setSent(true);
+                else setFailed(true);
+              });
+            }}
+          >
+            {t('qr_send')}
+          </button>
+          {failed && <p className="pm-err" role="alert">{t('qr_failed')}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function PackagesPromo({ shopId }: { shopId: string }) {
   const { t, lang } = useI18n();
   const [offers, setOffers] = useState<Array<{ id: string; serviceId: string; count: number; priceCents: number }>>([]);

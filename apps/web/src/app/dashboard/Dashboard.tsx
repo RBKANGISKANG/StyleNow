@@ -425,6 +425,19 @@ function TodayTab({ shopId }: { shopId: string }) {
                         {b.needsIdCheck && (
                           <span className="cus-tag risk" title={t('id_row_hint')} style={{ marginLeft: 4 }}>🪪</span>
                         )}
+                        {b.occasion && (
+                          <span
+                            className="bk-note"
+                            title={t(`oc_${b.occasion}` as MsgKey)}
+                          >
+                            {{ birthday: '🎂', wedding: '👰', event: '🎉', interview: '💼' }[b.occasion] ?? '🎈'} {t(`oc_${b.occasion}` as MsgKey)}
+                          </span>
+                        )}
+                        {b.lateByMin !== null && b.status === 'confirmed' && (
+                          <span className="cus-tag risk" title={t('rl_row_hint', { n: String(b.lateByMin) })} style={{ marginLeft: 4 }}>
+                            🏃 +{b.lateByMin}′
+                          </span>
+                        )}
                         {b.guardianName && (
                           <span className="cus-tag risk" title={t('mn_row_hint', { who: b.guardianName })} style={{ marginLeft: 4 }}>🧒</span>
                         )}

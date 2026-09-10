@@ -58,6 +58,9 @@ export type BookingStatus =
 
 export type PaymentMethod = 'card' | 'paypal' | 'apple_pay' | 'google_pay' | 'sepa' | 'at_salon';
 
+export const OCCASIONS = ['birthday', 'wedding', 'event', 'interview'] as const;
+export type Occasion = (typeof OCCASIONS)[number];
+
 /**
  * One line of a price quote. `label` is the stored English/German fallback;
  * when `key` is set the UI renders t(key, vars) instead, so machine-made
@@ -151,6 +154,10 @@ export interface Booking {
    * declared for a minor are refused outright before this is ever set.
    */
   needsIdCheck?: boolean;
+  /** What the visit is for ("wedding", "interview") — context for the chair. */
+  occasion?: Occasion;
+  /** Customer announced they are running this many minutes late. */
+  lateByMin?: number;
   /** The visit is for a minor; the named adult answers for it. */
   minor?: { guardianName: string };
   /**
@@ -461,6 +468,7 @@ interface State {
   stampSettings: Map<string, { enabled: boolean; required: number }>; // shopId → loyalty stamp card
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
   quietDiscounts: Map<string, number>; // shopId → percent off in the two emptiest day-parts
+  bundleDiscounts: Map<string, number>; // shopId → percent off when 2+ services book together
   people: Map<string, SavedPerson[]>; // deviceId → family & friends the device books for
   walkIns: Map<string, WalkInEntry[]>; // shopId → today's Laufkundschaft queue
   logEntries: Map<string, LogEntry[]>; // shopId → the Übergabebuch (team logbook)
@@ -543,6 +551,7 @@ const state: State =
     stampSettings: new Map(),
     goals: new Map(),
     quietDiscounts: new Map(),
+    bundleDiscounts: new Map(),
     people: new Map(),
     walkIns: new Map(),
     logEntries: new Map(),
@@ -630,6 +639,7 @@ function persist(): boolean {
         stampSettings: [...state.stampSettings.entries()],
         goals: [...state.goals.entries()],
         quietDiscounts: [...state.quietDiscounts.entries()],
+        bundleDiscounts: [...state.bundleDiscounts.entries()],
         people: [...state.people.entries()],
         walkIns: [...state.walkIns.entries()],
         logEntries: [...state.logEntries.entries()],
@@ -694,6 +704,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         stampSettings?: Array<[string, { enabled: boolean; required: number }]>;
         goals?: Array<[string, number]>;
         quietDiscounts?: Array<[string, number]>;
+        bundleDiscounts?: Array<[string, number]>;
         people?: Array<[string, SavedPerson[]]>;
         walkIns?: Array<[string, WalkInEntry[]]>;
         logEntries?: Array<[string, LogEntry[]]>;
@@ -745,6 +756,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.stampSettings = new Map(d.stampSettings ?? []);
       state.goals = new Map(d.goals ?? []);
       state.quietDiscounts = new Map(d.quietDiscounts ?? []);
+      state.bundleDiscounts = new Map(d.bundleDiscounts ?? []);
       state.people = new Map(d.people ?? []);
       state.walkIns = new Map(d.walkIns ?? []);
       state.logEntries = new Map(d.logEntries ?? []);
@@ -984,6 +996,7 @@ export interface ShopConfig {
   goalCents?: number;
   stampCard?: { enabled: boolean; required: number };
   quietDiscountPct?: number;
+  bundlePct?: number;
   logEntries?: LogEntry[];
   checklists?: ChecklistTemplate[];
   checklistTicks?: Array<[string, ChecklistTick[]]>;
@@ -1046,6 +1059,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     goalCents: state.goals.get(shopId),
     stampCard: state.stampSettings.get(shopId),
     quietDiscountPct: state.quietDiscounts.get(shopId),
+    bundlePct: state.bundleDiscounts.get(shopId),
     logEntries: state.logEntries.get(shopId) ?? [],
     checklists: state.checklists.get(shopId) ?? [],
     checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
@@ -1094,6 +1108,10 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
   if (doc.quietDiscountPct !== undefined) {
     if (doc.quietDiscountPct > 0) state.quietDiscounts.set(shopId, doc.quietDiscountPct);
     else state.quietDiscounts.delete(shopId);
+  }
+  if (doc.bundlePct !== undefined) {
+    if (doc.bundlePct > 0) state.bundleDiscounts.set(shopId, doc.bundlePct);
+    else state.bundleDiscounts.delete(shopId);
   }
   if (doc.logEntries) state.logEntries.set(shopId, doc.logEntries);
   if (doc.checklists) state.checklists.set(shopId, doc.checklists);
@@ -2059,6 +2077,20 @@ export function setQuietDiscount(shopId: string, pct: number): void {
   persist();
 }
 
+export const BUNDLE_MAX_PCT = 30;
+
+/** Two-or-more services in one visit → this percent off the basket. */
+export function setBundleDiscount(shopId: string, pct: number): void {
+  if (!Number.isInteger(pct) || pct < 0 || pct > BUNDLE_MAX_PCT) throw new Error('bad_percent');
+  if (pct > 0) state.bundleDiscounts.set(shopId, pct);
+  else state.bundleDiscounts.delete(shopId);
+  persist();
+}
+
+export function bundleDiscountOf(shopId: string): number {
+  return state.bundleDiscounts.get(shopId) ?? 0;
+}
+
 /**
  * The two emptiest open day-parts, as `${dow}:${part}` keys. Memoised because
  * priceBasket consults this once per slot and quietWindows walks every booking.
@@ -2539,6 +2571,8 @@ export interface FeedQuery {
   minRating?: number;
   /** only places built for children (play corner, patient staff) */
   kidsFriendly?: boolean;
+  /** only shops whose doors are open at this moment */
+  openNow?: boolean;
   sortBy?: 'match' | 'distance' | 'price' | 'rating';
 }
 
@@ -2594,6 +2628,8 @@ export function feed(q: FeedQuery): FeedCard[] {
   if (q.minRating) shops = shops.filter((s) => s.ratingAvg >= q.minRating!);
   // Parents filter for places built for children, not merely tolerant of them.
   if (q.kidsFriendly) shops = shops.filter((s) => s.kidsFriendly);
+  // "Open now" from the same rosters and closures the shop page derives.
+  if (q.openNow) shops = shops.filter((s) => shopStatus(s.id).open);
   if (q.search) {
     const needle = q.search.toLowerCase();
     shops = shops.filter((s) => {
@@ -2727,6 +2763,8 @@ export interface HoldInput {
    * friend seat shares the deviceId but not the perks.
    */
   skipAutoPerks?: boolean;
+  /** Optional context for the chair: what the visit is for. */
+  occasion?: Occasion;
   idempotencyKey: string;
 }
 
@@ -2872,6 +2910,19 @@ export function createHold(input: HoldInput): HoldResult {
       }
     }
   }
+  // Bundle: two or more services in one visit — the shop's combo discount
+  // applies itself. Basket-based, so a duo/group friend seat with the same
+  // two-service basket earns it too.
+  if (!stampFree && !packageUsed && services.length >= 2) {
+    const bundlePct = state.bundleDiscounts.get(input.shopId) ?? 0;
+    if (bundlePct > 0) {
+      const cut = Math.round((q.subtotalCents * bundlePct) / 100);
+      if (cut > 0) {
+        discountCents += cut;
+        discountLines.push({ label: `Bundle −${bundlePct}%`, key: 'ln_bundle', vars: { pct: bundlePct }, cents: -cut });
+      }
+    }
+  }
   // Birthday club: the shop opted in, the profile carries a birthday, and the
   // visit lands inside the window — the perk applies itself.
   let birthdayApplied = false;
@@ -2987,6 +3038,8 @@ export function createHold(input: HoldInput): HoldResult {
     // 18+ services always get the ID flag — a booking "for" someone else
     // especially, but a device's own claim is not proof of age either.
     needsIdCheck: services.some((s) => s.adultsOnly) ? true : undefined,
+    // whitelisted, not free text — free text already has the guest note
+    occasion: input.occasion && OCCASIONS.includes(input.occasion) ? input.occasion : undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -3626,6 +3679,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       allergies: careProfile(b.deviceId).allergies,
       guardianName: b.minor?.guardianName ?? null,
       access: b.access ?? null,
+      occasion: b.occasion ?? null,
+      lateByMin: b.lateByMin ?? null,
     })),
     week,
   };
@@ -3720,6 +3775,7 @@ export interface BookingView {
   needsPatchTest: boolean;
   wouldRepeat: boolean;
   birthdayPerk: boolean;
+  lateByMin: number | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -3763,6 +3819,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       needsPatchTest: b.needsPatchTest ?? false,
       wouldRepeat: b.wouldRepeat ?? false,
       birthdayPerk: b.birthdayPerk ?? false,
+      lateByMin: b.lateByMin ?? null,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -4469,6 +4526,17 @@ export function shopThreads(shopId: string): ThreadSummary[] {
     });
     if (s) out.push(s);
   }
+  // Quote requests arrive from people who have never booked — their thread
+  // exists only in the message map, and an inbox that hides it loses the
+  // sale the feature exists to start.
+  const known = new Set(rows.map((c) => c.key));
+  for (const [k, thread] of state.messages) {
+    if (!k.startsWith(`${shopId}:`)) continue;
+    const key = k.slice(shopId.length + 1);
+    if (known.has(key) || thread.length === 0) continue;
+    const s = summarise(shopId, key, thread, 'shop', { name: '', phone: '', nextVisit: null });
+    if (s) out.push(s);
+  }
   return out.sort((a, b) => {
     if (a.unread !== b.unread) return b.unread - a.unread;
     return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0);
@@ -4491,6 +4559,18 @@ export function threadsForDevice(deviceId: string): ThreadSummary[] {
     const bucket = groups.get(id);
     if (bucket) bucket.bookings.push(b);
     else groups.set(id, { shopId: b.shopId, key, bookings: [b] });
+  }
+
+  // A quote request starts the conversation BEFORE any booking exists — a
+  // thread with messages but no bookings must still reach its owner, or the
+  // shop's answer lands in a room the customer cannot enter.
+  const ownKey = `d:${deviceId}`;
+  for (const k of state.messages.keys()) {
+    const sep = k.indexOf(':');
+    const shopId = k.slice(0, sep);
+    const key = k.slice(sep + 1);
+    if (key !== ownKey || groups.has(k) || !shopById(shopId)) continue;
+    groups.set(k, { shopId, key, bookings: [] });
   }
 
   const now = Date.now();
@@ -6145,6 +6225,24 @@ export function checkIn(bookingId: string, deviceId: string): Booking {
     b.checkedInAt = Date.now();
     persist();
   }
+  return b;
+}
+
+export const LATE_MAX_MIN = 60;
+
+/**
+ * "Running late" — one tap, and the floor can re-plan instead of wondering.
+ * Owner-only, today's confirmed visits, capped: an hour late is a
+ * reschedule, not a heads-up.
+ */
+export function setRunningLate(bookingId: string, deviceId: string, min: number): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  if (b.status !== 'confirmed') throw new Error('not_late_able');
+  if (!Number.isInteger(min) || min < 5 || min > LATE_MAX_MIN) throw new Error('bad_minutes');
+  if (b.startsAt - Date.now() > 12 * 36e5 || Date.now() > b.endsAt) throw new Error('not_today');
+  b.lateByMin = min;
+  persist();
   return b;
 }
 

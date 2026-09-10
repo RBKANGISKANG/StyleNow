@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       forMinor: body.forMinor === true,
       guardianName: typeof body.guardianName === 'string' ? body.guardianName : undefined,
       usePackageId: typeof body.usePackageId === 'string' ? body.usePackageId : undefined,
+      occasion: typeof body.occasion === 'string' ? (body.occasion as never) : undefined,
       idempotencyKey,
     });
     return NextResponse.json(result, { status: 201 });

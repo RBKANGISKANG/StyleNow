@@ -95,6 +95,8 @@ export interface Overview {
       writtenOnly?: boolean;
       note?: string;
     } | null;
+    occasion: string | null;
+    lateByMin: number | null;
   }>;
   week: Array<{ iso: string; revenueCents: number }>;
 }

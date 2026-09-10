@@ -2317,6 +2317,41 @@ export async function apiShopStaffMeta(shopId: string, staffId: string): Promise
   return store.effectiveStaff(shopId).find((s) => s.id === staffId)?.languages ?? [];
 }
 
+// ---- verticals round 2: bundle, running late, quotes -----------------------
+
+export async function apiBundleDiscount(shopId: string): Promise<number> {
+  await readyForRead();
+  return store.bundleDiscountOf(shopId);
+}
+
+export async function apiSetBundleDiscount(shopId: string, pct: number): Promise<void> {
+  await localWrite();
+  store.setBundleDiscount(shopId, pct);
+  syncConfig(shopId);
+}
+
+export async function apiSetRunningLate(bookingId: string, min: number): Promise<boolean> {
+  await localWrite();
+  try {
+    const b = store.setRunningLate(bookingId, deviceId(), min);
+    // the whole point is that the FLOOR sees it, not this phone
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A quote request is the one legitimate way to message a shop you have not
+ * booked yet: custom work (tattoos, bridal, concierge) starts with a
+ * conversation by nature, and the shop published quotable services.
+ */
+export async function apiRequestQuote(shopId: string, text: string): Promise<boolean> {
+  const msg = await apiSendMessage(shopId, `d:${deviceId()}`, 'customer', text);
+  return Boolean(msg);
+}
+
 // ---- corporate packages ----------------------------------------------------
 
 export async function apiBuyCorporateBatch(

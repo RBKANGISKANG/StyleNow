@@ -67,6 +67,7 @@ export default function Explore() {
   const [budget, setBudget] = useState<number | null>(null);
   const [favsOnly, setFavsOnly] = useState(false);
   const [kidsOnly, setKidsOnly] = useState(false);
+  const [openOnly, setOpenOnly] = useState(false);
   const [favs, toggleFav] = useFavourites();
   const [locInput, setLocInput] = useState('');
   const [loc, setLoc] = useState<{ lat: number; lng: number; label: string } | null>(null);
@@ -124,7 +125,7 @@ export default function Explore() {
 
   const activeFilters =
     (wantsSoon ? 1 : 0) + (personalise ? 1 : 0) + (favsOnly ? 1 : 0) + (topRated ? 1 : 0) +
-    (kidsOnly ? 1 : 0) +
+    (kidsOnly ? 1 : 0) + (openOnly ? 1 : 0) +
     (budget !== null ? 1 : 0) + (radius !== null ? 1 : 0) + (category !== null ? 1 : 0);
 
   const resetFilters = () => {
@@ -133,6 +134,7 @@ export default function Explore() {
     setFavsOnly(false);
     setTopRated(false);
     setKidsOnly(false);
+    setOpenOnly(false);
     setBudget(null);
     setRadius(null);
     setCategory(null);
@@ -174,9 +176,10 @@ export default function Explore() {
       maxTravelM: radius ?? undefined,
       minRating: topRated ? 4.5 : undefined,
       kidsFriendly: kidsOnly || undefined,
+      openNow: openOnly || undefined,
       sortBy,
     }),
-    [search, category, wantsSoon, personalise, budget, lang, loc, radius, topRated, kidsOnly, sortBy],
+    [search, category, wantsSoon, personalise, budget, lang, loc, radius, topRated, kidsOnly, openOnly, sortBy],
   );
 
   useEffect(() => {
@@ -261,6 +264,9 @@ export default function Explore() {
         </button>
         <button className={`chip ${kidsOnly ? 'on' : ''}`} onClick={() => setKidsOnly(!kidsOnly)}>
           🧒 {t('f_kids')}
+        </button>
+        <button className={`chip ${openOnly ? 'on' : ''}`} onClick={() => setOpenOnly(!openOnly)}>
+          🟢 {t('f_open')}
         </button>
         <label className="chip">
           💶 {t('budget')}

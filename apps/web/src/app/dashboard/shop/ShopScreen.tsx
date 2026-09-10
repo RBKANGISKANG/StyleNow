@@ -41,6 +41,8 @@ import {
   apiAccessFacts,
   apiSetAccessFacts,
   apiBirthdayPerk,
+  apiBundleDiscount,
+  apiSetBundleDiscount,
   apiSetBirthdayPerk,
   apiStockItems,
   apiSaveStockItem,
@@ -215,6 +217,11 @@ function ShopTab({
       <section className="section">
         <h2>🎂 {t('bp_title')}</h2>
         <BirthdayPerkPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🧺 {t('bn_title')}</h2>
+        <BundlePanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1110,6 +1117,39 @@ function BirthdayPerkPanel({ shopId, onChanged }: { shopId: string; onChanged: (
           }}
         >
           {[0, 10, 15, 20].map((n) => (<option key={n} value={n}>{n === 0 ? t('qd_off') : `−${n}%`}</option>))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+/** Two-or-more services in one visit → this percent off the basket. */
+function BundlePanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [pct, setPct] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiBundleDiscount(shopId).then((n) => {
+      setPct(n);
+      setLoaded(true);
+    });
+  }, [shopId]);
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('bn_hint')}</p>
+      <label className="chip">
+        {t('qd_pct')}
+        <select
+          value={pct}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            setPct(n);
+            void apiSetBundleDiscount(shopId, n).then(() => onChanged('🧺 ' + t('bn_saved')));
+          }}
+        >
+          {[0, 5, 10, 15, 20].map((n) => (<option key={n} value={n}>{n === 0 ? t('qd_off') : `−${n}%`}</option>))}
         </select>
       </label>
     </div>
