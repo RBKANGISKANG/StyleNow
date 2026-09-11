@@ -1513,6 +1513,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     key={k}
                     className={`chip ${occasion === k ? 'on-primary' : ''}`}
                     type="button"
+                    aria-pressed={occasion === k}
                     onClick={() => setOccasion(occasion === k ? null : k)}
                   >
                     {OCCASION_EMOJI[k]} {t(`oc_${k}` as MsgKeyT)}

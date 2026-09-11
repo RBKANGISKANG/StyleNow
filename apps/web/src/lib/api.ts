@@ -2320,17 +2320,39 @@ export async function apiShopStaffMeta(shopId: string, staffId: string): Promise
 // ---- verticals round 2: bundle, running late, quotes -----------------------
 
 export async function apiBundleDiscount(shopId: string): Promise<number> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/bundle`);
+    return res.ok ? (await res.json()).pct : 0;
+  }
   await readyForRead();
   return store.bundleDiscountOf(shopId);
 }
 
 export async function apiSetBundleDiscount(shopId: string, pct: number): Promise<void> {
+  if (backendMode() === 'server') {
+    // holds are priced server-side: the percent must land there, or the
+    // promotion exists only in the owner's browser
+    await fetch(`/api/shop/${shopId}/bundle`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pct }),
+    });
+    return;
+  }
   await localWrite();
   store.setBundleDiscount(shopId, pct);
   syncConfig(shopId);
 }
 
 export async function apiSetRunningLate(bookingId: string, min: number): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/bookings/${bookingId}/late`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ min, deviceId: deviceId() }),
+    });
+    return res.ok;
+  }
   await localWrite();
   try {
     const b = store.setRunningLate(bookingId, deviceId(), min);
@@ -2348,7 +2370,22 @@ export async function apiSetRunningLate(bookingId: string, min: number): Promise
  * conversation by nature, and the shop published quotable services.
  */
 export async function apiRequestQuote(shopId: string, text: string): Promise<boolean> {
-  const msg = await apiSendMessage(shopId, `d:${deviceId()}`, 'customer', text);
+  // Reuse the key this device already has at this shop — a returning
+  // customer's question belongs in their existing conversation, not in a
+  // second thread neither inbox can address. In server mode only the API
+  // process knows the bookings, so it resolves the key there.
+  if (backendMode() === 'server') {
+    const res = await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ shopId, from: 'customer', text, resolveKeyForDevice: deviceId() }),
+    });
+    announceMessages();
+    return res.ok;
+  }
+  await readyForRead();
+  const key = store.threadKeyForDevice(shopId, deviceId());
+  const msg = await apiSendMessage(shopId, key, 'customer', text);
   return Boolean(msg);
 }
 

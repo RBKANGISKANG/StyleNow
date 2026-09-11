@@ -45,6 +45,9 @@ function MessagesTab({ shopId }: { shopId: string }) {
   const [open, setOpen] = useState<string | null>(wanted);
   const [q, setQ] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // A quote request comes from someone who has never booked, so there is no
+  // name on file — an unlabelled row is worse than an honest label.
+  const label = (r: ThreadSummary) => r.customerName.trim() || t('mg_new_enquiry');
 
   // A response that started before a change must never overwrite one that
   // started after it — two reads of the same list can resolve out of order.
@@ -74,7 +77,7 @@ function MessagesTab({ shopId }: { shopId: string }) {
     return rows.filter((r) => {
       if (unreadOnly && r.unread === 0) return false;
       if (!needle) return true;
-      return `${r.customerName} ${r.customerPhone} ${r.lastMessage?.text ?? ''}`.toLowerCase().includes(needle);
+      return `${label(r)} ${r.customerPhone} ${r.lastMessage?.text ?? ''}`.toLowerCase().includes(needle);
     });
   }, [threads, q, unreadOnly]);
 
@@ -121,7 +124,7 @@ function MessagesTab({ shopId }: { shopId: string }) {
                       onClick={() => setOpen(r.customerKey)}
                     >
                       <span className="inbox-name">
-                        {r.customerName}
+                        {label(r)}
                         {r.unread > 0 && <em className="inbox-dot">{r.unread}</em>}
                       </span>
                       <span className="inbox-last">
@@ -147,7 +150,7 @@ function MessagesTab({ shopId }: { shopId: string }) {
               shopId={shopId}
               customerKey={chosen.customerKey}
               me="shop"
-              title={chosen.customerName}
+              title={label(chosen)}
               subtitle={
                 chosen.nextVisit
                   ? t('mg_books_on', { when: dateOf(chosen.nextVisit, lang) })

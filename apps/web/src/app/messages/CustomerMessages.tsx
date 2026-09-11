@@ -24,7 +24,11 @@ export function CustomerMessages() {
   const params = useSearchParams();
   const wanted = params.get('shop');
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
+  // A shop can own more than one thread for this device (a phone-keyed
+  // booking history and a device-keyed question), so a row is addressed by
+  // shop AND key — selecting by shop alone made one of them unreachable.
   const [open, setOpen] = useState<string | null>(null);
+  const rowId = (r: { shopId: string; customerKey: string }) => `${r.shopId}:${r.customerKey}`;
 
   const seq = useRef(0);
   const load = useCallback(() => {
@@ -38,7 +42,7 @@ export function CustomerMessages() {
         // on a phone, landing in a list you then have to tap through is a
         // wasted step when there is only one thing in it.
         const target = wanted ? rows.find((r) => r.shopId === wanted) : rows.length === 1 ? rows[0] : null;
-        return target ? target.shopId : null;
+        return target ? `${target.shopId}:${target.customerKey}` : null;
       });
     });
   }, [wanted]);
@@ -46,7 +50,7 @@ export function CustomerMessages() {
   useEffect(load, [load]);
   useMessagesChanged(load);
 
-  const chosen = (threads ?? []).find((r) => r.shopId === open) ?? null;
+  const chosen = (threads ?? []).find((r) => rowId(r) === open) ?? null;
 
   return (
     <div>
@@ -69,10 +73,10 @@ export function CustomerMessages() {
           <div className="inbox-list">
             <ul className="inbox-rows">
               {threads.map((r) => (
-                <li key={r.shopId}>
+                <li key={rowId(r)}>
                   <button
-                    className={`inbox-row${open === r.shopId ? ' on' : ''}${r.unread ? ' unread' : ''}`}
-                    onClick={() => setOpen(r.shopId)}
+                    className={`inbox-row${open === rowId(r) ? ' on' : ''}${r.unread ? ' unread' : ''}`}
+                    onClick={() => setOpen(rowId(r))}
                   >
                     <span className="inbox-name">
                       <span className="inbox-mark">{r.shopEmoji}</span>

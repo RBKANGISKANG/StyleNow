@@ -39,6 +39,8 @@ import {
   exportShopConfig, applyShopConfig, patchService, serviceOverrideEntries,
   feed, buyCorporateBatch, corporateDiscountPct, myCorporateBatches, corporateBatchesForShop,
   setBundleDiscount, setRunningLate, shopStatus, threadsForDevice, shopThreads,
+  bundleDiscountOf, threadKeyForDevice, BUNDLE_MAX_PCT,
+  exportShopConfig as exportCfg, applyShopConfig as applyCfg,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -1591,4 +1593,123 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
     'closed shops are exactly the ones filtered away');
 }
 
-console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, and round 5');
+// ---------------------------------------------------------------------------
+// round-5 review fixes: perk stacking, paid-basket bundles, late lifecycle,
+// config clamping, one thread per shop
+// ---------------------------------------------------------------------------
+
+// Percentage perks compound on what is still payable, never past free, and a
+// free consultation does not turn one paid service into a "bundle".
+{
+  const dev = 'dev-stack';
+  setBundleDiscount(shop.id, 20);
+  setMembershipOffer(shop.id, { priceCents: 900, discountPct: 30 });
+  joinMembership(dev, shop.id);
+  const two = [shop.services[0].id, shop.services[1].id];
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, two, addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: two, staffId: null, startsAt: s.start, deviceId: dev, guestName: 'S', idempotencyKey: `st-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a member booking two services');
+  const sb3 = getBooking(held)!;
+  const sub = sb3.quote.subtotalCents;
+  const memberCut = Math.round((sub * 30) / 100);
+  const bundleCut = Math.round(((sub - memberCut) * 20) / 100);
+  assert.equal(sb3.quote.discountCents, memberCut + bundleCut, 'the second perk takes its cut off the remainder, not the gross');
+  assert.ok(sb3.quote.totalCents > 0, 'two perks never give the work away');
+
+  // a free consultation alongside one paid service is not a bundle
+  const consult = ensureConsultService(shop.id);
+  let mixed = '';
+  for (let d = 1; d <= 21 && !mixed; d++) {
+    const basket = [shop.services[0].id, consult.id];
+    const s = availability(shop.id, basket, addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      mixed = createHold({ shopId: shop.id, serviceIds: basket, staffId: null, startsAt: s.start, deviceId: dev, guestName: 'S', idempotencyKey: `st-mix-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(mixed, 'fixture: paid service + free consultation');
+  assert.ok(
+    !getBooking(mixed)!.quote.breakdown.some((l) => l.key === 'ln_bundle'),
+    'a €0 service does not unlock the combo discount',
+  );
+  leaveMembership(dev, shop.id);
+  setMembershipOffer(shop.id, null);
+  setBundleDiscount(shop.id, 0);
+}
+
+// A synced config cannot smuggle in a percent the owner's own control refuses,
+// and "off" round-trips instead of being read as "unchanged".
+{
+  setBundleDiscount(shop.id, 15);
+  applyCfg(shop.id, { ...exportCfg(shop.id), bundlePct: 100 });
+  assert.equal(bundleDiscountOf(shop.id), BUNDLE_MAX_PCT, 'a wild percent is clamped, not obeyed');
+  setBundleDiscount(shop.id, 0);
+  const off = exportCfg(shop.id);
+  assert.equal(off.bundlePct, 0, 'off is exported explicitly');
+  setBundleDiscount(shop.id, 10);
+  applyCfg(shop.id, off);
+  assert.equal(bundleDiscountOf(shop.id), 0, 'and applying it turns the promotion off');
+}
+
+// Running late: a day-based window, withdrawable, and cleared by a move or
+// by arriving.
+{
+  const dev = 'dev-late2';
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'L2', idempotencyKey: `rl2-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  confirmBooking(held);
+  const lb = getBooking(held)!;
+  const span = lb.endsAt - lb.startsAt;
+  const was = lb.startsAt;
+  // fixture surgery: park it later today
+  lb.startsAt = Date.now() + 30 * 60000;
+  lb.endsAt = lb.startsAt + span;
+  setRunningLate(held, dev, 15);
+  assert.equal(getBooking(held)!.lateByMin, 15);
+  setRunningLate(held, dev, 0);
+  assert.equal(getBooking(held)!.lateByMin, undefined, 'the announcement can be withdrawn');
+  setRunningLate(held, dev, 15);
+  // moving the booking drops a heads-up that was about the old time
+  const target = availability(shop.id, [svc.id], addDays(todayIso(), 9), dev, null).slots.find((x) => x.start > Date.now());
+  if (target) {
+    rescheduleBooking(shop.id, held, target.start, null);
+    assert.equal(getBooking(held)!.lateByMin, undefined, 'a moved booking carries no stale late flag');
+    assert.throws(() => setRunningLate(held, dev, 15), /not_today/, 'and a future day cannot be flagged today');
+  }
+  void was;
+}
+
+// One shop, one thread: a returning customer's question joins the
+// conversation the shop already knows them by.
+{
+  const dev = 'dev-onethread';
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Q', guestPhone: '+49 170 555 0333', idempotencyKey: `ot-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  confirmBooking(held);
+  const key = threadKeyForDevice(shop.id, dev);
+  assert.equal(key, 'p:+491705550333', 'the phone-keyed thread is the one they already own');
+  sendMessage(shop.id, key, 'customer', '📋 Quote request: two colours in one visit?');
+  const rows = threadsForDevice(dev).filter((th) => th.shopId === shop.id);
+  assert.equal(rows.length, 1, 'no second thread for the same shop');
+  assert.ok(rows[0].lastMessage, 'and the question is in it');
+}
+
+console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, and its review fixes');

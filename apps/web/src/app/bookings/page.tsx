@@ -34,6 +34,7 @@ import {
 import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
 import { REVIEW_TAGS } from '@/core/store';
 import { icsHref } from '@/lib/ics';
+import { isoDateOf as isoDay } from '@/core/time';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
 import { ReferralPanel } from '@/components/ReferralPanel';
@@ -436,11 +437,27 @@ export default function BookingsPage() {
                   💬 {t('mg_shop_thread')}
                 </Link>
                 {/* "Stuck on the U-Bahn" — one tap, and the floor re-plans
-                    instead of wondering. Only near the start, like check-in. */}
-                {b.startsAt - now <= 12 * 36e5 && now < b.startsAt && !b.checkedInAt && (
+                    instead of wondering. The engine accepts it for today's
+                    visit right up to its end, which is exactly when people
+                    realise they are late — so the buttons stay that long,
+                    and an announcement can be withdrawn. */}
+                {isoDay(b.startsAt) === isoDay(now) && now <= b.endsAt && !b.checkedInAt && (
                   b.lateByMin ? (
-                    <span style={{ fontSize: '0.78rem', color: 'var(--amber, #b45309)', fontWeight: 700, alignSelf: 'center' }}>
-                      🏃 {t('rl_set', { n: String(b.lateByMin) })}
+                    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--amber, #b45309)', fontWeight: 700 }}>
+                        🏃 {t('rl_set', { n: String(b.lateByMin) })}
+                      </span>
+                      <button
+                        className="btn btn-ghost sm"
+                        onClick={() => {
+                          void apiSetRunningLate(b.id, 0).then((ok) => {
+                            setToast(ok ? '✅ ' + t('rl_cleared') : '⚠️ ' + t('rl_failed'));
+                            if (ok) void load();
+                          });
+                        }}
+                      >
+                        {t('rl_undo')}
+                      </button>
                     </span>
                   ) : (
                     <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
@@ -451,10 +468,9 @@ export default function BookingsPage() {
                           className="btn btn-ghost sm"
                           onClick={() => {
                             void apiSetRunningLate(b.id, n).then((ok) => {
-                              if (ok) {
-                                setToast('🏃 ' + t('rl_toast'));
-                                void load();
-                              }
+                              // a dead-looking button is worse than a refusal
+                              setToast(ok ? '🏃 ' + t('rl_toast') : '⚠️ ' + t('rl_failed'));
+                              if (ok) void load();
                             });
                           }}
                         >

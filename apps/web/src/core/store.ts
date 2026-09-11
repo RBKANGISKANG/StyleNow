@@ -1059,7 +1059,9 @@ export function exportShopConfig(shopId: string): ShopConfig {
     goalCents: state.goals.get(shopId),
     stampCard: state.stampSettings.get(shopId),
     quietDiscountPct: state.quietDiscounts.get(shopId),
-    bundlePct: state.bundleDiscounts.get(shopId),
+    // explicit 0, not an absent key: "the promotion is over" must survive
+    // a backup/restore and reach a tablet that still holds the old percent
+    bundlePct: state.bundleDiscounts.get(shopId) ?? 0,
     logEntries: state.logEntries.get(shopId) ?? [],
     checklists: state.checklists.get(shopId) ?? [],
     checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
@@ -1109,9 +1111,12 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
     if (doc.quietDiscountPct > 0) state.quietDiscounts.set(shopId, doc.quietDiscountPct);
     else state.quietDiscounts.delete(shopId);
   }
-  if (doc.bundlePct !== undefined) {
-    if (doc.bundlePct > 0) state.bundleDiscounts.set(shopId, doc.bundlePct);
-    else state.bundleDiscounts.delete(shopId);
+  // A synced percent is untrusted input like any other: clamp it to the same
+  // range the owner's own control enforces, or a bad doc prices work at zero.
+  {
+    const pct = Math.min(BUNDLE_MAX_PCT, Math.max(0, Math.round(doc.bundlePct ?? 0)));
+    if (pct > 0) state.bundleDiscounts.set(shopId, pct);
+    else state.bundleDiscounts.delete(shopId); // absent means off, and off must round-trip
   }
   if (doc.logEntries) state.logEntries.set(shopId, doc.logEntries);
   if (doc.checklists) state.checklists.set(shopId, doc.checklists);
@@ -2897,31 +2902,36 @@ export function createHold(input: HoldInput): HoldResult {
     discountCents += q.subtotalCents;
     discountLines.push({ label: `Stempelkarte — ${st.required}. Besuch frei`, cents: -q.subtotalCents });
   }
+  /**
+   * A standing percentage perk, taken off what is STILL payable rather than
+   * off the gross subtotal. Two 30 % perks are 51 % off, not 60 % — stacking
+   * them additively let three perks plus a quiet-hour price hand the work
+   * away, and with a bad synced percent it could go past free entirely.
+   */
+  const applyPercentPerk = (pct: number, label: string, key: string): number => {
+    if (pct <= 0) return 0;
+    const payable = Math.max(q.subtotalCents + primeCents + travelFeeCents - discountCents, 0);
+    const cut = Math.min(Math.round((payable * pct) / 100), payable);
+    if (cut <= 0) return 0;
+    discountCents += cut;
+    discountLines.push({ label, key, vars: { pct }, cents: -cut });
+    return cut;
+  };
+
   // Membership: the club discount applies to what is still payable, before
   // codes and points — a standing perk, not a coupon. Friend seats of a
   // duo/group share the organizer's deviceId but not the organizer's perks.
   if (!stampFree && !packageUsed && !input.skipAutoPerks) {
     const ms = state.memberships.get(`${input.deviceId}:${input.shopId}`);
-    if (ms && ms.discountPct > 0) {
-      const cut = Math.round((q.subtotalCents * ms.discountPct) / 100);
-      if (cut > 0) {
-        discountCents += cut;
-        discountLines.push({ label: `Membership −${ms.discountPct}%`, key: 'ln_membership', vars: { pct: ms.discountPct }, cents: -cut });
-      }
-    }
+    if (ms) applyPercentPerk(ms.discountPct, `Membership −${ms.discountPct}%`, 'ln_membership');
   }
-  // Bundle: two or more services in one visit — the shop's combo discount
-  // applies itself. Basket-based, so a duo/group friend seat with the same
-  // two-service basket earns it too.
-  if (!stampFree && !packageUsed && services.length >= 2) {
+  // Bundle: two or more PAID services in one visit — the shop's combo
+  // discount applies itself. The free consultation service is on the same
+  // menu, and "cut + free consult" is not a bundle the shop meant to fund.
+  // Basket-based, so a duo/group friend seat with the same basket earns it.
+  if (!stampFree && !packageUsed && services.filter((s) => s.basePriceCents > 0).length >= 2) {
     const bundlePct = state.bundleDiscounts.get(input.shopId) ?? 0;
-    if (bundlePct > 0) {
-      const cut = Math.round((q.subtotalCents * bundlePct) / 100);
-      if (cut > 0) {
-        discountCents += cut;
-        discountLines.push({ label: `Bundle −${bundlePct}%`, key: 'ln_bundle', vars: { pct: bundlePct }, cents: -cut });
-      }
-    }
+    applyPercentPerk(bundlePct, `Bundle −${bundlePct}%`, 'ln_bundle');
   }
   // Birthday club: the shop opted in, the profile carries a birthday, and the
   // visit lands inside the window — the perk applies itself.
@@ -2929,12 +2939,7 @@ export function createHold(input: HoldInput): HoldResult {
   if (!stampFree && !packageUsed && !input.forPersonId && !input.skipAutoPerks) {
     const perkPct = state.birthdayPerks.get(input.shopId) ?? 0;
     if (perkPct > 0 && birthdayWindow(input.deviceId, input.startsAt)) {
-      const cut = Math.round((q.subtotalCents * perkPct) / 100);
-      if (cut > 0) {
-        birthdayApplied = true;
-        discountCents += cut;
-        discountLines.push({ label: `🎂 Birthday −${perkPct}%`, key: 'ln_birthday', vars: { pct: perkPct }, cents: -cut });
-      }
+      birthdayApplied = applyPercentPerk(perkPct, `🎂 Birthday −${perkPct}%`, 'ln_birthday') > 0;
     }
   }
   if (!stampFree && !packageUsed && input.voucherCode) {
@@ -3334,6 +3339,9 @@ export function rescheduleBooking(
 
   const prevStaffId = b.staffId;
   b.staffId = staffId;
+  // A moved booking is a different appointment: a late-announcement made
+  // about the old time says nothing about the new one.
+  if (newStartsAt !== b.startsAt) delete b.lateByMin;
   b.startsAt = newStartsAt;
   b.endsAt = newStartsAt + (timing.durationMin + timing.processingGapMin + timing.finishMin) * MIN;
   if (opts.byDevice) {
@@ -4304,6 +4312,21 @@ export interface CustomerRow {
  * the front desk. So the phone wins when we have one; otherwise fall back to
  * the device, and lastly to the name typed at the counter.
  */
+/**
+ * The key this device already uses at this shop, if it has booked there —
+ * a customer whose bookings are keyed by phone must not sprout a second,
+ * device-keyed thread the moment they ask a question, because the inbox on
+ * both sides is addressed per shop.
+ */
+export function threadKeyForDevice(shopId: string, deviceId: string): string {
+  let best: Booking | null = null;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || b.shopId !== shopId || b.status === 'hold') continue;
+    if (!best || b.createdAt > best.createdAt) best = b;
+  }
+  return best ? customerKeyOf(best) : `d:${deviceId}`;
+}
+
 function customerKeyOf(b: Booking): string {
   const phone = (b.guestPhone ?? '').replace(/[^\d+]/g, '');
   if (phone.length >= 6) return `p:${phone}`;
@@ -6223,6 +6246,7 @@ export function checkIn(bookingId: string, deviceId: string): Booking {
   if (Math.abs(b.startsAt - Date.now()) > CHECKIN_WINDOW_MIN * 60_000) throw new Error('too_early');
   if (!b.checkedInAt) {
     b.checkedInAt = Date.now();
+    delete b.lateByMin; // they are here — the heads-up has served its purpose
     persist();
   }
   return b;
@@ -6233,15 +6257,21 @@ export const LATE_MAX_MIN = 60;
 /**
  * "Running late" — one tap, and the floor can re-plan instead of wondering.
  * Owner-only, today's confirmed visits, capped: an hour late is a
- * reschedule, not a heads-up.
+ * reschedule, not a heads-up. 0 withdraws the announcement, because plans
+ * change twice as often as they change once.
  */
 export function setRunningLate(bookingId: string, deviceId: string, min: number): Booking {
   const b = state.bookings.get(bookingId);
   if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
   if (b.status !== 'confirmed') throw new Error('not_late_able');
-  if (!Number.isInteger(min) || min < 5 || min > LATE_MAX_MIN) throw new Error('bad_minutes');
-  if (b.startsAt - Date.now() > 12 * 36e5 || Date.now() > b.endsAt) throw new Error('not_today');
-  b.lateByMin = min;
+  if (!Number.isInteger(min) || min < 0 || min > LATE_MAX_MIN || (min > 0 && min < 5)) {
+    throw new Error('bad_minutes');
+  }
+  // "Today" means the calendar day the visit sits on, not a rolling 12-hour
+  // window: an evening appointment can be flagged in the morning, and
+  // tomorrow's cannot be flagged tonight.
+  if (isoDateOf(b.startsAt) !== isoDateOf(Date.now()) || Date.now() > b.endsAt) throw new Error('not_today');
+  b.lateByMin = min > 0 ? min : undefined;
   persist();
   return b;
 }

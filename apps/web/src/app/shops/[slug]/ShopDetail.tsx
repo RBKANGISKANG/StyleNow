@@ -458,6 +458,7 @@ function QuoteBox({ shop }: { shop: ShopData }) {
   const [details, setDetails] = useState('');
   const [sent, setSent] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [sending, setSending] = useState(false);
   if (shop.services.length === 0) return null;
   // "custom work" signal: 18+ services (needle work) or the shop's own
   // consultation-first treatments surfaced via the booking flow.
@@ -502,17 +503,21 @@ function QuoteBox({ shop }: { shop: ShopData }) {
           <button
             className="btn btn-primary sm"
             style={{ marginTop: 8 }}
-            disabled={!details.trim()}
+            disabled={!details.trim() || sending}
             onClick={() => {
               const svc = shop.services.find((s) => s.id === svcId);
               const text = `📋 ${t('qr_prefix')}${svc ? ` — ${svc.name[lang]}` : ''}: ${details.trim()}`;
+              // a second tap must not send the request twice
+              setSending(true);
+              setFailed(false);
               void apiRequestQuote(shop.id, text).then((ok) => {
+                setSending(false);
                 if (ok) setSent(true);
                 else setFailed(true);
               });
             }}
           >
-            {t('qr_send')}
+            {sending ? '…' : t('qr_send')}
           </button>
           {failed && <p className="pm-err" role="alert">{t('qr_failed')}</p>}
         </>
