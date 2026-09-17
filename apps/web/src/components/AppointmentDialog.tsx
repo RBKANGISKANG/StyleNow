@@ -18,7 +18,11 @@ import {
   apiSetCustomerNote,
   apiSetTechRecord,
   apiLatestTechRecord,
+  apiRetailItems,
+  apiAddRetail,
+  apiRemoveRetail,
 } from '@/lib/api';
+import type { RetailItem as RetailItemT } from '@/core/store';
 import { Modal } from './Modal';
 import { useConfirm } from './ConfirmDialog';
 import { isoDateOf } from '@/core/time';
@@ -37,6 +41,9 @@ export interface DialogBooking {
   startsAt: number;
   status: string;
   totalCents: number;
+  /** what the customer showed the stylist, and what was sold with the visit */
+  refPhotos?: Array<{ id: string; dataUrl: string; caption: string }>;
+  retail?: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
 }
 
 export function AppointmentDialog({
@@ -248,6 +255,19 @@ export function AppointmentDialog({
               </div>
             )}
 
+            {/* What they actually want, in pictures — worth more than the note. */}
+            {(booking.refPhotos?.length ?? 0) > 0 && (
+              <div className="md-jot" style={{ marginTop: 12 }}>
+                <span>🖼 {t('rp_title')}</span>
+                <div className="tc-shots" style={{ marginTop: 6 }}>
+                  {booking.refPhotos!.map((ph) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={ph.id} src={ph.dataUrl} alt={ph.caption} />
+                  ))}
+                </div>
+              </div>
+            )}
+
             <label className="md-jot" style={{ marginTop: 12 }}>
               <span>🔒 {t('cus_private_note')}</span>
               <input
@@ -269,6 +289,12 @@ export function AppointmentDialog({
                 by every stand-in who ever serves this customer again. */}
             {['confirmed', 'completed'].includes(booking.status) && (
               <TechRecordJot shopId={shopId} booking={booking} onChanged={onChanged} />
+            )}
+
+            {/* The shelf at the till: a product sold here lands on the bill
+                and comes off the back bar in the same tap. */}
+            {['confirmed', 'completed'].includes(booking.status) && (
+              <RetailJot shopId={shopId} booking={booking} onChanged={onChanged} />
             )}
           </div>
         )}
@@ -323,6 +349,67 @@ function TechRecordJot({
           }}
         >
           💾
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+/** Sell a shelf product with the visit. */
+function RetailJot({
+  shopId,
+  booking,
+  onChanged,
+}: {
+  shopId: string;
+  booking: DialogBooking;
+  onChanged: (msg: string) => void;
+}) {
+  const { t, lang } = useI18n();
+  const [items, setItems] = useState<RetailItemT[]>([]);
+  const [pick, setPick] = useState('');
+  useEffect(() => {
+    void apiRetailItems(shopId).then(setItems);
+  }, [shopId]);
+  if (items.length === 0) return null;
+  const sold = booking.retail ?? [];
+  return (
+    <div className="md-jot" style={{ marginTop: 12 }}>
+      <span>🧴 {t('rt_sell')}</span>
+      {sold.map((line, i) => (
+        <p key={`${line.itemId}-${i}`} style={{ fontSize: '0.82rem', margin: '4px 0' }}>
+          {line.name}{line.qty > 1 ? ` ×${line.qty}` : ''} · {money(line.priceCents * line.qty, lang)}
+          <button
+            className="btn btn-ghost sm"
+            aria-label={t('a11y_delete')}
+            style={{ marginLeft: 6 }}
+            onClick={() => void apiRemoveRetail(shopId, booking.id, i).then(() => onChanged('↩ ' + t('team_saved')))}
+          >
+            ✕
+          </button>
+        </p>
+      ))}
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+        <label className="chip">
+          🧴 {t('rt_title')}
+          <select value={pick} onChange={(e) => setPick(e.target.value)}>
+            <option value="">—</option>
+            {items.map((r) => (
+              <option key={r.id} value={r.id}>{r.name} · {money(r.priceCents, lang)}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="btn btn-primary sm"
+          disabled={!pick}
+          onClick={() =>
+            void apiAddRetail(shopId, booking.id, pick).then((ok) => {
+              if (ok) { setPick(''); onChanged('🧴 ' + t('rt_sold')); }
+            })
+          }
+        >
+          {t('rt_sell')}
         </button>
       </div>
     </div>

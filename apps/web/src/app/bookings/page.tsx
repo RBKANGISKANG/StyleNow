@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, dateOf, timeOf } from '@/lib/format';
@@ -29,11 +29,20 @@ import {
   apiRemoveWatch,
   apiOpenDispute,
   apiMyDisputes,
+  apiAddRefPhoto,
+  apiRemoveRefPhoto,
+  apiFollowedStaff,
+  apiFollowedOpenings,
+  apiEarliestAcross,
+  apiLeaveBy,
+  apiArrivalNote,
   type GiftCard,
 } from '@/lib/api';
-import type { DueRebook, SavedPerson, YearRecap, ReviewTag } from '@/core/store';
+import type { DueRebook, SavedPerson, YearRecap, ReviewTag, CancelReason } from '@/core/store';
 import { REVIEW_TAGS } from '@/core/store';
 import { icsHref } from '@/lib/ics';
+import { fileToPhotoDataUrl } from '@/lib/image';
+import { useFavourites } from '@/lib/favs';
 import { isoDateOf as isoDay } from '@/core/time';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
@@ -68,6 +77,8 @@ interface Bk {
   goodwillCode: string | null;
   checkedInAt: number | null;
   lateByMin: number | null;
+  refPhotos: Array<{ id: string; dataUrl: string; caption: string }>;
+  retail: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
   needsPatchTest: boolean;
   wouldRepeat: boolean;
   review: { rating: number; text: string; date: string } | null;
@@ -89,6 +100,8 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<Bk[] | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [cancelFor, setCancelFor] = useState<{ id: string; feeCents: number; refundCents: number; reason: string } | null>(null);
+  // Asked once, at the only moment the answer is known.
+  const [cancelWhy, setCancelWhy] = useState<CancelReason | ''>('');
   const [moveFor, setMoveFor] = useState<string | null>(null);
   const [receiptFor, setReceiptFor] = useState<ReceiptData | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -180,8 +193,9 @@ export default function BookingsPage() {
 
   const doCancel = async () => {
     if (!cancelFor) return;
-    await apiCancel(cancelFor.id, false);
+    await apiCancel(cancelFor.id, false, cancelWhy || undefined);
     setCancelFor(null);
+    setCancelWhy('');
     setToast('✅ ' + t('st_cancelled_by_customer'));
     void load();
   };
@@ -506,6 +520,9 @@ export default function BookingsPage() {
                 </span>
               </div>
             )}
+            {b.status === 'confirmed' && b.shop && b.startsAt > now && (
+              <VisitPrep booking={b} onChanged={() => void load()} />
+            )}
             {b.status === 'completed' && b.shop && (
               /* review, tip and the rebook link live in here — no second
                  "book again" button outside it */
@@ -538,6 +555,15 @@ export default function BookingsPage() {
                         refund: money(cancelFor.refundCents, lang),
                       })}
                 </div>
+                <label className="chip" style={{ marginBottom: 10 }}>
+                  {t('cx_why')}
+                  <select value={cancelWhy} onChange={(e) => setCancelWhy(e.target.value as CancelReason | '')}>
+                    <option value="">—</option>
+                    {(['ill', 'work', 'childcare', 'transport', 'found_other', 'price', 'other'] as const).map((r) => (
+                      <option key={r} value={r}>{t(`cx_${r}` as MsgKey)}</option>
+                    ))}
+                  </select>
+                </label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
                     className="btn btn-primary sm"
@@ -655,6 +681,8 @@ export default function BookingsPage() {
           ))}
         </section>
       )}
+      <FollowPanel />
+      <EarliestPanel />
       {/* Standing constraints: "tell me when Yara has a Saturday". */}
       {watches.length > 0 && (
         <section className="section" style={{ marginTop: 18 }}>
@@ -987,5 +1015,176 @@ function DisputeBox({ bookingId }: { bookingId: string }) {
         </div>
       )}
     </div>
+  );
+}
+/**
+ * The three things worth knowing before a visit: what you want (pictures the
+ * stylist sees), when to actually leave, and how to find the door — the last
+ * one only exists for people who hold the booking.
+ */
+function VisitPrep({ booking, onChanged }: { booking: Bk; onChanged: () => void }) {
+  const { t, lang } = useI18n();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<'walk' | 'bike' | 'transit' | 'car'>('transit');
+  const [leave, setLeave] = useState<{ travelMin: number; leaveAt: number } | null>(null);
+  const [arrival, setArrival] = useState('');
+  const shopId = booking.shop?.id ?? '';
+
+  useEffect(() => {
+    if (!shopId) return;
+    void apiLeaveBy(shopId, booking.startsAt, mode).then(setLeave);
+  }, [shopId, booking.startsAt, mode]);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiArrivalNote(shopId).then(setArrival);
+  }, [shopId]);
+
+  return (
+    <div style={{ padding: '0 18px 14px', display: 'grid', gap: 10 }}>
+      {/* how to find us — never public, only for a live booking */}
+      {arrival && (
+        <p style={{ fontSize: '0.82rem', background: 'var(--surface-2, #f6f3ef)', padding: '8px 10px', borderRadius: 10 }}>
+          📍 <strong>{t('ar_guest')}:</strong> {arrival}
+        </p>
+      )}
+
+      {/* leave by */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label className="chip">
+          🚇 {t('lv_mode')}
+          <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+            <option value="walk">{t('lv_walk')}</option>
+            <option value="bike">{t('lv_bike')}</option>
+            <option value="transit">{t('lv_transit')}</option>
+            <option value="car">{t('lv_car')}</option>
+          </select>
+        </label>
+        {leave && (
+          <span style={{ fontSize: '0.84rem', fontWeight: 700 }}>
+            🕒 {t('lv_line', { time: timeOf(leave.leaveAt, lang), n: String(leave.travelMin) })}
+          </span>
+        )}
+      </div>
+
+      {/* reference photos */}
+      <div>
+        <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>🖼 {t('rp_title')}</span>
+        <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', margin: '2px 0 6px' }}>{t('rp_hint')}</p>
+        <div className="tc-shots">
+          {booking.refPhotos.map((ph) => (
+            <span key={ph.id} style={{ position: 'relative' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={ph.dataUrl} alt={ph.caption} />
+              <button
+                className="btn btn-ghost sm"
+                aria-label={t('a11y_delete')}
+                style={{ position: 'absolute', top: -6, right: -6, padding: '0 6px' }}
+                onClick={() => void apiRemoveRefPhoto(booking.id, ph.id).then(onChanged)}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {booking.refPhotos.length < 3 && (
+            <>
+              <button type="button" className="btn btn-soft sm" onClick={() => fileRef.current?.click()}>
+                ＋ {t('rp_add')}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                aria-hidden="true"
+                tabIndex={-1}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  void fileToPhotoDataUrl(f).then((dataUrl) => apiAddRefPhoto(booking.id, dataUrl).then(onChanged));
+                  e.target.value = '';
+                }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/** The people you follow, and when each of them is next free. */
+function FollowPanel() {
+  const { t, lang } = useI18n();
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof apiFollowedOpenings>>>([]);
+  const [any, setAny] = useState(false);
+  useEffect(() => {
+    void apiFollowedStaff().then((ids) => setAny(ids.length > 0));
+    void apiFollowedOpenings().then(setRows);
+  }, []);
+  if (!any) return null;
+  return (
+    <section className="section" style={{ marginTop: 18 }}>
+      <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>★ {t('fl_title')}</h2>
+      {rows.length === 0 ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('fl_empty')}</p>
+      ) : (
+        rows.map((r, i) =>
+          r === null ? null : (
+            <div className="due-card" key={`${r.staffId}-${i}`}>
+              <span className="due-emoji">★</span>
+              <div className="due-body">
+                <strong>{r.staffName}</strong> · {r.shopName}
+                <div style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
+                  {t('fl_next', { when: `${dateOf(r.start, lang)}, ${timeOf(r.start, lang)}` })}
+                </div>
+              </div>
+              <Link className="btn btn-primary sm" href={`/shops/${r.shopSlug}/book?staff=${r.staffId}&date=${r.iso}`}>
+                {t('book')}
+              </Link>
+            </div>
+          ),
+        )
+      )}
+    </section>
+  );
+}
+
+/** "I don't care where, I need a cut this week" — across saved favourites. */
+function EarliestPanel() {
+  const { t, lang } = useI18n();
+  const [favs] = useFavourites();
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof apiEarliestAcross>>>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open || favs.length === 0) return;
+    void apiEarliestAcross(favs).then(setRows);
+  }, [open, favs]);
+  if (favs.length === 0) return null;
+  return (
+    <section className="section" style={{ marginTop: 18 }}>
+      <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 6 }}>⚡ {t('ea_title')}</h2>
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 8 }}>{t('ea_hint')}</p>
+      {!open ? (
+        <button className="btn btn-soft sm" onClick={() => setOpen(true)}>⚡ {t('ea_title')}</button>
+      ) : rows.length === 0 ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('ea_none')}</p>
+      ) : (
+        rows.map((r) => (
+          <div className="due-card" key={r.shopId}>
+            <span className="due-emoji">{r.emoji}</span>
+            <div className="due-body">
+              <strong>{r.shopName}</strong>
+              <div style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
+                {dateOf(r.start, lang)}, {timeOf(r.start, lang)} · {money(r.priceCents, lang)}
+              </div>
+            </div>
+            <Link className="btn btn-primary sm" href={`/shops/${r.slug}/book?date=${r.iso}`}>
+              {t('book')}
+            </Link>
+          </div>
+        ))
+      )}
+    </section>
   );
 }

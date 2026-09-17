@@ -7,7 +7,7 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta, apiRequestQuote } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta, apiRequestQuote, apiFollowedStaff, apiToggleFollow } from '@/lib/api';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -624,12 +624,14 @@ function TeamCard({
   staff: { id: string; name: string; role: { en: string; de: string }; tier: string };
   color: string;
 }) {
-  const { lang } = useI18n();
+  const { t, lang } = useI18n();
   const [photos, setPhotos] = useState<Array<{ id: string; dataUrl: string; caption: string }>>([]);
   const [langs, setLangs] = useState<string[]>([]);
+  const [following, setFollowing] = useState(false);
   useEffect(() => {
     void apiStaffPhotos(staff.id).then(setPhotos);
     void apiShopStaffMeta(shopId, staff.id).then((l) => setLangs(l));
+    void apiFollowedStaff().then((ids) => setFollowing(ids.includes(staff.id)));
   }, [shopId, staff.id]);
   return (
     <div className="team-card">
@@ -647,6 +649,15 @@ function TeamCard({
           ))}
         </div>
       )}
+      {/* "I only go to Lena" — follow, and their free times find you. */}
+      <button
+        className={`chip ${following ? 'on-primary' : ''}`}
+        style={{ marginTop: 8 }}
+        aria-pressed={following}
+        onClick={() => void apiToggleFollow(staff.id).then(setFollowing)}
+      >
+        {following ? `★ ${t('fl_following')}` : `☆ ${t('fl_follow')}`}
+      </button>
     </div>
   );
 }

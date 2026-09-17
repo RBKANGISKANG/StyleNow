@@ -43,6 +43,13 @@ import {
   apiBirthdayPerk,
   apiBundleDiscount,
   apiSetBundleDiscount,
+  apiArrivalNoteOwn,
+  apiSetArrivalNote,
+  apiConsentText,
+  apiSetConsentText,
+  apiRetailItems,
+  apiSaveRetailItem,
+  apiDeleteRetailItem,
   apiSetBirthdayPerk,
   apiStockItems,
   apiSaveStockItem,
@@ -51,7 +58,7 @@ import {
   apiColourServicesThisWeek,
   type ShopClosure,
 } from '@/lib/api';
-import type { ChecklistTemplate as ChecklistTemplateT, PackageOffer as PackageOfferT, StockItem as StockItemT } from '@/core/store';
+import type { ChecklistTemplate as ChecklistTemplateT, PackageOffer as PackageOfferT, StockItem as StockItemT, RetailItem as RetailItemT } from '@/core/store';
 import { weekdayShort, money } from '@/lib/format';
 import { fileToLogoDataUrl } from '@/lib/image';
 import { PhotoManager } from '@/components/PhotoManager';
@@ -222,6 +229,21 @@ function ShopTab({
       <section className="section">
         <h2>🧺 {t('bn_title')}</h2>
         <BundlePanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>📍 {t('ar_title')}</h2>
+        <ArrivalPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>✍️ {t('cs_title')}</h2>
+        <ConsentPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🧴 {t('rt_title')}</h2>
+        <RetailPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1124,6 +1146,105 @@ function BirthdayPerkPanel({ shopId, onChanged }: { shopId: string; onChanged: (
 }
 
 /** Two-or-more services in one visit → this percent off the basket. */
+/** Where the door actually is — handed only to people who hold a booking. */
+function ArrivalPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [note, setNote] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiArrivalNoteOwn(shopId).then((n) => { setNote(n); setLoaded(true); });
+  }, [shopId]);
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('ar_hint')}</p>
+      <textarea className="input" style={{ minHeight: 68, resize: 'vertical' }} maxLength={300}
+        placeholder={t('ar_ph')} aria-label={t('ar_title')} value={note} onChange={(e) => setNote(e.target.value)} />
+      <button className="btn btn-primary sm" style={{ marginTop: 8 }}
+        onClick={() => void apiSetArrivalNote(shopId, note).then(() => onChanged('📍 ' + t('ar_saved')))}>
+        💾 {t('acc_save')}
+      </button>
+    </div>
+  );
+}
+
+/** The wording a colour or needle treatment must have signed, in advance. */
+function ConsentPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiConsentText(shopId).then((x) => { setText(x); setLoaded(true); });
+  }, [shopId]);
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('cs_hint')}</p>
+      <textarea className="input" style={{ minHeight: 90, resize: 'vertical' }} maxLength={600}
+        placeholder={t('cs_ph')} aria-label={t('cs_title')} value={text} onChange={(e) => setText(e.target.value)} />
+      <button className="btn btn-primary sm" style={{ marginTop: 8 }}
+        onClick={() => void apiSetConsentText(shopId, text).then(() => onChanged('✍️ ' + t('cs_saved')))}>
+        💾 {t('acc_save')}
+      </button>
+    </div>
+  );
+}
+
+/** The shelf, priced for the till — sold with a visit, taken off the stock. */
+function RetailPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t, lang } = useI18n();
+  const [items, setItems] = useState<RetailItemT[]>([]);
+  const [stock, setStock] = useState<StockItemT[]>([]);
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState('');
+  const [link, setLink] = useState('');
+  const load = useCallback(() => {
+    if (!shopId) return;
+    void apiRetailItems(shopId).then(setItems);
+    void apiStockItems(shopId).then(setStock);
+  }, [shopId]);
+  useEffect(load, [load]);
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('rt_hint')}</p>
+      {items.map((r) => (
+        <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ flex: 1 }}>{r.name}</span>
+          <span style={{ fontWeight: 700 }}>{money(r.priceCents, lang)}</span>
+          {r.stockItemId && <span title={t('rt_linked')}>🔗</span>}
+          <button className="btn btn-ghost sm" aria-label={t('a11y_delete')}
+            onClick={() => void apiDeleteRetailItem(shopId, r.id).then(load)}>✕</button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        <input className="input" style={{ flex: 1, minWidth: 150 }} placeholder={t('rt_name_ph')} aria-label={t('rt_name_ph')}
+          value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
+        <input className="input" style={{ width: 90 }} inputMode="numeric" placeholder="€" aria-label={t('rt_price')}
+          value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.,]/g, ''))} />
+        <label className="chip">
+          🔗 {t('rt_link')}
+          <select value={link} onChange={(e) => setLink(e.target.value)}>
+            <option value="">{t('rt_link_none')}</option>
+            {stock.map((sk) => (<option key={sk.id} value={sk.id}>{sk.name}</option>))}
+          </select>
+        </label>
+        <button className="btn btn-primary sm" disabled={!name.trim() || !price}
+          onClick={() => {
+            const cents = Math.round(parseFloat(price.replace(',', '.')) * 100);
+            if (!Number.isFinite(cents) || cents <= 0) return;
+            void apiSaveRetailItem(shopId, { name, priceCents: cents, stockItemId: link || undefined }).then(() => {
+              setName(''); setPrice(''); setLink(''); load(); onChanged('🧴 ' + t('rt_saved'));
+            });
+          }}>
+          {t('rt_add')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BundlePanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
   const { t } = useI18n();
   const [pct, setPct] = useState(0);

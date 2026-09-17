@@ -18,7 +18,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n, type MsgKey as MsgKeyT } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount, apiConsentRequired } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -240,6 +240,15 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // the free consultation route, or an explicit "I know what I need".
   const [cfRequired, setCfRequired] = useState(false);
   const [cfAck, setCfAck] = useState(false);
+  // The shop's consent wording, when this basket needs one signed.
+  const [consentText, setConsentText] = useState('');
+  const [consentName, setConsentName] = useState('');
+  useEffect(() => {
+    if (serviceIds.length === 0) { setConsentText(''); return; }
+    let alive = true;
+    void apiConsentRequired(shop.id, serviceIds).then((txt) => { if (alive) setConsentText(txt); });
+    return () => { alive = false; };
+  }, [shop.id, serviceIds]);
   useEffect(() => {
     if (step !== 2) return;
     const flagged = menu.filter((s) => serviceIds.includes(s.id)).some((s) => s.consultationFirst);
@@ -583,6 +592,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       forMinor: forMinor || undefined,
       guardianName: forMinor ? guardianName : undefined,
       occasion: occasion ?? undefined,
+      consentName: consentText ? consentName.trim() : undefined,
     };
     const outcome = duo
       ? partySize === 2
@@ -1456,6 +1466,21 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   </label>
                 </div>
               )}
+              {/* Consent: signed here, not on a clipboard at the door. */}
+              {consentText && (
+                <div className="patch-hint" style={{ display: 'block' }}>
+                  <p style={{ fontWeight: 800, marginBottom: 4 }}>✍️ {t('cs_gate')}</p>
+                  <p style={{ marginBottom: 8, whiteSpace: 'pre-wrap' }}>{consentText}</p>
+                  <input
+                    className="input"
+                    placeholder={t('cs_sign')}
+                    aria-label={t('cs_sign')}
+                    value={consentName}
+                    maxLength={60}
+                    onChange={(e) => setConsentName(e.target.value)}
+                  />
+                </div>
+              )}
               <input
                 className="input"
                 placeholder={t('your_name')}
@@ -1640,6 +1665,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                   (duo && friendNames.slice(0, partySize - 1).some((n) => !n.trim())) ||
                   (ptRequired && !ptAck) ||
                   (cfRequired && !cfAck) ||
+                  (Boolean(consentText) && consentName.trim().length < 3) ||
                   minorChemical ||
                   minorAdultsOnly ||
                   (forMinor && !guardianName.trim())

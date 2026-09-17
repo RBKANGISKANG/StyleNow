@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money } from '@/lib/format';
-import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, apiDrawerReport, apiAddCashEntry, apiDeleteCashEntry, apiStaffEarnings, apiUtilizationReport, apiCorporateForShop, type RevenueReport } from '@/lib/api';
+import { apiRevenueReport, apiShopGiftCards, apiBookingLedger, apiQuietWindows, apiShopGoal, apiSetShopGoal, apiSellGiftCard, apiDrawerReport, apiAddCashEntry, apiDeleteCashEntry, apiStaffEarnings, apiUtilizationReport, apiCorporateForShop, apiCancelReasonStats, type RevenueReport } from '@/lib/api';
 import type { DrawerReport as DrawerReportT, StaffEarningsRow as StaffEarningsRowT, UtilizationReport as UtilizationReportT, CashEntry } from '@/core/store';
 
 type CashKind = CashEntry['kind'];
@@ -41,6 +41,7 @@ function RevenueTab({ shopId }: { shopId: string }) {
   const [closeOpen, setCloseOpen] = useState(false);
   const [gift, setGift] = useState<Awaited<ReturnType<typeof apiShopGiftCards>>>(null);
   const [corp, setCorp] = useState<Awaited<ReturnType<typeof apiCorporateForShop>> | null>(null);
+  const [whyCancel, setWhyCancel] = useState<Awaited<ReturnType<typeof apiCancelReasonStats>>>([]);
   const [quiet, setQuiet] = useState<Awaited<ReturnType<typeof apiQuietWindows>>>([]);
   const [goal, setGoal] = useState(0);
   const [goalDraft, setGoalDraft] = useState('');
@@ -52,6 +53,7 @@ function RevenueTab({ shopId }: { shopId: string }) {
     if (!shopId) return;
     void apiShopGiftCards(shopId).then(setGift);
     void apiCorporateForShop(shopId).then(setCorp);
+    void apiCancelReasonStats(shopId).then(setWhyCancel);
     void apiQuietWindows(shopId).then(setQuiet);
     void apiShopGoal(shopId).then((g) => {
       setGoal(g);
@@ -288,6 +290,20 @@ function RevenueTab({ shopId }: { shopId: string }) {
                 {corp.batches.slice(0, 6).map((b) => (
                   <p key={b.id} style={{ fontSize: '0.8rem', margin: '4px 0' }}>
                     <strong>{b.company}</strong> · {t('corp_shop_line', { n: String(b.count), amount: money(b.amountCents, lang), pct: String(b.discountPct) })}
+                  </p>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {whyCancel.length > 0 && (
+            <section className="section">
+              <h2>🙅 {t('cx_stats_title')}</h2>
+              <div className="panel">
+                <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginBottom: 8 }}>{t('cx_stats_hint')}</p>
+                {whyCancel.map((r) => (
+                  <p key={r.reason} style={{ fontSize: '0.86rem', margin: '4px 0' }}>
+                    <strong>{r.n}×</strong> {t(`cx_${r.reason}` as MsgKey)}
                   </p>
                 ))}
               </div>

@@ -425,6 +425,22 @@ function TodayTab({ shopId }: { shopId: string }) {
                         {b.needsIdCheck && (
                           <span className="cus-tag risk" title={t('id_row_hint')} style={{ marginLeft: 4 }}>🪪</span>
                         )}
+                        {b.consentName && (
+                          <span className="cus-tag" title={t('cs_signed', { who: b.consentName })} style={{ marginLeft: 4 }}>✍️</span>
+                        )}
+                        {b.durationHint !== null && (
+                          <span
+                            className="bk-note"
+                            title={b.durationHint > 0
+                              ? t('dh_over', { n: String(b.durationHint) })
+                              : t('dh_under', { n: String(Math.abs(b.durationHint)) })}
+                          >
+                            ⏱ {b.durationHint > 0 ? `+${b.durationHint}` : b.durationHint}′
+                          </span>
+                        )}
+                        {b.refPhotos.length > 0 && (
+                          <span className="bk-note" title={t('rp_title')}>🖼 {b.refPhotos.length}</span>
+                        )}
                         {b.occasion && (
                           <span
                             className="bk-note"

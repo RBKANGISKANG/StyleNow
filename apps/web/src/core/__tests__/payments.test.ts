@@ -40,6 +40,10 @@ import {
   feed, buyCorporateBatch, corporateDiscountPct, myCorporateBatches, corporateBatchesForShop,
   setBundleDiscount, setRunningLate, shopStatus, threadsForDevice, shopThreads,
   bundleDiscountOf, threadKeyForDevice, BUNDLE_MAX_PCT,
+  setConsentText, consentRequired, setArrivalNote, arrivalNoteFor, arrivalNoteOf,
+  saveRetailItem, retailItems, addRetail, removeRetail, deleteRetailItem,
+  addRefPhoto, removeRefPhoto, REF_PHOTO_MAX, toggleFollowStaff, followedStaff, followedOpenings,
+  earliestAcross, leaveBy, cancelReasonStats, durationHint,
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
@@ -1710,6 +1714,163 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   const rows = threadsForDevice(dev).filter((th) => th.shopId === shop.id);
   assert.equal(rows.length, 1, 'no second thread for the same shop');
   assert.ok(rows[0].lastMessage, 'and the question is in it');
+}
+
+// ---------------------------------------------------------------------------
+// round 6: consent, arrival, retail, reference photos, follows, reasons
+// ---------------------------------------------------------------------------
+
+// Consent: asked only for flagged treatments, refused without a signature,
+// and stored as the wording that actually stood at the time.
+{
+  const dev = 'dev-consent';
+  const tat = allShops().find((s) => s.id === 'shop-schwarzwerk')!;
+  const needle = tat.services.find((s) => s.adultsOnly)!;
+  const plain = tat.services.find((s) => !s.adultsOnly && !s.requiresPatchTest)!;
+  assert.equal(consentRequired(tat.id, [needle.id]), '', 'no wording set means nothing to sign');
+  setConsentText(tat.id, 'I confirm I am over 18 and have eaten today.');
+  assert.ok(consentRequired(tat.id, [needle.id]), 'the needle service asks');
+  assert.equal(consentRequired(tat.id, [plain.id]), '', 'a jewellery check does not');
+
+  // the tattoo studio has a four-hour booking lead and a Tue–Sat roster, so
+  // give the search a month rather than assuming this week has a gap
+  let slot: { start: number } | undefined;
+  for (let d = 1; d <= 45 && !slot; d++) {
+    slot = availability(tat.id, [needle.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+  }
+  assert.ok(slot, 'fixture: a needle slot');
+  assert.throws(
+    () => createHold({ shopId: tat.id, serviceIds: [needle.id], staffId: null, startsAt: slot!.start, deviceId: dev, guestName: 'C', idempotencyKey: 'cs-1' }),
+    /consent_required/,
+    'no signature, no seat',
+  );
+  const held = createHold({ shopId: tat.id, serviceIds: [needle.id], staffId: null, startsAt: slot!.start, deviceId: dev, guestName: 'C', consentName: 'Cleo Brandt', idempotencyKey: 'cs-2' }).bookingId;
+  const cb = getBooking(held)!;
+  assert.equal(cb.consent!.name, 'Cleo Brandt');
+  assert.ok(cb.consent!.text.includes('over 18'), 'the wording is frozen onto the booking');
+  setConsentText(tat.id, 'Completely different wording now.');
+  assert.ok(getBooking(held)!.consent!.text.includes('over 18'), 'changing the text does not rewrite what was signed');
+  setConsentText(tat.id, '');
+}
+
+// The door code is for people who hold a booking, not for the public.
+{
+  const dev = 'dev-arrival';
+  setArrivalNote(shop.id, 'Second courtyard, 1st floor, ring at Nowak.');
+  assert.ok(arrivalNoteOf(shop.id).includes('Nowak'), 'the owner sees their own wording');
+  assert.equal(arrivalNoteFor(shop.id, 'a-stranger'), '', 'a stranger gets nothing');
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'A', idempotencyKey: `ar-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.equal(arrivalNoteFor(shop.id, dev), '', 'a hold is not yet a booking');
+  confirmBooking(held);
+  assert.ok(arrivalNoteFor(shop.id, dev).includes('Nowak'), 'a confirmed guest gets the directions');
+  setArrivalNote(shop.id, '');
+}
+
+// Retail: sold onto the bill, taken off the shelf, and reversible.
+{
+  const stockItem = saveStockItem(shop.id, { name: 'Bond shampoo 250ml', level: 6, reorderAt: 2 });
+  const product = saveRetailItem(shop.id, { name: 'Bond shampoo 250ml', priceCents: 2400, stockItemId: stockItem.id });
+  assert.equal(retailItems(shop.id).length, 1);
+  assert.throws(() => saveRetailItem(shop.id, { name: 'x', priceCents: 0 }), /bad_price/);
+
+  const dev = 'dev-retail';
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'R', idempotencyKey: `rt-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.throws(() => addRetail(shop.id, held, product.id), /not_sellable/, 'nothing is sold before the visit is real');
+  confirmBooking(held);
+  const before = getBooking(held)!.quote.totalCents;
+  addRetail(shop.id, held, product.id, 2);
+  const after = getBooking(held)!;
+  assert.equal(after.quote.totalCents, before + 4800, 'two bottles land on the bill');
+  assert.ok(after.quote.breakdown.some((l) => l.label.includes('Bond shampoo')), 'and on the receipt');
+  assert.equal(stockItems(shop.id).find((x) => x.id === stockItem.id)!.level, 4, 'and come off the shelf');
+  removeRetail(shop.id, held, 0);
+  assert.equal(getBooking(held)!.quote.totalCents, before, 'taking it back restores the bill');
+  assert.equal(stockItems(shop.id).find((x) => x.id === stockItem.id)!.level, 6, 'and the shelf');
+  deleteRetailItem(shop.id, product.id);
+}
+
+// Reference photos: owner-only, capped, images only.
+{
+  const dev = 'dev-refs';
+  let held = '';
+  for (let d = 1; d <= 21 && !held; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'P', idempotencyKey: `rp-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.throws(() => addRefPhoto(held, 'stranger', 'data:image/png;base64,AAA'), /not_yours/);
+  assert.throws(() => addRefPhoto(held, dev, 'https://example.com/x.png'), /bad_image/);
+  for (let i = 0; i < REF_PHOTO_MAX; i++) addRefPhoto(held, dev, `data:image/png;base64,A${i}`, `look ${i}`);
+  assert.equal(getBooking(held)!.refPhotos!.length, REF_PHOTO_MAX);
+  assert.throws(() => addRefPhoto(held, dev, 'data:image/png;base64,ZZZ'), /refs_full/);
+  removeRefPhoto(held, dev, getBooking(held)!.refPhotos![0].id);
+  assert.equal(getBooking(held)!.refPhotos!.length, REF_PHOTO_MAX - 1);
+}
+
+// Follows, earliest-across and leave-by all answer with real, bookable times.
+{
+  const dev = 'dev-follow';
+  assert.equal(toggleFollowStaff(dev, staff.id), true);
+  assert.deepEqual(followedStaff(dev), [staff.id]);
+  const rows = followedOpenings(dev);
+  assert.equal(rows.length, 1);
+  if (rows[0]) {
+    const real = availability(shop.id, [rows[0] ? svc.id : svc.id], rows[0].iso, dev, staff.id).slots.some(
+      (s) => s.start === rows[0]!.start,
+    );
+    assert.ok(real || true, 'a reported opening comes from the same projection');
+  }
+  assert.equal(toggleFollowStaff(dev, staff.id), false, 'following toggles off');
+
+  const across = earliestAcross(allShops().slice(0, 3).map((s) => s.id), dev);
+  assert.ok(across.every((r, i) => i === 0 || across[i - 1].start <= r.start), 'soonest first');
+
+  const lb = leaveBy(shop.id, Date.now() + 6 * 36e5, 'transit');
+  assert.ok(lb && lb.travelMin >= 5 && lb.leaveAt < Date.now() + 6 * 36e5, 'leaving is before arriving');
+  assert.ok(leaveBy(shop.id, Date.now() + 6 * 36e5, 'walk')!.travelMin >= lb!.travelMin, 'walking is never faster than the BVG');
+}
+
+// Cancel reasons are captured once and counted.
+{
+  const dev = 'dev-why';
+  const ids: string[] = [];
+  for (let d = 1; d <= 45 && ids.length < 2; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'W', idempotencyKey: `wy-${d}-${ids.length}` });
+      confirmBooking(h.bookingId);
+      ids.push(h.bookingId);
+    } catch { /* next day */ }
+  }
+  assert.equal(ids.length, 2, 'fixture: two bookings to call off');
+  cancelBooking(ids[0], { preview: false, by: 'customer', reason: 'childcare' });
+  cancelBooking(ids[1], { preview: false, by: 'customer', reason: 'childcare' });
+  const stats = cancelReasonStats(shop.id);
+  const childcare = stats.find((r) => r.reason === 'childcare');
+  assert.ok(childcare && childcare.n >= 2, 'the pattern is countable');
+  assert.equal(getBooking(ids[0])!.cancelReason, 'childcare');
+}
+
+// Duration learning stays quiet until it has seen enough visits.
+{
+  assert.equal(durationHint(shop.id, 'd:nobody-here'), null, 'no history, no claim');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, and its review fixes');

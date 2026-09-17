@@ -61,6 +61,10 @@ export type PaymentMethod = 'card' | 'paypal' | 'apple_pay' | 'google_pay' | 'se
 export const OCCASIONS = ['birthday', 'wedding', 'event', 'interview'] as const;
 export type Occasion = (typeof OCCASIONS)[number];
 
+/** Why an appointment was called off — a fixed list, so it can be counted. */
+export const CANCEL_REASONS = ['ill', 'work', 'childcare', 'transport', 'found_other', 'price', 'other'] as const;
+export type CancelReason = (typeof CANCEL_REASONS)[number];
+
 /**
  * One line of a price quote. `label` is the stored English/German fallback;
  * when `key` is set the UI renders t(key, vars) instead, so machine-made
@@ -158,6 +162,16 @@ export interface Booking {
   occasion?: Occasion;
   /** Customer announced they are running this many minutes late. */
   lateByMin?: number;
+  /** "This is what I mean" — inspiration pictures the stylist should see. */
+  refPhotos?: ShopPhoto[];
+  /** The consent the shop required for this treatment, as signed. */
+  consent?: { text: string; name: string; at: number };
+  /** Why the visit was called off — asked once, at the cancel. */
+  cancelReason?: CancelReason;
+  /** Shelf products sold with the visit. */
+  retail?: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
+  /** When the floor marked the visit done — the other end of a real duration. */
+  completedAt?: number;
   /** The visit is for a minor; the named adult answers for it. */
   minor?: { guardianName: string };
   /**
@@ -469,6 +483,10 @@ interface State {
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
   quietDiscounts: Map<string, number>; // shopId → percent off in the two emptiest day-parts
   bundleDiscounts: Map<string, number>; // shopId → percent off when 2+ services book together
+  consentTexts: Map<string, string>; // shopId → what a flagged treatment must have signed
+  arrivalNotes: Map<string, string>; // shopId → floor, door code, how to find us (confirmed guests only)
+  retailItems: Map<string, RetailItem[]>; // shopId → the shelf, priced for the till
+  follows: Map<string, string[]>; // deviceId → staff ids this device follows
   people: Map<string, SavedPerson[]>; // deviceId → family & friends the device books for
   walkIns: Map<string, WalkInEntry[]>; // shopId → today's Laufkundschaft queue
   logEntries: Map<string, LogEntry[]>; // shopId → the Übergabebuch (team logbook)
@@ -552,6 +570,10 @@ const state: State =
     goals: new Map(),
     quietDiscounts: new Map(),
     bundleDiscounts: new Map(),
+    consentTexts: new Map(),
+    arrivalNotes: new Map(),
+    retailItems: new Map(),
+    follows: new Map(),
     people: new Map(),
     walkIns: new Map(),
     logEntries: new Map(),
@@ -640,6 +662,10 @@ function persist(): boolean {
         goals: [...state.goals.entries()],
         quietDiscounts: [...state.quietDiscounts.entries()],
         bundleDiscounts: [...state.bundleDiscounts.entries()],
+        consentTexts: [...state.consentTexts.entries()],
+        arrivalNotes: [...state.arrivalNotes.entries()],
+        retailItems: [...state.retailItems.entries()],
+        follows: [...state.follows.entries()],
         people: [...state.people.entries()],
         walkIns: [...state.walkIns.entries()],
         logEntries: [...state.logEntries.entries()],
@@ -705,6 +731,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
         goals?: Array<[string, number]>;
         quietDiscounts?: Array<[string, number]>;
         bundleDiscounts?: Array<[string, number]>;
+        consentTexts?: Array<[string, string]>;
+        arrivalNotes?: Array<[string, string]>;
+        retailItems?: Array<[string, RetailItem[]]>;
+        follows?: Array<[string, string[]]>;
         people?: Array<[string, SavedPerson[]]>;
         walkIns?: Array<[string, WalkInEntry[]]>;
         logEntries?: Array<[string, LogEntry[]]>;
@@ -757,6 +787,10 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.goals = new Map(d.goals ?? []);
       state.quietDiscounts = new Map(d.quietDiscounts ?? []);
       state.bundleDiscounts = new Map(d.bundleDiscounts ?? []);
+      state.consentTexts = new Map(d.consentTexts ?? []);
+      state.arrivalNotes = new Map(d.arrivalNotes ?? []);
+      state.retailItems = new Map(d.retailItems ?? []);
+      state.follows = new Map(d.follows ?? []);
       state.people = new Map(d.people ?? []);
       state.walkIns = new Map(d.walkIns ?? []);
       state.logEntries = new Map(d.logEntries ?? []);
@@ -997,6 +1031,9 @@ export interface ShopConfig {
   stampCard?: { enabled: boolean; required: number };
   quietDiscountPct?: number;
   bundlePct?: number;
+  consentText?: string;
+  arrivalNote?: string;
+  retailItems?: RetailItem[];
   logEntries?: LogEntry[];
   checklists?: ChecklistTemplate[];
   checklistTicks?: Array<[string, ChecklistTick[]]>;
@@ -1062,6 +1099,9 @@ export function exportShopConfig(shopId: string): ShopConfig {
     // explicit 0, not an absent key: "the promotion is over" must survive
     // a backup/restore and reach a tablet that still holds the old percent
     bundlePct: state.bundleDiscounts.get(shopId) ?? 0,
+    consentText: state.consentTexts.get(shopId) ?? '',
+    arrivalNote: state.arrivalNotes.get(shopId) ?? '',
+    retailItems: state.retailItems.get(shopId) ?? [],
     logEntries: state.logEntries.get(shopId) ?? [],
     checklists: state.checklists.get(shopId) ?? [],
     checklistTicks: [...state.checklistTicks.entries()].filter(([k]) => k.startsWith(`${shopId}:`)),
@@ -1118,6 +1158,15 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
     if (pct > 0) state.bundleDiscounts.set(shopId, pct);
     else state.bundleDiscounts.delete(shopId); // absent means off, and off must round-trip
   }
+  if (doc.consentText !== undefined) {
+    if (doc.consentText) state.consentTexts.set(shopId, doc.consentText);
+    else state.consentTexts.delete(shopId);
+  }
+  if (doc.arrivalNote !== undefined) {
+    if (doc.arrivalNote) state.arrivalNotes.set(shopId, doc.arrivalNote);
+    else state.arrivalNotes.delete(shopId);
+  }
+  if (doc.retailItems) state.retailItems.set(shopId, doc.retailItems);
   if (doc.logEntries) state.logEntries.set(shopId, doc.logEntries);
   if (doc.checklists) state.checklists.set(shopId, doc.checklists);
   if (doc.checklistTicks) {
@@ -2082,6 +2131,15 @@ export function setQuietDiscount(shopId: string, pct: number): void {
   persist();
 }
 
+/** A product on the shelf, priced for the till. */
+export interface RetailItem {
+  id: string;
+  name: string;
+  priceCents: number;
+  /** links to the back-bar stock item, so selling one takes it off the shelf */
+  stockItemId?: string;
+}
+
 export const BUNDLE_MAX_PCT = 30;
 
 /** Two-or-more services in one visit → this percent off the basket. */
@@ -2094,6 +2152,178 @@ export function setBundleDiscount(shopId: string, pct: number): void {
 
 export function bundleDiscountOf(shopId: string): number {
   return state.bundleDiscounts.get(shopId) ?? 0;
+}
+
+// --- consent, arrival instructions, retail shelf (shop-owned settings) ------
+
+/**
+ * Why people call off, counted. One reason is an anecdote; "childcare, every
+ * Tuesday morning" is a roster decision.
+ */
+export function cancelReasonStats(
+  shopId: string,
+  days = 90,
+): Array<{ reason: CancelReason; n: number }> {
+  const since = Date.now() - days * 864e5;
+  const counts = new Map<CancelReason, number>();
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || !b.cancelReason) continue;
+    if (b.startsAt < since) continue;
+    counts.set(b.cancelReason, (counts.get(b.cancelReason) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([reason, n]) => ({ reason, n }))
+    .sort((a, b) => b.n - a.n);
+}
+
+export const CONSENT_MAX = 600;
+
+/** The wording a flagged treatment (colour, needle work) must have signed. */
+export function setConsentText(shopId: string, text: string): void {
+  const clean = text.trim().slice(0, CONSENT_MAX);
+  if (clean) state.consentTexts.set(shopId, clean);
+  else state.consentTexts.delete(shopId);
+  persist();
+}
+
+export function consentTextOf(shopId: string): string {
+  return state.consentTexts.get(shopId) ?? '';
+}
+
+/**
+ * Does this basket need a signature? Only when the shop wrote a consent AND
+ * the treatment is one the law and the skin care about.
+ */
+export function consentRequired(shopId: string, serviceIds: string[]): string {
+  if (!consentTextOf(shopId)) return '';
+  const menu = new Map(effectiveServices(shopId).map((s) => [s.id, s]));
+  const flagged = serviceIds.some((id) => {
+    const s = menu.get(id);
+    return Boolean(s?.requiresPatchTest || s?.adultsOnly);
+  });
+  return flagged ? consentTextOf(shopId) : '';
+}
+
+export const ARRIVAL_MAX = 300;
+
+/**
+ * "Second courtyard, first floor, ring at Nowak." Shown to people who hold a
+ * confirmed booking — not on the public page, because a door code is not
+ * something a marketplace should publish.
+ */
+export function setArrivalNote(shopId: string, note: string): void {
+  const clean = note.trim().slice(0, ARRIVAL_MAX);
+  if (clean) state.arrivalNotes.set(shopId, clean);
+  else state.arrivalNotes.delete(shopId);
+  persist();
+}
+
+/** The note, but only for a device that actually holds a live booking. */
+export function arrivalNoteFor(shopId: string, deviceId: string): string {
+  const note = state.arrivalNotes.get(shopId) ?? '';
+  if (!note) return '';
+  const now = Date.now();
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.deviceId !== deviceId) continue;
+    if (b.status === 'confirmed' && b.endsAt > now - 36e5) return note;
+  }
+  return '';
+}
+
+/** The owner always sees their own wording, booking or not. */
+export function arrivalNoteOf(shopId: string): string {
+  return state.arrivalNotes.get(shopId) ?? '';
+}
+
+export function retailItems(shopId: string): RetailItem[] {
+  return state.retailItems.get(shopId) ?? [];
+}
+
+export function saveRetailItem(
+  shopId: string,
+  item: { id?: string; name: string; priceCents: number; stockItemId?: string },
+): RetailItem {
+  const name = item.name.trim().slice(0, 60);
+  if (!name) throw new Error('bad_name');
+  if (!Number.isInteger(item.priceCents) || item.priceCents <= 0 || item.priceCents > 50000) {
+    throw new Error('bad_price');
+  }
+  const list = [...retailItems(shopId)];
+  const saved: RetailItem = {
+    id: item.id || `rt-${state.seq++}`,
+    name,
+    priceCents: item.priceCents,
+    stockItemId: item.stockItemId || undefined,
+  };
+  const at = list.findIndex((r) => r.id === saved.id);
+  if (at >= 0) list[at] = saved;
+  else list.push(saved);
+  state.retailItems.set(shopId, list);
+  persist();
+  return saved;
+}
+
+export function deleteRetailItem(shopId: string, itemId: string): void {
+  state.retailItems.set(shopId, retailItems(shopId).filter((r) => r.id !== itemId));
+  persist();
+}
+
+/**
+ * Sell shelf products with a visit. Priced at the till, added to the booking's
+ * total, and taken off the back-bar count when the item is linked — the shelf
+ * should not need a second, manual correction.
+ */
+export function addRetail(shopId: string, bookingId: string, itemId: string, qty = 1): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.shopId !== shopId) throw new Error('not_found');
+  if (!['confirmed', 'completed'].includes(b.status)) throw new Error('not_sellable');
+  if (!Number.isInteger(qty) || qty < 1 || qty > 10) throw new Error('bad_qty');
+  const item = retailItems(shopId).find((r) => r.id === itemId);
+  if (!item) throw new Error('not_found');
+  const line = { itemId: item.id, name: item.name, priceCents: item.priceCents, qty };
+  b.retail = [...(b.retail ?? []), line];
+  const cents = item.priceCents * qty;
+  b.quote = {
+    ...b.quote,
+    totalCents: b.quote.totalCents + cents,
+    breakdown: [...b.quote.breakdown, { label: `🧴 ${item.name}${qty > 1 ? ` ×${qty}` : ''}`, cents }],
+  };
+  // a product sold is a product gone from the shelf
+  if (item.stockItemId) {
+    try {
+      adjustStock(shopId, item.stockItemId, -qty);
+    } catch {
+      // the shelf entry was deleted — the sale still stands
+    }
+  }
+  persist();
+  return b;
+}
+
+export function removeRetail(shopId: string, bookingId: string, index: number): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.shopId !== shopId) throw new Error('not_found');
+  const line = (b.retail ?? [])[index];
+  if (!line) throw new Error('not_found');
+  b.retail = (b.retail ?? []).filter((_, i) => i !== index);
+  const cents = line.priceCents * line.qty;
+  const label = `🧴 ${line.name}${line.qty > 1 ? ` ×${line.qty}` : ''}`;
+  const at = b.quote.breakdown.findIndex((l) => l.label === label && l.cents === cents);
+  b.quote = {
+    ...b.quote,
+    totalCents: Math.max(0, b.quote.totalCents - cents),
+    breakdown: at >= 0 ? b.quote.breakdown.filter((_, i) => i !== at) : b.quote.breakdown,
+  };
+  const item = retailItems(shopId).find((r) => r.id === line.itemId);
+  if (item?.stockItemId) {
+    try {
+      adjustStock(shopId, item.stockItemId, line.qty);
+    } catch {
+      // ignore — the shelf entry is gone
+    }
+  }
+  persist();
+  return b;
 }
 
 /**
@@ -2770,6 +3000,8 @@ export interface HoldInput {
   skipAutoPerks?: boolean;
   /** Optional context for the chair: what the visit is for. */
   occasion?: Occasion;
+  /** Typed name signing the shop's consent, when the treatment needs one. */
+  consentName?: string;
   idempotencyKey: string;
 }
 
@@ -2799,6 +3031,13 @@ export function createHold(input: HoldInput): HoldResult {
     if (services.some((s) => s.requiresPatchTest)) throw new Error('minor_chemical');
     // Tattoos and piercings are 18+, guardian or not — the law, not a policy.
     if (services.some((s) => s.adultsOnly)) throw new Error('minor_adults_only');
+  }
+
+  // The shop's consent wording, signed before the seat is held rather than on
+  // a clipboard at the door — the engine refuses the booking without it.
+  const consentNeeded = consentRequired(input.shopId, input.serviceIds);
+  if (consentNeeded && !input.skipAutoPerks && !input.consentName?.trim()) {
+    throw new Error('consent_required');
   }
 
   const now = Date.now();
@@ -3045,6 +3284,10 @@ export function createHold(input: HoldInput): HoldResult {
     needsIdCheck: services.some((s) => s.adultsOnly) ? true : undefined,
     // whitelisted, not free text — free text already has the guest note
     occasion: input.occasion && OCCASIONS.includes(input.occasion) ? input.occasion : undefined,
+    // the wording as it stood when they signed it, not a pointer to today's
+    consent: consentNeeded && input.consentName?.trim()
+      ? { text: consentNeeded, name: input.consentName.trim().slice(0, 60), at: now }
+      : undefined,
     policySnapshot: { ...shop.policy },
     createdAt: now,
   };
@@ -3181,7 +3424,7 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
 
 export function cancelBooking(
   id: string,
-  opts: { preview: boolean; by: 'customer' | 'shop'; isNoShow?: boolean },
+  opts: { preview: boolean; by: 'customer' | 'shop'; isNoShow?: boolean; reason?: CancelReason },
 ): { feeCents: number; refundCents: number; reason: string; booking: Booking } {
   const b = state.bookings.get(id);
   if (!b) throw new Error('not_found');
@@ -3204,6 +3447,9 @@ export function cancelBooking(
         ? 'cancelled_by_customer'
         : 'cancelled_by_shop';
     b.cancellation = outcome;
+    // Asked once, at the only moment the answer is known — and from a fixed
+    // list, so a year of them can actually be counted.
+    if (opts.reason && CANCEL_REASONS.includes(opts.reason)) b.cancelReason = opts.reason;
     // Settle the money, don't just calculate it. The refund leaves the shop's
     // books; what stays behind is the fee. Without this the booking kept
     // showing the deposit as paid and the customer never got it back.
@@ -3689,6 +3935,10 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       access: b.access ?? null,
       occasion: b.occasion ?? null,
       lateByMin: b.lateByMin ?? null,
+      refPhotos: b.refPhotos ?? [],
+      consentName: b.consent?.name ?? null,
+      retail: b.retail ?? [],
+      durationHint: durationHint(shopId, customerKeyOf(b))?.avgOverrunMin ?? null,
     })),
     week,
   };
@@ -3703,6 +3953,7 @@ export function setBookingStatus(
   if (!b || b.shopId !== shopId) throw new Error('not_found');
   if (status === 'completed') {
     b.status = 'completed';
+    b.completedAt = Date.now();
     b.paidCents = b.quote.totalCents;
     persist();
     return b;
@@ -3784,6 +4035,8 @@ export interface BookingView {
   wouldRepeat: boolean;
   birthdayPerk: boolean;
   lateByMin: number | null;
+  refPhotos: ShopPhoto[];
+  retail: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -3828,6 +4081,8 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       wouldRepeat: b.wouldRepeat ?? false,
       birthdayPerk: b.birthdayPerk ?? false,
       lateByMin: b.lateByMin ?? null,
+      refPhotos: b.refPhotos ?? [],
+      retail: b.retail ?? [],
       isPrime: b.isPrime ?? false,
     };
   });
@@ -6250,6 +6505,166 @@ export function checkIn(bookingId: string, deviceId: string): Booking {
     persist();
   }
   return b;
+}
+
+export const REF_PHOTO_MAX = 3;
+
+/**
+ * "This is what I mean." A picture settles in one second what a paragraph of
+ * guest note never quite does — the stylist sees them on the day plan.
+ * Owner-only, and only while the visit is still ahead.
+ */
+export function addRefPhoto(bookingId: string, deviceId: string, dataUrl: string, caption = ''): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  if (!dataUrl.startsWith('data:image/')) throw new Error('bad_image');
+  if (!['confirmed', 'pending_payment', 'hold'].includes(b.status)) throw new Error('not_editable');
+  const list = b.refPhotos ?? [];
+  if (list.length >= REF_PHOTO_MAX) throw new Error('refs_full');
+  b.refPhotos = [
+    ...list,
+    { id: `rp-${state.seq++}-${Date.now().toString(36)}`, dataUrl, caption: caption.trim().slice(0, 80), addedAt: Date.now() },
+  ];
+  persist();
+  return b;
+}
+
+export function removeRefPhoto(bookingId: string, deviceId: string, photoId: string): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
+  b.refPhotos = (b.refPhotos ?? []).filter((p) => p.id !== photoId);
+  persist();
+  return b;
+}
+
+// --- following a stylist ----------------------------------------------------
+
+/** Follow / unfollow a stylist; returns whether the device now follows them. */
+export function toggleFollowStaff(deviceId: string, staffId: string): boolean {
+  const list = state.follows.get(deviceId) ?? [];
+  const next = list.includes(staffId) ? list.filter((id) => id !== staffId) : [...list, staffId];
+  state.follows.set(deviceId, next);
+  persist();
+  return next.includes(staffId);
+}
+
+export function followedStaff(deviceId: string): string[] {
+  return state.follows.get(deviceId) ?? [];
+}
+
+/**
+ * The people you follow and when they are next free — the question behind
+ * "I only go to Lena" answered without hunting through days.
+ */
+export function followedOpenings(
+  deviceId: string,
+  horizonDays = 14,
+): Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> {
+  const out: Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> = [];
+  const now = Date.now();
+  for (const staffId of followedStaff(deviceId)) {
+    const shop = allShops().find((s) => effectiveStaff(s.id).some((st) => st.id === staffId));
+    if (!shop) continue;
+    const member = effectiveStaff(shop.id).find((st) => st.id === staffId)!;
+    const svc = effectiveServices(shop.id).find((s) => s.popular) ?? effectiveServices(shop.id)[0];
+    let hit: { iso: string; start: number } | null = null;
+    for (let d = 0; d < horizonDays && !hit; d++) {
+      const iso = addDays(isoDateOf(now), d);
+      try {
+        const slot = availability(shop.id, [svc.id], iso, deviceId, staffId).slots.find((s) => s.start > now);
+        if (slot) hit = { iso, start: slot.start };
+      } catch {
+        // shop shut that day
+      }
+    }
+    out.push(
+      hit
+        ? { staffId, staffName: member.name, shopId: shop.id, shopSlug: shop.slug, shopName: shop.name, ...hit }
+        : null,
+    );
+  }
+  return out;
+}
+
+/**
+ * The soonest bookable time for a service across a set of shops — the
+ * "I don't care where, I need a cut this week" question.
+ */
+export function earliestAcross(
+  shopIds: string[],
+  deviceId: string,
+  horizonDays = 14,
+): Array<{ shopId: string; shopName: string; slug: string; emoji: string; iso: string; start: number; priceCents: number }> {
+  const now = Date.now();
+  const out: Array<{ shopId: string; shopName: string; slug: string; emoji: string; iso: string; start: number; priceCents: number }> = [];
+  for (const shopId of shopIds) {
+    const shop = shopById(shopId);
+    if (!shop) continue;
+    const svc = effectiveServices(shopId).find((s) => s.popular) ?? effectiveServices(shopId)[0];
+    if (!svc) continue;
+    for (let d = 0; d < horizonDays; d++) {
+      const iso = addDays(isoDateOf(now), d);
+      let slot;
+      try {
+        slot = availability(shopId, [svc.id], iso, deviceId, null).slots.find((s) => s.start > now);
+      } catch {
+        continue;
+      }
+      if (slot) {
+        out.push({ shopId, shopName: shop.name, slug: shop.slug, emoji: shop.emoji, iso, start: slot.start, priceCents: slot.priceCents });
+        break;
+      }
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+// --- how long this person's visits really take ------------------------------
+
+export const DURATION_SAMPLE_MIN = 3;
+
+/**
+ * Some people need twenty minutes more than the menu says, every time. The
+ * shop already knows — it is in their own completed bookings — so say it out
+ * loud instead of letting the day drift.
+ */
+export function durationHint(shopId: string, customerKey: string): { avgOverrunMin: number; visits: number } | null {
+  let visits = 0;
+  let total = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed' || customerKeyOf(b) !== customerKey) continue;
+    if (!b.checkedInAt || !b.completedAt) continue;
+    const planned = b.endsAt - b.startsAt;
+    const actual = b.completedAt - Math.min(b.checkedInAt, b.startsAt);
+    total += Math.round((actual - planned) / 60000);
+    visits += 1;
+  }
+  if (visits < DURATION_SAMPLE_MIN) return null;
+  const avg = Math.round(total / visits);
+  return Math.abs(avg) >= 10 ? { avgOverrunMin: avg, visits } : null;
+}
+
+// --- "leave by" --------------------------------------------------------------
+
+export const TRAVEL_SPEEDS_KMH = { walk: 4.8, bike: 15, transit: 18, car: 22 } as const;
+export type TravelMode = keyof typeof TRAVEL_SPEEDS_KMH;
+
+/**
+ * When to walk out of the door, from the distance the feed already knows and
+ * an honest city speed — plus the buffer nobody regrets.
+ */
+export function leaveBy(
+  shopId: string,
+  startsAt: number,
+  mode: TravelMode,
+  from?: { lat: number; lng: number },
+): { travelMin: number; leaveAt: number } | null {
+  const shop = shopById(shopId);
+  if (!shop) return null;
+  const origin = from ?? USER_LOCATION;
+  const metres = haversineM(origin, { lat: shop.lat, lng: shop.lng });
+  const travelMin = Math.max(5, Math.round((metres / 1000 / TRAVEL_SPEEDS_KMH[mode]) * 60) + (mode === 'transit' ? 6 : 2));
+  return { travelMin, leaveAt: startsAt - travelMin * 60_000 };
 }
 
 export const LATE_MAX_MIN = 60;

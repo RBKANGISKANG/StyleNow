@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       guardianName: typeof body.guardianName === 'string' ? body.guardianName : undefined,
       usePackageId: typeof body.usePackageId === 'string' ? body.usePackageId : undefined,
       occasion: typeof body.occasion === 'string' ? (body.occasion as never) : undefined,
+      consentName: typeof body.consentName === 'string' ? body.consentName : undefined,
       idempotencyKey,
     });
     return NextResponse.json(result, { status: 201 });

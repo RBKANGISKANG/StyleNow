@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cancelBooking } from '@/core/store';
+import { cancelBooking, CANCEL_REASONS, type CancelReason } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +9,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const { feeCents, refundCents, reason, booking } = cancelBooking(params.id, {
       preview: Boolean(body.preview),
       by: 'customer',
+      reason: CANCEL_REASONS.includes(body.reason) ? (body.reason as CancelReason) : undefined,
     });
     return NextResponse.json({ feeCents, refundCents, reason, status: booking.status });
   } catch (e) {

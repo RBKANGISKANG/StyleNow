@@ -97,6 +97,10 @@ export interface Overview {
     } | null;
     occasion: string | null;
     lateByMin: number | null;
+    refPhotos: Array<{ id: string; dataUrl: string; caption: string }>;
+    consentName: string | null;
+    retail: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
+    durationHint: number | null;
   }>;
   week: Array<{ iso: string; revenueCents: number }>;
 }

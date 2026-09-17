@@ -245,7 +245,7 @@ export async function confirmBooking(
 
 export async function cancelBooking(
   bookingId: string,
-  opts: { preview: boolean; by: 'customer' | 'shop'; isNoShow?: boolean },
+  opts: { preview: boolean; by: 'customer' | 'shop'; isNoShow?: boolean; reason?: store.CancelReason },
 ): Promise<{ feeCents: number; refundCents: number; reason: string }> {
   const r = store.cancelBooking(bookingId, opts);
   if (!opts.preview) {

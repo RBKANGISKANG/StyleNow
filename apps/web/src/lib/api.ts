@@ -315,13 +315,17 @@ export interface CancelResult {
   reason: string;
 }
 
-export async function apiCancel(bookingId: string, preview: boolean): Promise<CancelResult | null> {
+export async function apiCancel(
+  bookingId: string,
+  preview: boolean,
+  reason?: store.CancelReason,
+): Promise<CancelResult | null> {
   const mode = backendMode();
   if (mode === 'server') {
     const res = await fetch(`/api/bookings/${bookingId}/cancel`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preview }),
+      body: JSON.stringify({ preview, reason }),
     });
     return res.ok ? await res.json() : null;
   }
@@ -329,8 +333,8 @@ export async function apiCancel(bookingId: string, preview: boolean): Promise<Ca
   try {
     const r =
       backendMode() === 'supabase'
-        ? await sb.cancelBooking(bookingId, { preview, by: 'customer' })
-        : store.cancelBooking(bookingId, { preview, by: 'customer' });
+        ? await sb.cancelBooking(bookingId, { preview, by: 'customer', reason })
+        : store.cancelBooking(bookingId, { preview, by: 'customer', reason });
     return { feeCents: r.feeCents, refundCents: r.refundCents, reason: r.reason };
   } catch {
     return null;
@@ -2433,4 +2437,174 @@ export async function apiCorporateForShop(shopId: string): Promise<ReturnType<ty
   }
   await readyForRead();
   return store.corporateBatchesForShop(shopId);
+}
+
+// ---- round 6: context, consent, retail, travel, follows -------------------
+
+export async function apiAddRefPhoto(bookingId: string, dataUrl: string, caption = ''): Promise<boolean> {
+  await localWrite();
+  try {
+    const b = store.addRefPhoto(bookingId, deviceId(), dataUrl, caption);
+    // the stylist reads these on their own device, so the booking must travel
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiRemoveRefPhoto(bookingId: string, photoId: string): Promise<void> {
+  await localWrite();
+  try {
+    const b = store.removeRefPhoto(bookingId, deviceId(), photoId);
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
+  } catch {
+    // gone already
+  }
+}
+
+export async function apiConsentText(shopId: string): Promise<string> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/policies`);
+    return res.ok ? (await res.json()).consentText : '';
+  }
+  await readyForRead();
+  return store.consentTextOf(shopId);
+}
+
+/** The wording this basket must have signed — '' when nothing is needed. */
+export async function apiConsentRequired(shopId: string, serviceIds: string[]): Promise<string> {
+  if (backendMode() === 'server') {
+    const res = await fetch(
+      `/api/shop/${shopId}/policies?serviceIds=${encodeURIComponent(serviceIds.join(','))}`,
+    );
+    return res.ok ? (await res.json()).consentRequired : '';
+  }
+  await readyForRead();
+  return store.consentRequired(shopId, serviceIds);
+}
+
+export async function apiSetConsentText(shopId: string, text: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/policies`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ consentText: text }),
+    });
+    return;
+  }
+  await localWrite();
+  store.setConsentText(shopId, text);
+  syncConfig(shopId);
+}
+
+export async function apiArrivalNote(shopId: string): Promise<string> {
+  if (backendMode() === 'server') {
+    const res = await fetch(
+      `/api/shop/${shopId}/policies?deviceId=${encodeURIComponent(deviceId())}`,
+    );
+    return res.ok ? (await res.json()).arrivalNote : '';
+  }
+  await readyForRead();
+  return store.arrivalNoteFor(shopId, deviceId());
+}
+
+export async function apiArrivalNoteOwn(shopId: string): Promise<string> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/policies`);
+    return res.ok ? (await res.json()).arrivalNoteOwn : '';
+  }
+  await readyForRead();
+  return store.arrivalNoteOf(shopId);
+}
+
+export async function apiSetArrivalNote(shopId: string, note: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/policies`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ arrivalNote: note }),
+    });
+    return;
+  }
+  await localWrite();
+  store.setArrivalNote(shopId, note);
+  syncConfig(shopId);
+}
+
+export async function apiRetailItems(shopId: string): Promise<store.RetailItem[]> {
+  await readyForRead();
+  return store.retailItems(shopId);
+}
+
+export async function apiSaveRetailItem(
+  shopId: string,
+  item: { id?: string; name: string; priceCents: number; stockItemId?: string },
+): Promise<void> {
+  await localWrite();
+  store.saveRetailItem(shopId, item);
+  syncConfig(shopId);
+}
+
+export async function apiDeleteRetailItem(shopId: string, itemId: string): Promise<void> {
+  await localWrite();
+  store.deleteRetailItem(shopId, itemId);
+  syncConfig(shopId);
+}
+
+export async function apiAddRetail(shopId: string, bookingId: string, itemId: string, qty = 1): Promise<boolean> {
+  await localWrite();
+  try {
+    const b = store.addRetail(shopId, bookingId, itemId, qty);
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
+    syncConfig(shopId); // the shelf count moved too
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiRemoveRetail(shopId: string, bookingId: string, index: number): Promise<void> {
+  await localWrite();
+  try {
+    const b = store.removeRetail(shopId, bookingId, index);
+    if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
+    syncConfig(shopId);
+  } catch {
+    // nothing to take back
+  }
+}
+
+export async function apiCancelReasonStats(shopId: string): Promise<ReturnType<typeof store.cancelReasonStats>> {
+  await readyForRead();
+  return store.cancelReasonStats(shopId);
+}
+
+export async function apiToggleFollow(staffId: string): Promise<boolean> {
+  await localWrite();
+  return store.toggleFollowStaff(deviceId(), staffId);
+}
+
+export async function apiFollowedStaff(): Promise<string[]> {
+  await readyForRead();
+  return store.followedStaff(deviceId());
+}
+
+export async function apiFollowedOpenings(): Promise<ReturnType<typeof store.followedOpenings>> {
+  await readyForRead();
+  return store.followedOpenings(deviceId());
+}
+
+export async function apiEarliestAcross(shopIds: string[]): Promise<ReturnType<typeof store.earliestAcross>> {
+  await readyForRead();
+  return store.earliestAcross(shopIds, deviceId());
+}
+
+export async function apiLeaveBy(
+  shopId: string,
+  startsAt: number,
+  mode: store.TravelMode,
+): Promise<ReturnType<typeof store.leaveBy>> {
+  await readyForRead();
+  return store.leaveBy(shopId, startsAt, mode);
 }
