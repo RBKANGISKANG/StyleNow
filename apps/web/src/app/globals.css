@@ -1457,7 +1457,9 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
 .svc-edit input:focus { border-color: var(--primary); }
 
 .switch { position: relative; display: inline-block; width: 44px; height: 25px; flex-shrink: 0; vertical-align: middle; }
-.switch input { display: none; }
+/* Hidden to the eye, still a real checkbox: display:none would drop every
+   toggle in the app out of the tab order and out of the accessibility tree. */
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .switch .knob {
   position: absolute; inset: 0;
   border-radius: 999px;
@@ -1475,6 +1477,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.015em; }
   box-shadow: 0 1px 4px rgba(0,0,0,0.25);
   transition: transform 0.2s ease;
 }
+.switch input:focus-visible + .knob { outline: 2px solid var(--primary); outline-offset: 2px; }
 .switch input:checked + .knob { background: var(--teal); }
 .switch input:checked + .knob::after { transform: translateX(19px); }
 

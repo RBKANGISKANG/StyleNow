@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { consentTextOf, consentRequired, setConsentText, arrivalNoteOf, arrivalNoteFor, setArrivalNote } from '@/core/store';
+import { consentTextOf, consentRequired, setConsentText, arrivalNoteOf, arrivalNoteFor, setArrivalNote, payAtSalonOf, setPayAtSalon } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     consentRequired: serviceIds.length ? consentRequired(params.id, serviceIds) : '',
     arrivalNote: deviceId ? arrivalNoteFor(params.id, deviceId) : '',
     arrivalNoteOwn: arrivalNoteOf(params.id),
+    payAtSalon: payAtSalonOf(params.id),
   });
 }
 
@@ -24,5 +25,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json().catch(() => ({}));
   if (typeof body.consentText === 'string') setConsentText(params.id, body.consentText);
   if (typeof body.arrivalNote === 'string') setArrivalNote(params.id, body.arrivalNote);
-  return NextResponse.json({ consentText: consentTextOf(params.id), arrivalNoteOwn: arrivalNoteOf(params.id) });
+  if (typeof body.payAtSalon === 'boolean') setPayAtSalon(params.id, body.payAtSalon);
+  return NextResponse.json({
+    consentText: consentTextOf(params.id),
+    arrivalNoteOwn: arrivalNoteOf(params.id),
+    payAtSalon: payAtSalonOf(params.id),
+  });
 }

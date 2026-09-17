@@ -43,6 +43,8 @@ import {
   apiBirthdayPerk,
   apiBundleDiscount,
   apiSetBundleDiscount,
+  apiPayAtSalon,
+  apiSetPayAtSalon,
   apiArrivalNoteOwn,
   apiSetArrivalNote,
   apiConsentText,
@@ -229,6 +231,11 @@ function ShopTab({
       <section className="section">
         <h2>🧺 {t('bn_title')}</h2>
         <BundlePanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🏪 {t('pl_title')}</h2>
+        <PayAtSalonPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1146,6 +1153,37 @@ function BirthdayPerkPanel({ shopId, onChanged }: { shopId: string; onChanged: (
 }
 
 /** Two-or-more services in one visit → this percent off the basket. */
+/** May a guest settle at the counter instead of paying online? */
+function PayAtSalonPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [on, setOn] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!shopId) return;
+    void apiPayAtSalon(shopId).then((v) => { setOn(v); setLoaded(true); });
+  }, [shopId]);
+  if (!loaded) return <div className="spinner" />;
+  return (
+    <div className="panel">
+      <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>{t('pl_shop_hint')}</p>
+      <label className="switch" style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+        <input
+          type="checkbox"
+          checked={on}
+          aria-label={t('pl_shop_toggle')}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setOn(next);
+            void apiSetPayAtSalon(shopId, next).then(() => onChanged('🏪 ' + t('pl_shop_saved')));
+          }}
+        />
+        <span className="knob" />
+        <span style={{ fontSize: '0.86rem' }}>{t('pl_shop_toggle')}</span>
+      </label>
+    </div>
+  );
+}
+
 /** Where the door actually is — handed only to people who hold a booking. */
 function ArrivalPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
   const { t } = useI18n();

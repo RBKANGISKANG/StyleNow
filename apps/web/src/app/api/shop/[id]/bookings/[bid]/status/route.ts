@@ -11,7 +11,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
     return NextResponse.json({ error: 'invalid_status' }, { status: 400 });
   }
   try {
-    const b = setBookingStatus(params.id, params.bid, body.status);
+    const settledBy = body.settledBy === 'cash' || body.settledBy === 'card' ? body.settledBy : undefined;
+    const b = setBookingStatus(params.id, params.bid, body.status, settledBy);
     return NextResponse.json({ id: b.id, status: b.status, cancellation: b.cancellation ?? null });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 404 });

@@ -18,7 +18,7 @@ import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n, type MsgKey as MsgKeyT } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount, apiConsentRequired } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount, apiConsentRequired, apiPayAtSalon } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -191,6 +191,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [bundlePct, setBundlePct] = useState(0);
   useEffect(() => {
     void apiBundleDiscount(shop.id).then(setBundlePct);
+  }, [shop.id]);
+  // Paying at the chair: offered when the salon accepts it and no deposit is
+  // being asked for — a deposit is exactly the part that cannot wait.
+  const [salonOk, setSalonOk] = useState(false);
+  const [payLater, setPayLater] = useState(false);
+  useEffect(() => {
+    void apiPayAtSalon(shop.id).then(setSalonOk);
   }, [shop.id]);
 
   // Nobody should type their own name a second time. The last booking's
@@ -530,6 +537,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // one shape for pair and party: every seat beyond the first
   const extraHolds = hold2 ? [hold2] : groupHolds;
   const extrasDue = extraHolds.reduce((n, h) => n + dueOf(h), 0);
+  // One source of truth for "settling at the counter", so the choice, the
+  // button label and what actually gets sent can never drift apart — a stale
+  // payLater left over from a basket that has since grown a deposit would
+  // otherwise enable a button whose handler quietly does nothing.
+  const atSalon = Boolean(hold) && payLater && salonOk && hold!.quote.depositCents === 0 && extraHolds.every((h) => h.quote.depositCents === 0);
 
   // Together mode only shows times where enough chairs AND enough of the
   // bottleneck resource (basins, colour stations) are genuinely free.
@@ -627,9 +639,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   const confirm = async () => {
     if (!hold) return;
-    const due = dueOf(hold) + extrasDue;
+    const due = atSalon ? 0 : dueOf(hold) + extrasDue;
     if (due > 0 && !pay) return; // the button is disabled, but belt and braces
-    const method = due > 0 ? (pay ?? undefined) : undefined;
+    const method = atSalon
+      ? ({ method: 'at_salon', label: t('pl_salon') } as const)
+      : due > 0
+        ? (pay ?? undefined)
+        : undefined;
     const outcome = await apiConfirm(hold.bookingId, method);
     if (!outcome.ok) {
       if (outcome.code === 'hold_expired') {
@@ -1644,7 +1660,27 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             </div>
           )}
 
-          {hold && dueOf(hold) + extrasDue > 0 && (
+          {/* Pay now or pay at the chair — a salon is not a webshop, and most
+              of them are happy to be paid when the work is done. */}
+          {hold && salonOk && hold.quote.depositCents === 0 && extraHolds.every((h) => h.quote.depositCents === 0) && (
+            <div className="panel" style={{ marginTop: 14 }}>
+              <div className="seg" role="group" aria-label={t('pl_choose')}>
+                <button className={!payLater ? 'on' : ''} aria-pressed={!payLater} onClick={() => setPayLater(false)}>
+                  💳 {t('pl_now')}
+                </button>
+                <button className={payLater ? 'on' : ''} aria-pressed={payLater} onClick={() => setPayLater(true)}>
+                  🏪 {t('pl_salon')}
+                </button>
+              </div>
+              {atSalon && (
+                <p style={{ fontSize: '0.82rem', color: 'var(--ink-soft)', marginTop: 8 }}>
+                  {t('pl_hint', { amount: money(hold.quote.totalCents + extraHolds.reduce((n, h) => n + h.quote.totalCents, 0), lang) })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {hold && !atSalon && dueOf(hold) + extrasDue > 0 && (
             <PayMethod
               amountCents={dueOf(hold) + extrasDue}
               onChange={setPay}
@@ -1678,13 +1714,15 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <button
                 className="btn btn-primary"
                 style={{ flex: 1 }}
-                disabled={dueOf(hold) + extrasDue > 0 && !pay}
+                disabled={!atSalon && dueOf(hold) + extrasDue > 0 && !pay}
                 onClick={() => void confirm()}
               >
-                💳{' '}
-                {dueOf(hold) + extrasDue > 0
-                  ? `${t('pay_confirm')} · ${money(dueOf(hold) + extrasDue, lang)}${hold2 ? ` · 👯` : ''}`
-                  : t('confirm_free')}
+                {atSalon ? '🏪' : '💳'}{' '}
+                {atSalon
+                  ? t('pl_confirm')
+                  : dueOf(hold) + extrasDue > 0
+                    ? `${t('pay_confirm')} · ${money(dueOf(hold) + extrasDue, lang)}${hold2 ? ` · 👯` : ''}`
+                    : t('confirm_free')}
               </button>
             )}
           </div>

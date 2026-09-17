@@ -172,6 +172,11 @@ export interface Booking {
   retail?: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
   /** When the floor marked the visit done — the other end of a real duration. */
   completedAt?: number;
+  /**
+   * How a visit settled at the counter. Only set for bookings that were not
+   * paid online: 'cash' belongs in the drawer at day close, 'card' does not.
+   */
+  settledBy?: 'cash' | 'card';
   /** The visit is for a minor; the named adult answers for it. */
   minor?: { guardianName: string };
   /**
@@ -483,6 +488,7 @@ interface State {
   goals: Map<string, number>; // shopId → monthly revenue goal in cents
   quietDiscounts: Map<string, number>; // shopId → percent off in the two emptiest day-parts
   bundleDiscounts: Map<string, number>; // shopId → percent off when 2+ services book together
+  payAtSalon: Map<string, boolean>; // shopId → may a guest settle at the counter instead of online
   consentTexts: Map<string, string>; // shopId → what a flagged treatment must have signed
   arrivalNotes: Map<string, string>; // shopId → floor, door code, how to find us (confirmed guests only)
   retailItems: Map<string, RetailItem[]>; // shopId → the shelf, priced for the till
@@ -570,6 +576,7 @@ const state: State =
     goals: new Map(),
     quietDiscounts: new Map(),
     bundleDiscounts: new Map(),
+    payAtSalon: new Map(),
     consentTexts: new Map(),
     arrivalNotes: new Map(),
     retailItems: new Map(),
@@ -662,6 +669,7 @@ function persist(): boolean {
         goals: [...state.goals.entries()],
         quietDiscounts: [...state.quietDiscounts.entries()],
         bundleDiscounts: [...state.bundleDiscounts.entries()],
+        payAtSalon: [...state.payAtSalon.entries()],
         consentTexts: [...state.consentTexts.entries()],
         arrivalNotes: [...state.arrivalNotes.entries()],
         retailItems: [...state.retailItems.entries()],
@@ -731,6 +739,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         goals?: Array<[string, number]>;
         quietDiscounts?: Array<[string, number]>;
         bundleDiscounts?: Array<[string, number]>;
+        payAtSalon?: Array<[string, boolean]>;
         consentTexts?: Array<[string, string]>;
         arrivalNotes?: Array<[string, string]>;
         retailItems?: Array<[string, RetailItem[]]>;
@@ -787,6 +796,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.goals = new Map(d.goals ?? []);
       state.quietDiscounts = new Map(d.quietDiscounts ?? []);
       state.bundleDiscounts = new Map(d.bundleDiscounts ?? []);
+      state.payAtSalon = new Map(d.payAtSalon ?? []);
       state.consentTexts = new Map(d.consentTexts ?? []);
       state.arrivalNotes = new Map(d.arrivalNotes ?? []);
       state.retailItems = new Map(d.retailItems ?? []);
@@ -1031,6 +1041,7 @@ export interface ShopConfig {
   stampCard?: { enabled: boolean; required: number };
   quietDiscountPct?: number;
   bundlePct?: number;
+  payAtSalon?: boolean;
   consentText?: string;
   arrivalNote?: string;
   retailItems?: RetailItem[];
@@ -1099,6 +1110,7 @@ export function exportShopConfig(shopId: string): ShopConfig {
     // explicit 0, not an absent key: "the promotion is over" must survive
     // a backup/restore and reach a tablet that still holds the old percent
     bundlePct: state.bundleDiscounts.get(shopId) ?? 0,
+    payAtSalon: payAtSalonOf(shopId),
     consentText: state.consentTexts.get(shopId) ?? '',
     arrivalNote: state.arrivalNotes.get(shopId) ?? '',
     retailItems: state.retailItems.get(shopId) ?? [],
@@ -1158,6 +1170,7 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
     if (pct > 0) state.bundleDiscounts.set(shopId, pct);
     else state.bundleDiscounts.delete(shopId); // absent means off, and off must round-trip
   }
+  if (doc.payAtSalon !== undefined) state.payAtSalon.set(shopId, Boolean(doc.payAtSalon));
   if (doc.consentText !== undefined) {
     if (doc.consentText) state.consentTexts.set(shopId, doc.consentText);
     else state.consentTexts.delete(shopId);
@@ -2176,6 +2189,22 @@ export function cancelReasonStats(
     .sort((a, b) => b.n - a.n);
 }
 
+// --- paying at the salon ----------------------------------------------------
+
+/**
+ * Most salons are happy to be paid at the chair, in cash or on the terminal,
+ * so the door is open unless a shop closes it. A shop that takes a deposit
+ * still takes it online — that is what the deposit is for.
+ */
+export function payAtSalonOf(shopId: string): boolean {
+  return state.payAtSalon.get(shopId) ?? true;
+}
+
+export function setPayAtSalon(shopId: string, on: boolean): void {
+  state.payAtSalon.set(shopId, Boolean(on));
+  persist();
+}
+
 export const CONSENT_MAX = 600;
 
 /** The wording a flagged treatment (colour, needle work) must have signed. */
@@ -2268,6 +2297,19 @@ export function deleteRetailItem(shopId: string, itemId: string): void {
   persist();
 }
 
+/** Germany's standard rate, in basis points — goods, not services. */
+const RETAIL_VAT_BPS = 1900;
+
+/** The tax inside a gross price, the same way createHold works it out. */
+function vatOfGross(cents: number): number {
+  return Math.round((cents * RETAIL_VAT_BPS) / (10_000 + RETAIL_VAT_BPS));
+}
+
+/** What a visit's shelf products came to — never part of a cancellation fee. */
+function retailCentsOf(b: Booking): number {
+  return (b.retail ?? []).reduce((n, l) => n + l.priceCents * l.qty, 0);
+}
+
 /**
  * Sell shelf products with a visit. Priced at the till, added to the booking's
  * total, and taken off the back-bar count when the item is linked — the shelf
@@ -2286,6 +2328,10 @@ export function addRetail(shopId: string, bookingId: string, itemId: string, qty
   b.quote = {
     ...b.quote,
     totalCents: b.quote.totalCents + cents,
+    // Goods carry VAT like everything else. Leaving vatCents at the figure
+    // frozen in createHold printed a receipt claiming the shampoo was
+    // tax-free and handed the shop a Tagesabschluss that was short by it.
+    vatCents: b.quote.vatCents + vatOfGross(cents),
     breakdown: [...b.quote.breakdown, { label: `🧴 ${item.name}${qty > 1 ? ` ×${qty}` : ''}`, cents }],
   };
   // a product sold is a product gone from the shelf
@@ -2303,6 +2349,9 @@ export function addRetail(shopId: string, bookingId: string, itemId: string, qty
 export function removeRetail(shopId: string, bookingId: string, index: number): Booking {
   const b = state.bookings.get(bookingId);
   if (!b || b.shopId !== shopId) throw new Error('not_found');
+  // Same gate as the sale: a line can only be taken back off a visit that is
+  // still on the floor or has just finished.
+  if (!['confirmed', 'completed'].includes(b.status)) throw new Error('not_sellable');
   const line = (b.retail ?? [])[index];
   if (!line) throw new Error('not_found');
   b.retail = (b.retail ?? []).filter((_, i) => i !== index);
@@ -2312,8 +2361,17 @@ export function removeRetail(shopId: string, bookingId: string, index: number): 
   b.quote = {
     ...b.quote,
     totalCents: Math.max(0, b.quote.totalCents - cents),
+    vatCents: Math.max(0, b.quote.vatCents - vatOfGross(cents)),
     breakdown: at >= 0 ? b.quote.breakdown.filter((_, i) => i !== at) : b.quote.breakdown,
   };
+  // A finished visit was already marked paid in full at the old total, so
+  // scanning the wrong bottle and undoing it left the guest recorded as having
+  // overpaid with no refund line anywhere. Give the money back properly.
+  if (b.paidCents > b.quote.totalCents) {
+    const back = b.paidCents - b.quote.totalCents;
+    b.paidCents -= back;
+    b.refundedCents = (b.refundedCents ?? 0) + back;
+  }
   const item = retailItems(shopId).find((r) => r.id === line.itemId);
   if (item?.stockItemId) {
     try {
@@ -3412,9 +3470,17 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
   if (b.status === 'confirmed') return b;
   if (b.status !== 'hold' && b.status !== 'pending_payment') throw new HoldExpired();
   if (b.holdExpiresAt && b.holdExpiresAt < Date.now()) throw new HoldExpired();
+  // Settling at the counter is a promise, not a payment: the money arrives
+  // when the visit does. A shop that asked for a deposit still gets it now —
+  // deferring that would defeat the only protection it has against a no-show.
+  const atSalon = payment?.method === 'at_salon';
+  if (atSalon) {
+    if (!payAtSalonOf(b.shopId)) throw new Error('at_salon_not_offered');
+    if (b.quote.depositCents > 0) throw new Error('deposit_required');
+  }
   b.status = 'confirmed';
   b.holdExpiresAt = null;
-  b.paidCents = b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
+  b.paidCents = atSalon ? 0 : b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
   if (payment) b.payment = payment;
   redeemGiftCard(b); // the moment the promise is real, the card pays its share
   grantReferralReward(b); // and the friend who sent them gets their thank-you
@@ -3428,8 +3494,12 @@ export function cancelBooking(
 ): { feeCents: number; refundCents: number; reason: string; booking: Booking } {
   const b = state.bookings.get(id);
   if (!b) throw new Error('not_found');
+  // A late-cancellation fee is a percentage of the work that was booked. Any
+  // shampoo sold on a previous visit rode along in totalCents and quietly
+  // inflated the fee — goods nobody is cancelling.
+  const retailCents = retailCentsOf(b);
   const outcome = cancellationOutcome({
-    totalCents: b.quote.totalCents,
+    totalCents: Math.max(0, b.quote.totalCents - retailCents),
     paidCents: b.paidCents,
     startsAt: b.startsAt,
     cancelledAt: Date.now(),
@@ -3441,6 +3511,17 @@ export function cancelBooking(
   });
   if (!opts.preview) {
     const wasConfirmed = b.status === 'confirmed';
+    // The visit is off, so the products on it were never handed over. Take
+    // them back off the bill and put them back on the shelf — newest first, so
+    // each index stays valid as the list shrinks, and before the status moves,
+    // because removeRetail rightly refuses to touch a cancelled booking.
+    for (let i = (b.retail ?? []).length - 1; i >= 0; i--) {
+      try {
+        removeRetail(b.shopId, b.id, i);
+      } catch {
+        // nothing to undo — the bill stands as it is
+      }
+    }
     b.status = opts.isNoShow
       ? 'no_show'
       : opts.by === 'customer'
@@ -3924,6 +4005,8 @@ export function dashboardOverview(shopId: string, isoDate: string) {
       status: b.status,
       totalCents: b.quote.totalCents,
       paidCents: b.paidCents,
+      payMethod: b.payment?.method ?? null,
+      settledBy: b.settledBy ?? null,
       checkedInAt: b.checkedInAt ?? null,
       // the last colour formula on file for this customer — for the stand-in
       techFormula: latestTechRecord(shopId, customerKeyOf(b))?.record.formula ?? null,
@@ -3948,6 +4031,12 @@ export function setBookingStatus(
   shopId: string,
   bookingId: string,
   status: 'completed' | 'no_show' | 'cancelled_by_shop',
+  /**
+   * How the rest was handed over at the counter. The drawer at day close
+   * expects the cash ones and not the card ones, so guessing is not good
+   * enough — the floor says which it was.
+   */
+  settledBy?: 'cash' | 'card',
 ): Booking {
   const b = state.bookings.get(bookingId);
   if (!b || b.shopId !== shopId) throw new Error('not_found');
@@ -3955,6 +4044,7 @@ export function setBookingStatus(
     b.status = 'completed';
     b.completedAt = Date.now();
     b.paidCents = b.quote.totalCents;
+    if (settledBy) b.settledBy = settledBy;
     persist();
     return b;
   }
@@ -4037,6 +4127,7 @@ export interface BookingView {
   lateByMin: number | null;
   refPhotos: ShopPhoto[];
   retail: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
+  settledBy: 'cash' | 'card' | null;
 }
 
 export function bookingsForDeviceView(deviceId: string): BookingView[] {
@@ -4083,6 +4174,7 @@ export function bookingsForDeviceView(deviceId: string): BookingView[] {
       lateByMin: b.lateByMin ?? null,
       refPhotos: b.refPhotos ?? [],
       retail: b.retail ?? [],
+      settledBy: b.settledBy ?? null,
       isPrime: b.isPrime ?? false,
     };
   });
@@ -6963,10 +7055,19 @@ export interface DrawerReport {
 /** What should be in the drawer tonight, and — once counted — the Differenz. */
 export function drawerReport(shopId: string, iso: string): DrawerReport {
   const entries = cashEntries(shopId, iso);
-  const close = dayCloseReport(shopId, iso);
-  const atSalon = close.byMethod.find((m) => m.method === 'at_salon')?.cents ?? 0;
   const dStart = dayStart(iso);
   const dEnd = dStart + 24 * 60 * MIN;
+  // Settled at the counter — but only the cash ones are in the drawer. A card
+  // tapped on the salon's own terminal never touches it, and counting it as
+  // cash made every close look short by exactly those visits.
+  let atSalon = 0;
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.status !== 'completed') continue;
+    if (b.startsAt < dStart || b.startsAt >= dEnd) continue;
+    if ((b.payment?.method ?? 'at_salon') !== 'at_salon') continue;
+    if (b.settledBy === 'card') continue;
+    atSalon += b.quote.totalCents + (b.tipCents ?? 0);
+  }
   // Counter gift sales are cash in the drawer; online-paid cards are not.
   // Counter sales carry payment.method 'at_salon'; goodwill mints are free.
   let giftCash = 0;
@@ -6983,6 +7084,7 @@ export function drawerReport(shopId: string, iso: string): DrawerReport {
     if (b.shopId !== shopId || b.status !== 'completed') continue;
     if (b.startsAt < dStart || b.startsAt >= dEnd) continue;
     if (!b.payment || b.payment.method === 'at_salon') continue;
+    if (b.settledBy === 'card') continue; // the rest went on the terminal
     if (b.quote.depositCents > 0 && b.quote.depositCents < b.quote.totalCents) {
       remainderCash += b.quote.totalCents - b.quote.depositCents + (b.tipCents ?? 0);
     }

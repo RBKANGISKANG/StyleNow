@@ -371,19 +371,44 @@ export async function apiSetStatus(
   shopId: string,
   bookingId: string,
   status: 'completed' | 'no_show' | 'cancelled_by_shop',
+  settledBy?: 'cash' | 'card',
 ): Promise<void> {
   const mode = backendMode();
   if (mode === 'server') {
     await fetch(`/api/shop/${shopId}/bookings/${bookingId}/status`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, settledBy }),
     });
     return;
   }
   await ready();
-  if (backendMode() === 'supabase') await sb.setBookingStatus(shopId, bookingId, status);
-  else store.setBookingStatus(shopId, bookingId, status);
+  if (backendMode() === 'supabase') await sb.setBookingStatus(shopId, bookingId, status, settledBy);
+  else store.setBookingStatus(shopId, bookingId, status, settledBy);
+}
+
+/** Does this salon let a guest settle at the counter? */
+export async function apiPayAtSalon(shopId: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/policies`);
+    return res.ok ? (await res.json()).payAtSalon : true;
+  }
+  await readyForRead();
+  return store.payAtSalonOf(shopId);
+}
+
+export async function apiSetPayAtSalon(shopId: string, on: boolean): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/policies`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ payAtSalon: on }),
+    });
+    return;
+  }
+  await localWrite();
+  store.setPayAtSalon(shopId, on);
+  syncConfig(shopId);
 }
 
 export async function apiPatchService(

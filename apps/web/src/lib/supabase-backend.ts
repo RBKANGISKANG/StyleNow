@@ -314,8 +314,9 @@ export async function setBookingStatus(
   shopId: string,
   bookingId: string,
   status: 'completed' | 'no_show' | 'cancelled_by_shop',
+  settledBy?: 'cash' | 'card',
 ): Promise<void> {
-  const b = store.setBookingStatus(shopId, bookingId, status);
+  const b = store.setBookingStatus(shopId, bookingId, status, settledBy);
   const db = await sb();
   const { error } = await deadline(
     db.rpc('set_booking', { p_id: b.id, p_data: b, p_release_seat: status !== 'completed' }),

@@ -81,6 +81,9 @@ export interface Overview {
     startsAt: number;
     status: string;
     totalCents: number;
+    paidCents: number;
+    payMethod: string | null;
+    settledBy: 'cash' | 'card' | null;
     checkedInAt: number | null;
     techFormula: string | null;
     needsPatchTest: boolean;

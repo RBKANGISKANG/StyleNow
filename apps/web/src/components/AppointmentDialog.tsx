@@ -41,6 +41,9 @@ export interface DialogBooking {
   startsAt: number;
   status: string;
   totalCents: number;
+  /** what has actually been paid so far, and how the online part was settled */
+  paidCents?: number;
+  payMethod?: string | null;
   /** what the customer showed the stylist, and what was sold with the visit */
   refPhotos?: Array<{ id: string; dataUrl: string; caption: string }>;
   retail?: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
@@ -89,13 +92,16 @@ export function AppointmentDialog({
   if (!booking) return null;
   const live = ['confirmed', 'pending_payment'].includes(booking.status);
 
-  const setStatus = async (status: 'completed' | 'no_show') => {
+  const setStatus = async (status: 'completed' | 'no_show', settledBy?: 'cash' | 'card') => {
     setBusy(true);
-    await apiSetStatus(shopId, booking.id, status);
+    await apiSetStatus(shopId, booking.id, status, settledBy);
     setBusy(false);
     onChanged(status === 'completed' ? '✅ ' + t('st_completed') : '🚫 ' + t('st_no_show'));
     onClose();
   };
+  // A visit that was never paid online is settled here, and the drawer at day
+  // close only expects the cash ones — so the floor says which it was.
+  const unpaid = booking.paidCents === 0 || booking.payMethod === 'at_salon';
 
   return (
     <>
@@ -120,9 +126,20 @@ export function AppointmentDialog({
             <>
               {live && (
                 <>
-                  <button className="btn btn-soft" disabled={busy} onClick={() => void setStatus('completed')}>
-                    ✓ {t('mark_completed')}
-                  </button>
+                  {unpaid ? (
+                    <>
+                      <button className="btn btn-soft" disabled={busy} onClick={() => void setStatus('completed', 'cash')}>
+                        💶 {t('sb_cash')}
+                      </button>
+                      <button className="btn btn-soft" disabled={busy} onClick={() => void setStatus('completed', 'card')}>
+                        💳 {t('sb_card')}
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn btn-soft" disabled={busy} onClick={() => void setStatus('completed')}>
+                      ✓ {t('mark_completed')}
+                    </button>
+                  )}
                   <button className="btn btn-ghost" disabled={busy} onClick={() => void setStatus('no_show')}>
                     {t('mark_no_show')}
                   </button>

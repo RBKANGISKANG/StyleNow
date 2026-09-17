@@ -45,6 +45,7 @@ import {
   addRefPhoto, removeRefPhoto, REF_PHOTO_MAX, toggleFollowStaff, followedStaff, followedOpenings,
   earliestAcross, leaveBy, cancelReasonStats, durationHint,
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
+  payAtSalonOf, setPayAtSalon,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -1873,4 +1874,174 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(durationHint(shop.id, 'd:nobody-here'), null, 'no history, no claim');
 }
 
-console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, and its review fixes');
+
+// --- paying at the salon -----------------------------------------------------
+
+// Most salons are happy to be paid at the chair. The default is open, the shop
+// can close it, and the choice survives a config sync in both directions.
+{
+  const open = allShops().find((s) => s.depositPercent === 0)!;
+  assert.equal(payAtSalonOf(open.id), true, 'the door is open unless a shop closes it');
+  setPayAtSalon(open.id, false);
+  assert.equal(payAtSalonOf(open.id), false);
+  // "Off" has to travel explicitly — an undefined key would read as "no change"
+  // on the tablet that still holds the old value.
+  const cfg = JSON.parse(JSON.stringify(exportCfg(open.id)));
+  assert.equal(cfg.payAtSalon, false, 'off round-trips through a config export');
+  setPayAtSalon(open.id, true);
+  applyCfg(open.id, cfg);
+  assert.equal(payAtSalonOf(open.id), false, 'and applying it closes the door again');
+  applyCfg(open.id, { ...cfg, payAtSalon: 'yes' as unknown as boolean });
+  assert.equal(payAtSalonOf(open.id), true, 'a synced document is untrusted input, coerced not trusted');
+}
+
+// A guest who chooses the counter owes nothing online, and the floor decides
+// later whether that money arrived as cash or on the terminal.
+{
+  const open = allShops().find((s) => s.depositPercent === 0)!;
+  const oSvc = effectiveServices(open.id)[0];
+  const dev = 'dev-at-salon';
+  setPayAtSalon(open.id, true);
+  let atSalonId = '';
+  for (let d = 1; d <= 45 && !atSalonId; d++) {
+    const day = addDays(todayIso(), d);
+    const s = availability(open.id, [oSvc.id], day, dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: open.id, serviceIds: [oSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Counter', idempotencyKey: `sal-${d}` });
+      confirmBooking(h.bookingId, { method: 'at_salon', label: 'At the salon' });
+      atSalonId = h.bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(atSalonId, 'fixture: a seat at a shop that asks for no deposit');
+  const settled = getBooking(atSalonId)!;
+  assert.equal(settled.paidCents, 0, 'nothing is taken online — the promise is the booking');
+  assert.equal(settled.payment?.method, 'at_salon');
+
+  // Cash is what the drawer expects; a card tapped on the salon's own terminal
+  // is not, and counting it made every close look short by exactly those visits.
+  const dIso = isoDateOf(settled.startsAt);
+  const before = drawerReport(open.id, dIso).expectedCents;
+  setBookingStatus(open.id, atSalonId, 'completed', 'cash');
+  assert.equal(getBooking(atSalonId)!.settledBy, 'cash');
+  assert.equal(getBooking(atSalonId)!.paidCents, settled.quote.totalCents, 'the money arrived with the visit');
+  const withCash = drawerReport(open.id, dIso).expectedCents;
+  assert.equal(withCash - before, settled.quote.totalCents, 'cash at the counter is cash in the drawer');
+  setBookingStatus(open.id, atSalonId, 'completed', 'card');
+  assert.equal(drawerReport(open.id, dIso).expectedCents, before, 'the terminal never touches the drawer');
+}
+
+// The engine is the gate, not the checkout screen: a shop that has switched it
+// off, and a booking that owes a deposit, both refuse the counter.
+{
+  const strict = allShops().find((s) => s.depositPercent === 0)!;
+  const sSvc = effectiveServices(strict.id)[0];
+  const dev = 'dev-no-salon';
+  setPayAtSalon(strict.id, false);
+  let held = '';
+  for (let d = 1; d <= 45 && !held; d++) {
+    const s = availability(strict.id, [sSvc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      held = createHold({ shopId: strict.id, serviceIds: [sSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Refused', idempotencyKey: `nos-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(held, 'fixture: a held seat to refuse');
+  assert.throws(() => confirmBooking(held, { method: 'at_salon', label: 'At the salon' }), /at_salon_not_offered/);
+  assert.notEqual(getBooking(held)!.status, 'confirmed', 'a refused confirm leaves the seat exactly as it was');
+  setPayAtSalon(strict.id, true);
+  confirmBooking(held, { method: 'at_salon', label: 'At the salon' });
+  assert.equal(getBooking(held)!.paidCents, 0);
+
+  // A deposit is the one part that cannot wait — it is the only protection a
+  // shop has against a no-show, so deferring it defeats the point.
+  const dep = allShops().find((s) => s.depositPercent > 0)!;
+  setPayAtSalon(dep.id, true);
+  const dSvc = effectiveServices(dep.id)[0];
+  let depHold = '';
+  for (let d = 1; d <= 45 && !depHold; d++) {
+    const s = availability(dep.id, [dSvc.id], addDays(todayIso(), d), 'dev-dep', null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      depHold = createHold({ shopId: dep.id, serviceIds: [dSvc.id], staffId: null, startsAt: s.start, deviceId: 'dev-dep', guestName: 'Deposit', idempotencyKey: `dep-${d}` }).bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(depHold, 'fixture: a seat at a shop that asks for a deposit');
+  assert.ok(getBooking(depHold)!.quote.depositCents > 0);
+  assert.throws(() => confirmBooking(depHold, { method: 'at_salon', label: 'At the salon' }), /deposit_required/);
+  const paid = confirmBooking(depHold, { method: 'card', label: 'Visa ····4242' });
+  assert.equal(paid.paidCents, paid.quote.depositCents, 'the deposit, and only the deposit, is taken now');
+}
+
+// --- retail money: VAT, undo and the cancellation base -----------------------
+
+// A bottle of shampoo is 19 % goods revenue. Leaving vatCents frozen at the
+// pre-sale figure printed a receipt claiming the goods were tax-free.
+{
+  const open = allShops().find((s) => s.depositPercent === 0)!;
+  const oSvc = effectiveServices(open.id)[0];
+  const dev = 'dev-retail-vat';
+  setPayAtSalon(open.id, true);
+  const item = saveRetailItem(open.id, { name: 'Bond repair shampoo', priceCents: 3000 });
+  let id = '';
+  for (let d = 1; d <= 45 && !id; d++) {
+    const s = availability(open.id, [oSvc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: open.id, serviceIds: [oSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Shelf', idempotencyKey: `rtv-${d}` });
+      confirmBooking(h.bookingId, { method: 'at_salon', label: 'At the salon' });
+      id = h.bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(id, 'fixture: a confirmed visit to sell against');
+  const before = getBooking(id)!.quote;
+  addRetail(open.id, id, item.id, 2);
+  const after = getBooking(id)!.quote;
+  assert.equal(after.totalCents - before.totalCents, 6000, 'the goods are on the bill');
+  assert.equal(after.vatCents - before.vatCents, Math.round((6000 * 1900) / 11900), 'and so is their VAT');
+
+  // Scanning the wrong bottle onto a finished visit and undoing it must not
+  // leave the guest recorded as having paid more than they were billed.
+  setBookingStatus(open.id, id, 'completed', 'cash');
+  assert.equal(getBooking(id)!.paidCents, after.totalCents);
+  removeRetail(open.id, id, 0);
+  const undone = getBooking(id)!;
+  assert.equal(undone.quote.totalCents, before.totalCents, 'the line came off the bill');
+  assert.equal(undone.quote.vatCents, before.vatCents, 'and its VAT with it');
+  assert.equal(undone.paidCents, undone.quote.totalCents, 'never paid above what was billed');
+  assert.equal(undone.refundedCents, 6000, 'the difference is a recorded refund, not a silent gap');
+}
+
+// A late-cancellation fee is a percentage of the work, never of the shampoo.
+{
+  const dep = allShops().find((s) => s.depositPercent > 0)!;
+  const dSvc = effectiveServices(dep.id)[0];
+  const dev = 'dev-retail-cancel';
+  const item = saveRetailItem(dep.id, { name: 'Finishing oil', priceCents: 4000 });
+  let id = '';
+  for (let d = 1; d <= 45 && !id; d++) {
+    const s = availability(dep.id, [dSvc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: dep.id, serviceIds: [dSvc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Oiled', idempotencyKey: `rtc-${d}` });
+      confirmBooking(h.bookingId, { method: 'card', label: 'Visa ····4242' });
+      id = h.bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(id, 'fixture: a confirmed visit at a deposit-taking shop');
+  const serviceOnly = getBooking(id)!.quote.totalCents;
+  addRetail(dep.id, id, item.id, 1);
+  // Fixture surgery: pull the visit inside the free-cancellation window so a
+  // fee actually applies — the same trick the scheduling blocks above use.
+  const bk = getBooking(id)!;
+  bk.startsAt = Date.now() + 30 * 60_000;
+  const out = cancelBooking(id, { preview: true, by: 'customer' });
+  assert.ok(out.feeCents > 0, 'fixture: inside the notice window, a fee applies');
+  const pct = bk.policySnapshot.lateFeePercent;
+  assert.equal(out.feeCents, Math.min(Math.round((serviceOnly * pct) / 100), serviceOnly), 'the €40 oil is not part of the fee base');
+  cancelBooking(id, { preview: false, by: 'customer' });
+  assert.deepEqual(getBooking(id)!.retail ?? [], [], 'a visit that never happened hands the products back');
+  assert.equal(getBooking(id)!.quote.totalCents, serviceOnly, 'and takes them off the bill');
+}
+
+console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');
