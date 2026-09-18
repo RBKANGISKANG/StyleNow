@@ -7,6 +7,7 @@
  */
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { icsHref } from '@/lib/ics';
 import { BookSeries } from '@/components/BookSeries';
@@ -14,11 +15,17 @@ import { SlotList, SlotViewToggle, useSlotView } from '@/components/SlotPicker';
 import { MonthPicker } from '@/components/MonthPicker';
 import { GridIcon, ListIcon } from '@/components/ViewIcons';
 import { PayMethod } from '@/components/PayMethod';
+// Loaded only when a processor is actually configured — the static demo can
+// never take a payment, so it should not ship Stripe.js to pay for the option.
+const StripeCheckout = dynamic(() => import('@/components/StripeCheckout').then((m) => m.StripeCheckout), {
+  ssr: false,
+  loading: () => <div className="spinner" />,
+});
 import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { useI18n, type MsgKey as MsgKeyT } from '@/lib/i18n';
 import { slotTone, slotDelta, slotReason } from '@/lib/prime';
 import { money, timeOf, dateOf, fullDateOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
-import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount, apiConsentRequired, apiPayAtSalon } from '@/lib/api';
+import { apiAvailability, apiHold, apiDuoHold, apiConfirm, apiLoyaltyBalance, apiWaitlistJoin, apiShopServices, apiPrimeWindows, apiShopAnnouncement, apiStampStatus, apiCheapestSlots, apiSuggestedAddOns, apiStaffInsights, apiAlternativesFor, apiSavedPeople, apiAddPerson, apiPatchTestValid, apiConsultDone, apiEnsureConsultService, apiMyPackages, apiGroupHold, apiAddWatch, apiShopStaffMeta, apiBundleDiscount, apiConsentRequired, apiPayAtSalon, apiStripeConfig } from '@/lib/api';
 import { validateVoucher, referralUsable, PRIME_PERCENT, PRIME_MIN_CENTS, primeSurcharge } from '@/core/store';
 import type { SaverSlot, StaffInsight, NearbyAlternative, SavedPerson as SavedPersonT } from '@/core/store';
 import { deviceId } from '@/lib/device';
@@ -199,6 +206,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   useEffect(() => {
     void apiPayAtSalon(shop.id).then(setSalonOk);
   }, [shop.id]);
+  // When a real processor is configured, Stripe's own form replaces the demo
+  // one — the card never touches us, and the booking is confirmed server-side
+  // from the Checkout Session rather than from anything this page claims.
+  const [stripeKey, setStripeKey] = useState('');
+  useEffect(() => {
+    void apiStripeConfig().then((c) => setStripeKey(c.enabled ? c.publishableKey : ''));
+  }, []);
 
   // Nobody should type their own name a second time. The last booking's
   // details prefill the next one (notes stay per-visit — allergies travel,
@@ -542,6 +556,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // payLater left over from a basket that has since grown a deposit would
   // otherwise enable a button whose handler quietly does nothing.
   const atSalon = Boolean(hold) && payLater && salonOk && hold!.quote.depositCents === 0 && extraHolds.every((h) => h.quote.depositCents === 0);
+  // Stripe takes over the checkout only when there is actually money to take
+  // online: a free visit, or one settling at the counter, never reaches it.
+  const stripeLive = Boolean(stripeKey) && !atSalon && Boolean(hold) && dueOf(hold!) + extrasDue > 0;
 
   // Together mode only shows times where enough chairs AND enough of the
   // bottleneck resource (basins, colour stations) are genuinely free.
@@ -1681,10 +1698,25 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           )}
 
           {hold && !atSalon && dueOf(hold) + extrasDue > 0 && (
-            <PayMethod
-              amountCents={dueOf(hold) + extrasDue}
-              onChange={setPay}
-            />
+            stripeLive ? (
+              <StripeCheckout
+                publishableKey={stripeKey}
+                bookingIds={[hold.bookingId, ...extraHolds.map((h) => h.bookingId)]}
+                onPaid={(reference) => setConfirmed({ reference })}
+                onExpired={() => {
+                  setHold(null);
+                  setHold2(null);
+                  setGroupHolds([]);
+                  setExpired(true);
+                  setStep(1);
+                }}
+              />
+            ) : (
+              <PayMethod
+                amountCents={dueOf(hold) + extrasDue}
+                onChange={setPay}
+              />
+            )
           )}
 
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
@@ -1710,6 +1742,10 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               >
                 {holding ? '…' : `${t('continue')} →`}
               </button>
+            ) : stripeLive ? (
+              // Stripe's own form carries the pay button; a second one here
+              // would be a button that charges nobody.
+              null
             ) : (
               <button
                 className="btn btn-primary"

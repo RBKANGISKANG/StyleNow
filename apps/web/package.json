@@ -8,12 +8,15 @@
     "start": "next start"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^6.10.0",
+    "@stripe/stripe-js": "^9.16.0",
     "@stylenow/api": "*",
     "@stylenow/shared": "*",
     "@supabase/supabase-js": "^2.47.0",
     "next": "^14.2.15",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "stripe": "^22.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

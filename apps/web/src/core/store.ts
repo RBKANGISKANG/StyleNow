@@ -177,6 +177,12 @@ export interface Booking {
    * paid online: 'cash' belongs in the drawer at day close, 'card' does not.
    */
   settledBy?: 'cash' | 'card';
+  /**
+   * Stripe's own handle on the money, when a real processor took it. Kept so a
+   * refund can be given back through the same rails the payment arrived on
+   * rather than only being written down in our books.
+   */
+  stripe?: { sessionId: string; paymentIntentId: string; chargedCents: number; refundedCents: number };
   /** The visit is for a minor; the named adult answers for it. */
   minor?: { guardianName: string };
   /**
@@ -2202,6 +2208,58 @@ export function payAtSalonOf(shopId: string): boolean {
 
 export function setPayAtSalon(shopId: string, on: boolean): void {
   state.payAtSalon.set(shopId, Boolean(on));
+  persist();
+}
+
+/**
+ * What a guest pays now when they pay now: the deposit if the shop asks for
+ * one, otherwise the whole bill. One place, so the checkout screen, the Stripe
+ * session and the engine cannot disagree about the amount.
+ *
+ * Settling at the counter is not a smaller number here, it is a different
+ * route entirely — `confirmBooking` with `at_salon` — and that route never
+ * reaches a processor.
+ */
+export function dueOnlineCents(b: Booking): number {
+  return b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
+}
+
+/**
+ * Remember that a real processor took real money for this booking. Recorded
+ * against the booking rather than a side table so a refund never has to guess
+ * which charge it is reversing.
+ */
+export function recordStripeCharge(
+  bookingId: string,
+  charge: { sessionId: string; paymentIntentId: string; chargedCents: number },
+): Booking {
+  const b = state.bookings.get(bookingId);
+  if (!b) throw new Error('not_found');
+  b.stripe = { ...charge, refundedCents: b.stripe?.refundedCents ?? 0 };
+  persist();
+  return b;
+}
+
+/**
+ * How much of a booking's refund is Stripe's to give back. Our books may owe
+ * more than the processor ever took — a gift card or loyalty points paid part
+ * of the bill, and that part is ours to return, not Stripe's — so the amount
+ * is clamped to what actually went through the card and has not already come
+ * back.
+ */
+export function stripeRefundableCents(bookingId: string): number {
+  const b = state.bookings.get(bookingId);
+  if (!b || !b.stripe) return 0;
+  const owed = b.refundedCents ?? 0;
+  const already = b.stripe.refundedCents;
+  return Math.max(0, Math.min(owed - already, b.stripe.chargedCents - already));
+}
+
+/** Book a refund that Stripe has confirmed, so it is never sent twice. */
+export function markStripeRefunded(bookingId: string, cents: number): void {
+  const b = state.bookings.get(bookingId);
+  if (!b || !b.stripe) return;
+  b.stripe.refundedCents = Math.min(b.stripe.chargedCents, b.stripe.refundedCents + Math.max(0, cents));
   persist();
 }
 

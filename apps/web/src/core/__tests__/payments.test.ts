@@ -45,7 +45,7 @@ import {
   addRefPhoto, removeRefPhoto, REF_PHOTO_MAX, toggleFollowStaff, followedStaff, followedOpenings,
   earliestAcross, leaveBy, cancelReasonStats, durationHint,
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
-  payAtSalonOf, setPayAtSalon,
+  payAtSalonOf, setPayAtSalon, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
@@ -2042,6 +2042,57 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   cancelBooking(id, { preview: false, by: 'customer' });
   assert.deepEqual(getBooking(id)!.retail ?? [], [], 'a visit that never happened hands the products back');
   assert.equal(getBooking(id)!.quote.totalCents, serviceOnly, 'and takes them off the bill');
+}
+
+// --- what Stripe is allowed to take, and give back --------------------------
+
+// The amount a real processor charges comes from the engine, never from the
+// page: deposit if there is one, the whole bill if not, nothing at all when
+// the shop is happy to be paid at the chair.
+{
+  const dep = allShops().find((s) => s.depositPercent > 0)!;
+  const open = allShops().find((s) => s.depositPercent === 0)!;
+  const dSvc = effectiveServices(dep.id)[0];
+  const oSvc = effectiveServices(open.id)[0];
+  const hold = (shopId: string, svcId: string, dev: string, key: string) => {
+    for (let d = 1; d <= 45; d++) {
+      const s = availability(shopId, [svcId], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+      if (!s) continue;
+      try {
+        return createHold({ shopId, serviceIds: [svcId], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Stripe', idempotencyKey: `${key}-${d}` }).bookingId;
+      } catch { /* next day */ }
+    }
+    return '';
+  };
+
+  const withDeposit = hold(dep.id, dSvc.id, 'dev-stripe-dep', 'sd');
+  assert.ok(withDeposit, 'fixture: a seat at a deposit-taking shop');
+  const dBooking = getBooking(withDeposit)!;
+  assert.equal(dueOnlineCents(dBooking), dBooking.quote.depositCents, 'a deposit shop takes the deposit');
+
+  const noDeposit = hold(open.id, oSvc.id, 'dev-stripe-open', 'so');
+  assert.ok(noDeposit, 'fixture: a seat at a shop that asks for no deposit');
+  const oBooking = getBooking(noDeposit)!;
+  // Settling at the counter is a different route, not a smaller number — a
+  // guest who chooses to pay now pays the whole bill either way.
+  setPayAtSalon(open.id, true);
+  assert.equal(dueOnlineCents(oBooking), oBooking.quote.totalCents, 'no deposit means the whole bill');
+  setPayAtSalon(open.id, false);
+  assert.equal(dueOnlineCents(oBooking), oBooking.quote.totalCents, 'and the counter setting does not change it');
+
+  // A refund is only Stripe's to give as far as Stripe's money went. A gift
+  // card or loyalty points paid their share in our books, not on any card.
+  confirmBooking(noDeposit, { method: 'card', label: 'Visa ····4242' });
+  recordStripeCharge(noDeposit, { sessionId: 'cs_test_1', paymentIntentId: 'pi_test_1', chargedCents: 2000 });
+  const paid = getBooking(noDeposit)!;
+  paid.refundedCents = 5000; // the books owe more than the card ever carried
+  assert.equal(stripeRefundableCents(noDeposit), 2000, 'clamped to what actually went through the card');
+  markStripeRefunded(noDeposit, 2000);
+  assert.equal(stripeRefundableCents(noDeposit), 0, 'and never sent a second time');
+  markStripeRefunded(noDeposit, 2000);
+  assert.equal(getBooking(noDeposit)!.stripe!.refundedCents, 2000, 'a double-tap cannot over-refund');
+  assert.equal(stripeRefundableCents('no-such-booking'), 0, 'an unknown booking refunds nothing');
+  assert.equal(stripeRefundableCents(withDeposit), 0, 'and so does one no card ever paid for');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

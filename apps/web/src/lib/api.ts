@@ -56,8 +56,16 @@ import * as sb from '@/lib/supabase-backend';
 type Mode = 'server' | 'local' | 'supabase';
 
 export function backendMode(): Mode {
+  // An explicit choice always wins. The Supabase config is checked in so that
+  // a zero-setup deploy just works, which used to mean there was no way to say
+  // "no, run against this deployment's own /api" — and Stripe only works
+  // there, because only the server process holds the secret key and the
+  // pricing engine at the same time.
+  const want = process.env.NEXT_PUBLIC_BACKEND;
+  if (want === 'server' || want === 'local' || want === 'supabase') {
+    if (want !== 'supabase' || sb.isConfigured()) return want;
+  }
   if (sb.isConfigured()) return 'supabase';
-  if (process.env.NEXT_PUBLIC_BACKEND === 'local') return 'local';
   return 'server';
 }
 
@@ -409,6 +417,24 @@ export async function apiSetPayAtSalon(shopId: string, on: boolean): Promise<voi
   await localWrite();
   store.setPayAtSalon(shopId, on);
   syncConfig(shopId);
+}
+
+/**
+ * Is there a real processor behind this deployment?
+ *
+ * Only the server mode can hold a secret key, so the static export and the
+ * Supabase mode always answer no and keep the demo checkout — which is the
+ * honest answer, not a degradation: nothing there can take a real payment.
+ */
+export async function apiStripeConfig(): Promise<{ enabled: boolean; publishableKey: string }> {
+  const off = { enabled: false, publishableKey: '' };
+  if (backendMode() !== 'server') return off;
+  try {
+    const res = await fetch('/api/stripe/config');
+    return res.ok ? await res.json() : off;
+  } catch {
+    return off;
+  }
 }
 
 export async function apiPatchService(
