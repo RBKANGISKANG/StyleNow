@@ -2527,6 +2527,14 @@ export async function apiCorporateForShop(shopId: string): Promise<ReturnType<ty
 // ---- round 6: context, consent, retail, travel, follows -------------------
 
 export async function apiAddRefPhoto(bookingId: string, dataUrl: string, caption = ''): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/bookings/${bookingId}/ref-photos`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: deviceId(), dataUrl, caption }),
+    });
+    return res.ok;
+  }
   await localWrite();
   try {
     const b = store.addRefPhoto(bookingId, deviceId(), dataUrl, caption);
@@ -2539,6 +2547,13 @@ export async function apiAddRefPhoto(bookingId: string, dataUrl: string, caption
 }
 
 export async function apiRemoveRefPhoto(bookingId: string, photoId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(
+      `/api/bookings/${bookingId}/ref-photos?deviceId=${encodeURIComponent(deviceId())}&photoId=${encodeURIComponent(photoId)}`,
+      { method: 'DELETE' },
+    );
+    return;
+  }
   await localWrite();
   try {
     const b = store.removeRefPhoto(bookingId, deviceId(), photoId);
@@ -2621,6 +2636,10 @@ export async function apiSetArrivalNote(shopId: string, note: string): Promise<v
 }
 
 export async function apiRetailItems(shopId: string): Promise<store.RetailItem[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/retail`);
+    return res.ok ? (await res.json()).items : [];
+  }
   await readyForRead();
   return store.retailItems(shopId);
 }
@@ -2629,18 +2648,38 @@ export async function apiSaveRetailItem(
   shopId: string,
   item: { id?: string; name: string; priceCents: number; stockItemId?: string },
 ): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/retail`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(item),
+    });
+    return;
+  }
   await localWrite();
   store.saveRetailItem(shopId, item);
   syncConfig(shopId);
 }
 
 export async function apiDeleteRetailItem(shopId: string, itemId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/retail/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+    return;
+  }
   await localWrite();
   store.deleteRetailItem(shopId, itemId);
   syncConfig(shopId);
 }
 
 export async function apiAddRetail(shopId: string, bookingId: string, itemId: string, qty = 1): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/bookings/${bookingId}/retail`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ itemId, qty }),
+    });
+    return res.ok;
+  }
   await localWrite();
   try {
     const b = store.addRetail(shopId, bookingId, itemId, qty);
@@ -2653,6 +2692,10 @@ export async function apiAddRetail(shopId: string, bookingId: string, itemId: st
 }
 
 export async function apiRemoveRetail(shopId: string, bookingId: string, index: number): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/bookings/${bookingId}/retail?index=${index}`, { method: 'DELETE' });
+    return;
+  }
   await localWrite();
   try {
     const b = store.removeRetail(shopId, bookingId, index);
@@ -2664,6 +2707,10 @@ export async function apiRemoveRetail(shopId: string, bookingId: string, index: 
 }
 
 export async function apiCancelReasonStats(shopId: string): Promise<ReturnType<typeof store.cancelReasonStats>> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/cancel-reasons`);
+    return res.ok ? (await res.json()).rows : [];
+  }
   await readyForRead();
   return store.cancelReasonStats(shopId);
 }
@@ -2679,11 +2726,32 @@ export async function apiFollowedStaff(): Promise<string[]> {
 }
 
 export async function apiFollowedOpenings(): Promise<ReturnType<typeof store.followedOpenings>> {
+  if (backendMode() === 'server') {
+    // followedStaff is a browser-local preference (see apiFollowedStaff) —
+    // resolve it here and send the list to the server, which is where the
+    // real bookings live in this mode.
+    const staffIds = store.followedStaff(deviceId());
+    if (staffIds.length === 0) return [];
+    const res = await fetch('/api/staff/openings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ staffIds, deviceId: deviceId() }),
+    });
+    return res.ok ? (await res.json()).rows : [];
+  }
   await readyForRead();
   return store.followedOpenings(deviceId());
 }
 
 export async function apiEarliestAcross(shopIds: string[]): Promise<ReturnType<typeof store.earliestAcross>> {
+  if (backendMode() === 'server') {
+    const res = await fetch('/api/shops/earliest', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ shopIds, deviceId: deviceId() }),
+    });
+    return res.ok ? (await res.json()).rows : [];
+  }
   await readyForRead();
   return store.earliestAcross(shopIds, deviceId());
 }

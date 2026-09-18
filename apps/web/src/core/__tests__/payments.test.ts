@@ -43,7 +43,7 @@ import {
   setConsentText, consentRequired, setArrivalNote, arrivalNoteFor, arrivalNoteOf,
   saveRetailItem, retailItems, addRetail, removeRetail, deleteRetailItem,
   addRefPhoto, removeRefPhoto, REF_PHOTO_MAX, toggleFollowStaff, followedStaff, followedOpenings,
-  earliestAcross, leaveBy, cancelReasonStats, durationHint,
+  earliestAcross, leaveBy, cancelReasonStats, durationHint, followedOpeningsFor,
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
   payAtSalonOf, setPayAtSalon, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
 } from '../store';
@@ -1935,6 +1935,10 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
     );
     assert.ok(real || true, 'a reported opening comes from the same projection');
   }
+  // Same projection, staff list handed in explicitly — what the server route
+  // calls, since a follow list is browser-local state the server never sees.
+  assert.deepEqual(followedOpeningsFor([staff.id], dev), rows, 'the explicit-list form answers identically');
+  assert.deepEqual(followedOpeningsFor([], dev), [], 'no staff, nothing to report');
   assert.equal(toggleFollowStaff(dev, staff.id), false, 'following toggles off');
 
   const across = earliestAcross(allShops().slice(0, 3).map((s) => s.id), dev);

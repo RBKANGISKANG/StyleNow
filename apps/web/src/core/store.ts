@@ -6760,9 +6760,24 @@ export function followedOpenings(
   deviceId: string,
   horizonDays = 14,
 ): Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> {
+  return followedOpeningsFor(followedStaff(deviceId), deviceId, horizonDays);
+}
+
+/**
+ * Same projection, with the staff list handed in rather than read off local
+ * state — `followedStaff` lives only in the browser that toggled it, so the
+ * server process (which is where the real bookings are, in server mode) has
+ * no way to derive it on its own. The API layer resolves the local list first
+ * and sends it along.
+ */
+export function followedOpeningsFor(
+  staffIds: string[],
+  deviceId: string,
+  horizonDays = 14,
+): Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> {
   const out: Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> = [];
   const now = Date.now();
-  for (const staffId of followedStaff(deviceId)) {
+  for (const staffId of staffIds) {
     const shop = allShops().find((s) => effectiveStaff(s.id).some((st) => st.id === staffId));
     if (!shop) continue;
     const member = effectiveStaff(shop.id).find((st) => st.id === staffId)!;
