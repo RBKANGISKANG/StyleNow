@@ -5500,6 +5500,14 @@ export interface CalendarAppointment {
   staffName: string;
   status: BookingStatus;
   totalCents: number;
+  /** what has actually been paid so far, and how the online part was settled */
+  paidCents: number;
+  payMethod: string | null;
+  /** what the customer showed the stylist, and what was sold with the visit —
+   *  without these the calendar's appointment dialog opened with a type that
+   *  looked complete but was always empty, whatever the booking actually had */
+  refPhotos: Array<{ id: string; dataUrl: string; caption: string }>;
+  retail: Array<{ itemId: string; name: string; priceCents: number; qty: number }>;
 }
 
 export interface CalendarDay {
@@ -5556,6 +5564,10 @@ export function shopCalendar(shopId: string, fromIso: string, toIso: string): Ca
         staffName: staff.find((s) => s.id === b.staffId)?.name ?? '—',
         status: b.status,
         totalCents: b.quote.totalCents,
+        paidCents: b.paidCents,
+        payMethod: b.payment?.method ?? null,
+        refPhotos: b.refPhotos ?? [],
+        retail: b.retail ?? [],
       });
       if (['confirmed', 'completed'].includes(b.status)) revenueCents += b.quote.totalCents;
     }
@@ -6719,13 +6731,21 @@ export function addRefPhoto(bookingId: string, deviceId: string, dataUrl: string
   if (!b || b.deviceId !== deviceId) throw new Error('not_yours');
   if (!dataUrl.startsWith('data:image/')) throw new Error('bad_image');
   if (!['confirmed', 'pending_payment', 'hold'].includes(b.status)) throw new Error('not_editable');
-  const list = b.refPhotos ?? [];
-  if (list.length >= REF_PHOTO_MAX) throw new Error('refs_full');
+  const before = b.refPhotos ?? [];
+  if (before.length >= REF_PHOTO_MAX) throw new Error('refs_full');
   b.refPhotos = [
-    ...list,
+    ...before,
     { id: `rp-${state.seq++}-${Date.now().toString(36)}`, dataUrl, caption: caption.trim().slice(0, 80), addedAt: Date.now() },
   ];
-  persist();
+  if (!persist()) {
+    // Same rule as addShopPhoto: a picture that only made it into memory
+    // would vanish on the next reload with no explanation, and everything
+    // else written since the last successful save — a cancel, a review —
+    // would go quietly with it. Put it back the way it was and say so.
+    b.refPhotos = before;
+    persist();
+    throw new PhotoStorageFull();
+  }
   return b;
 }
 
@@ -6756,10 +6776,19 @@ export function followedStaff(deviceId: string): string[] {
  * The people you follow and when they are next free — the question behind
  * "I only go to Lena" answered without hunting through days.
  */
-export function followedOpenings(
-  deviceId: string,
-  horizonDays = 14,
-): Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> {
+/** One followed stylist's row — always identifiable, whether or not they have anything free. */
+export interface FollowedOpening {
+  staffId: string;
+  staffName: string;
+  shopId: string;
+  shopSlug: string;
+  shopName: string;
+  /** null when nothing is bookable inside the horizon — still a real row, not "no data". */
+  iso: string | null;
+  start: number | null;
+}
+
+export function followedOpenings(deviceId: string, horizonDays = 14): FollowedOpening[] {
   return followedOpeningsFor(followedStaff(deviceId), deviceId, horizonDays);
 }
 
@@ -6769,13 +6798,13 @@ export function followedOpenings(
  * server process (which is where the real bookings are, in server mode) has
  * no way to derive it on its own. The API layer resolves the local list first
  * and sends it along.
+ *
+ * A stylist with nothing free is still a row, not `null` — the panel can then
+ * say "Lena, nothing free" instead of rendering a hole with no way to tell
+ * whose hole it was.
  */
-export function followedOpeningsFor(
-  staffIds: string[],
-  deviceId: string,
-  horizonDays = 14,
-): Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> {
-  const out: Array<{ staffId: string; staffName: string; shopId: string; shopSlug: string; shopName: string; iso: string; start: number } | null> = [];
+export function followedOpeningsFor(staffIds: string[], deviceId: string, horizonDays = 14): FollowedOpening[] {
+  const out: FollowedOpening[] = [];
   const now = Date.now();
   for (const staffId of staffIds) {
     const shop = allShops().find((s) => effectiveStaff(s.id).some((st) => st.id === staffId));
@@ -6792,11 +6821,15 @@ export function followedOpeningsFor(
         // shop shut that day
       }
     }
-    out.push(
-      hit
-        ? { staffId, staffName: member.name, shopId: shop.id, shopSlug: shop.slug, shopName: shop.name, ...hit }
-        : null,
-    );
+    out.push({
+      staffId,
+      staffName: member.name,
+      shopId: shop.id,
+      shopSlug: shop.slug,
+      shopName: shop.name,
+      iso: hit?.iso ?? null,
+      start: hit?.start ?? null,
+    });
   }
   return out;
 }
@@ -6850,7 +6883,11 @@ export function durationHint(shopId: string, customerKey: string): { avgOverrunM
     if (b.shopId !== shopId || b.status !== 'completed' || customerKeyOf(b) !== customerKey) continue;
     if (!b.checkedInAt || !b.completedAt) continue;
     const planned = b.endsAt - b.startsAt;
-    const actual = b.completedAt - Math.min(b.checkedInAt, b.startsAt);
+    // The chair cannot start before the scheduled time no matter how early a
+    // punctual guest checks in — check-in is accepted up to 45 minutes early
+    // (CHECKIN_WINDOW_MIN), and counting that idle wait as chair time invented
+    // an overrun for a guest who has never actually run long.
+    const actual = b.completedAt - Math.max(b.checkedInAt, b.startsAt);
     total += Math.round((actual - planned) / 60000);
     visits += 1;
   }

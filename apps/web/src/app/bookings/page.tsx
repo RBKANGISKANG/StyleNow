@@ -186,7 +186,17 @@ export default function BookingsPage() {
   const list = tab === 'upcoming' ? upcoming : past;
   const personName = (id: string | null) => people.find((p) => p.id === id)?.name ?? null;
 
+  // One picker, rendered per booking from this single piece of state — every
+  // path that closes it (confirm, dismiss, or "move instead") must reset the
+  // reason too, or a choice made for one booking survives to be silently
+  // recorded against the next one someone opens.
+  const closeCancel = () => {
+    setCancelFor(null);
+    setCancelWhy('');
+  };
+
   const previewCancel = async (id: string) => {
+    setCancelWhy('');
     const data = await apiCancel(id, true);
     if (data) setCancelFor({ id, ...data });
   };
@@ -194,8 +204,7 @@ export default function BookingsPage() {
   const doCancel = async () => {
     if (!cancelFor) return;
     await apiCancel(cancelFor.id, false, cancelWhy || undefined);
-    setCancelFor(null);
-    setCancelWhy('');
+    closeCancel();
     setToast('✅ ' + t('st_cancelled_by_customer'));
     void load();
   };
@@ -390,7 +399,7 @@ export default function BookingsPage() {
                         className="btn btn-soft sm"
                         onClick={() => {
                           setMoveFor(moveFor === b.id ? null : b.id);
-                          setCancelFor(null);
+                          closeCancel();
                         }}
                       >
                         ⇄ {t('mv_open')}
@@ -571,12 +580,12 @@ export default function BookingsPage() {
                       // half of all "cancellations" are really "wrong time" —
                       // hand them the move tool before they burn the booking
                       setMoveFor(cancelFor!.id);
-                      setCancelFor(null);
+                      closeCancel();
                     }}
                   >
                     🔀 {t('mv_instead')}
                   </button>
-                  <button className="btn btn-soft sm" onClick={() => setCancelFor(null)}>
+                  <button className="btn btn-soft sm" onClick={closeCancel}>
                     {t('keep_booking')}
                   </button>
                   <button
@@ -1028,6 +1037,7 @@ function VisitPrep({ booking, onChanged }: { booking: Bk; onChanged: () => void 
   const [mode, setMode] = useState<'walk' | 'bike' | 'transit' | 'car'>('transit');
   const [leave, setLeave] = useState<{ travelMin: number; leaveAt: number } | null>(null);
   const [arrival, setArrival] = useState('');
+  const [photoError, setPhotoError] = useState('');
   const shopId = booking.shop?.id ?? '';
 
   useEffect(() => {
@@ -1071,13 +1081,13 @@ function VisitPrep({ booking, onChanged }: { booking: Bk; onChanged: () => void 
         <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>🖼 {t('rp_title')}</span>
         <p style={{ fontSize: '0.75rem', color: 'var(--ink-soft)', margin: '2px 0 6px' }}>{t('rp_hint')}</p>
         <div className="tc-shots">
-          {booking.refPhotos.map((ph) => (
+          {booking.refPhotos.map((ph, i) => (
             <span key={ph.id} style={{ position: 'relative' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={ph.dataUrl} alt={ph.caption} />
+              <img src={ph.dataUrl} alt={ph.caption || `${t('rp_title')} ${i + 1}/${booking.refPhotos.length}`} />
               <button
                 className="btn btn-ghost sm"
-                aria-label={t('a11y_delete')}
+                aria-label={ph.caption ? `${t('a11y_delete')}: ${ph.caption}` : `${t('a11y_delete')}: ${t('rp_title')} ${i + 1}`}
                 style={{ position: 'absolute', top: -6, right: -6, padding: '0 6px' }}
                 onClick={() => void apiRemoveRefPhoto(booking.id, ph.id).then(onChanged)}
               >
@@ -1100,13 +1110,22 @@ function VisitPrep({ booking, onChanged }: { booking: Bk; onChanged: () => void 
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (!f) return;
-                  void fileToPhotoDataUrl(f).then((dataUrl) => apiAddRefPhoto(booking.id, dataUrl).then(onChanged));
+                  setPhotoError('');
+                  fileToPhotoDataUrl(f)
+                    .then((dataUrl) =>
+                      apiAddRefPhoto(booking.id, dataUrl).then((r) => {
+                        if (r.ok) onChanged();
+                        else setPhotoError(r.reason === 'refs_full' ? t('rp_full') : t('rp_bad'));
+                      }),
+                    )
+                    .catch(() => setPhotoError(t('rp_bad')));
                   e.target.value = '';
                 }}
               />
             </>
           )}
         </div>
+        {photoError && <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: 4 }}>{photoError}</p>}
       </div>
     </div>
   );
@@ -1129,22 +1148,22 @@ function FollowPanel() {
       {rows.length === 0 ? (
         <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('fl_empty')}</p>
       ) : (
-        rows.map((r, i) =>
-          r === null ? null : (
-            <div className="due-card" key={`${r.staffId}-${i}`}>
-              <span className="due-emoji">★</span>
-              <div className="due-body">
-                <strong>{r.staffName}</strong> · {r.shopName}
-                <div style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
-                  {t('fl_next', { when: `${dateOf(r.start, lang)}, ${timeOf(r.start, lang)}` })}
-                </div>
+        rows.map((r) => (
+          <div className="due-card" key={r.staffId}>
+            <span className="due-emoji">★</span>
+            <div className="due-body">
+              <strong>{r.staffName}</strong> · {r.shopName}
+              <div style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
+                {r.start !== null ? t('fl_next', { when: `${dateOf(r.start, lang)}, ${timeOf(r.start, lang)}` }) : t('fl_none')}
               </div>
+            </div>
+            {r.start !== null && (
               <Link className="btn btn-primary sm" href={`/shops/${r.shopSlug}/book?staff=${r.staffId}&date=${r.iso}`}>
                 {t('book')}
               </Link>
-            </div>
-          ),
-        )
+            )}
+          </div>
+        ))
       )}
     </section>
   );
@@ -1156,9 +1175,11 @@ function EarliestPanel() {
   const [favs] = useFavourites();
   const [rows, setRows] = useState<Awaited<ReturnType<typeof apiEarliestAcross>>>([]);
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!open || favs.length === 0) return;
-    void apiEarliestAcross(favs).then(setRows);
+    setLoading(true);
+    void apiEarliestAcross(favs).then((r) => { setRows(r); setLoading(false); });
   }, [open, favs]);
   if (favs.length === 0) return null;
   return (
@@ -1167,6 +1188,8 @@ function EarliestPanel() {
       <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 8 }}>{t('ea_hint')}</p>
       {!open ? (
         <button className="btn btn-soft sm" onClick={() => setOpen(true)}>⚡ {t('ea_title')}</button>
+      ) : loading ? (
+        <div className="spinner" />
       ) : rows.length === 0 ? (
         <p style={{ fontSize: '0.85rem', color: 'var(--ink-soft)' }}>{t('ea_none')}</p>
       ) : (

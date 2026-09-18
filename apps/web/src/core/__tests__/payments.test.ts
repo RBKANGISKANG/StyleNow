@@ -1928,9 +1928,10 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(toggleFollowStaff(dev, staff.id), true);
   assert.deepEqual(followedStaff(dev), [staff.id]);
   const rows = followedOpenings(dev);
-  assert.equal(rows.length, 1);
-  if (rows[0]) {
-    const real = availability(shop.id, [rows[0] ? svc.id : svc.id], rows[0].iso, dev, staff.id).slots.some(
+  assert.equal(rows.length, 1, 'a row for every followed stylist, whether or not they have an opening');
+  assert.equal(rows[0]!.staffId, staff.id, 'the row is always identifiable — never a bare null');
+  if (rows[0]!.start !== null) {
+    const real = availability(shop.id, [svc.id], rows[0]!.iso!, dev, staff.id).slots.some(
       (s) => s.start === rows[0]!.start,
     );
     assert.ok(real || true, 'a reported opening comes from the same projection');
@@ -1971,9 +1972,38 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(getBooking(ids[0])!.cancelReason, 'childcare');
 }
 
-// Duration learning stays quiet until it has seen enough visits.
+// Duration learning stays quiet until it has seen enough visits, and never
+// mistakes an early arrival's waiting-room time for chair time.
 {
   assert.equal(durationHint(shop.id, 'd:nobody-here'), null, 'no history, no claim');
+
+  // Three visits, each checked in 20 minutes early (well inside the ±45min
+  // check-in window) and finished exactly on time. The chair never started
+  // before startsAt no matter how early the guest sat down, so this customer
+  // has never actually overrun.
+  const dev = 'dev-punctual';
+  const ids: string[] = [];
+  for (let d = 1; d <= 45 && ids.length < 3; d++) {
+    const s = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'Punctual Pia', idempotencyKey: `dh-${d}` });
+      confirmBooking(h.bookingId);
+      const b = getBooking(h.bookingId)!;
+      b.checkedInAt = b.startsAt - 20 * 60_000;
+      b.completedAt = b.endsAt;
+      b.status = 'completed';
+      ids.push(h.bookingId);
+    } catch { /* next day */ }
+  }
+  assert.equal(ids.length, 3, 'fixture: three early-but-on-time visits');
+  assert.equal(durationHint(shop.id, 'd:dev-punctual'), null, 'arriving early is not the same as running over');
+
+  // The same guest, but this time actually finishing 15 minutes late — a real
+  // overrun must still be caught.
+  for (const id of ids) getBooking(id)!.completedAt = getBooking(id)!.endsAt + 15 * 60_000;
+  const late = durationHint(shop.id, 'd:dev-punctual');
+  assert.ok(late && late.avgOverrunMin >= 10, 'a genuine overrun still surfaces');
 }
 
 

@@ -2526,23 +2526,32 @@ export async function apiCorporateForShop(shopId: string): Promise<ReturnType<ty
 
 // ---- round 6: context, consent, retail, travel, follows -------------------
 
-export async function apiAddRefPhoto(bookingId: string, dataUrl: string, caption = ''): Promise<boolean> {
+export type RefPhotoOutcome = { ok: true } | { ok: false; reason: string };
+
+/**
+ * A reason, not just a boolean — this used to return false for every kind of
+ * refusal alike, so a full album and a decode failure looked identical and
+ * neither could be explained to the person who just watched nothing happen.
+ */
+export async function apiAddRefPhoto(bookingId: string, dataUrl: string, caption = ''): Promise<RefPhotoOutcome> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/bookings/${bookingId}/ref-photos`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId: deviceId(), dataUrl, caption }),
     });
-    return res.ok;
+    if (res.ok) return { ok: true };
+    const body = await res.json().catch(() => ({}));
+    return { ok: false, reason: String(body.error ?? 'error') };
   }
   await localWrite();
   try {
     const b = store.addRefPhoto(bookingId, deviceId(), dataUrl, caption);
     // the stylist reads these on their own device, so the booking must travel
     if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : 'error' };
   }
 }
 
@@ -2671,38 +2680,53 @@ export async function apiDeleteRetailItem(shopId: string, itemId: string): Promi
   syncConfig(shopId);
 }
 
-export async function apiAddRetail(shopId: string, bookingId: string, itemId: string, qty = 1): Promise<boolean> {
+export type RetailLine = NonNullable<store.Booking['retail']>[number];
+export type RetailOutcome = { ok: true; retail: RetailLine[]; totalCents: number } | { ok: false };
+
+/**
+ * Both add and remove hand back the booking's live retail lines, not just a
+ * boolean. The dialog that calls these renders from a snapshot captured when
+ * it was opened — reloading the shop's overview never re-derives that
+ * snapshot, so without a live answer here a sale could look like it never
+ * happened and get sold again from the same stale list.
+ */
+export async function apiAddRetail(shopId: string, bookingId: string, itemId: string, qty = 1): Promise<RetailOutcome> {
   if (backendMode() === 'server') {
     const res = await fetch(`/api/shop/${shopId}/bookings/${bookingId}/retail`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ itemId, qty }),
     });
-    return res.ok;
+    if (!res.ok) return { ok: false };
+    const d = await res.json();
+    return { ok: true, retail: d.retail, totalCents: d.totalCents };
   }
   await localWrite();
   try {
     const b = store.addRetail(shopId, bookingId, itemId, qty);
     if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
     syncConfig(shopId); // the shelf count moved too
-    return true;
+    return { ok: true, retail: b.retail ?? [], totalCents: b.quote.totalCents };
   } catch {
-    return false;
+    return { ok: false };
   }
 }
 
-export async function apiRemoveRetail(shopId: string, bookingId: string, index: number): Promise<void> {
+export async function apiRemoveRetail(shopId: string, bookingId: string, index: number): Promise<RetailOutcome> {
   if (backendMode() === 'server') {
-    await fetch(`/api/shop/${shopId}/bookings/${bookingId}/retail?index=${index}`, { method: 'DELETE' });
-    return;
+    const res = await fetch(`/api/shop/${shopId}/bookings/${bookingId}/retail?index=${index}`, { method: 'DELETE' });
+    if (!res.ok) return { ok: false };
+    const d = await res.json();
+    return { ok: true, retail: d.retail, totalCents: d.totalCents };
   }
   await localWrite();
   try {
     const b = store.removeRetail(shopId, bookingId, index);
     if (backendMode() === 'supabase') await sb.pushBooking(b).catch(() => {});
     syncConfig(shopId);
+    return { ok: true, retail: b.retail ?? [], totalCents: b.quote.totalCents };
   } catch {
-    // nothing to take back
+    return { ok: false };
   }
 }
 

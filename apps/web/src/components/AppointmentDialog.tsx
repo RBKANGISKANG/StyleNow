@@ -69,6 +69,9 @@ export function AppointmentDialog({
   const [slots, setSlots] = useState<Array<{ start: number; priceCents: number }> | null>(null);
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
+  // Live, unlike the rest of `booking`: a sale changes the total right under
+  // this dialog, and the snapshot it opened with never catches up on its own.
+  const [totalCents, setTotalCents] = useState(booking?.totalCents ?? 0);
   const { ask, dialog } = useConfirm();
 
   // Reset every time a different appointment is opened.
@@ -79,6 +82,7 @@ export function AppointmentDialog({
     setMoveStaff(booking.staffId);
     setMoveDate(isoDateOf(booking.startsAt));
     setSlots(null);
+    setTotalCents(booking.totalCents);
   }, [booking]);
 
   useEffect(() => {
@@ -243,7 +247,7 @@ export function AppointmentDialog({
               </div>
               <div>
                 <span className="k">{t('total')}</span>
-                <span className="v">{money(booking.totalCents, lang)}</span>
+                <span className="v">{money(totalCents, lang)}</span>
               </div>
               <div>
                 <span className="k">{t('ap_status')}</span>
@@ -277,9 +281,13 @@ export function AppointmentDialog({
               <div className="md-jot" style={{ marginTop: 12 }}>
                 <span>🖼 {t('rp_title')}</span>
                 <div className="tc-shots" style={{ marginTop: 6 }}>
-                  {booking.refPhotos!.map((ph) => (
+                  {booking.refPhotos!.map((ph, i) => (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img key={ph.id} src={ph.dataUrl} alt={ph.caption} />
+                    <img
+                      key={ph.id}
+                      src={ph.dataUrl}
+                      alt={ph.caption || `${t('rp_title')} ${i + 1}/${booking.refPhotos!.length}`}
+                    />
                   ))}
                 </div>
               </div>
@@ -311,7 +319,7 @@ export function AppointmentDialog({
             {/* The shelf at the till: a product sold here lands on the bill
                 and comes off the back bar in the same tap. */}
             {['confirmed', 'completed'].includes(booking.status) && (
-              <RetailJot shopId={shopId} booking={booking} onChanged={onChanged} />
+              <RetailJot shopId={shopId} booking={booking} onChanged={onChanged} onTotalChanged={setTotalCents} />
             )}
           </div>
         )}
@@ -378,19 +386,28 @@ function RetailJot({
   shopId,
   booking,
   onChanged,
+  onTotalChanged,
 }: {
   shopId: string;
   booking: DialogBooking;
   onChanged: (msg: string) => void;
+  onTotalChanged: (totalCents: number) => void;
 }) {
   const { t, lang } = useI18n();
   const [items, setItems] = useState<RetailItemT[]>([]);
   const [pick, setPick] = useState('');
+  // Owned locally rather than read straight off the `booking` prop: that
+  // object is a snapshot captured when the dialog opened, and reloading the
+  // shop's overview behind it never re-derives it — a sale could render as
+  // if it never happened and get rung up twice from the same stale list.
+  const [sold, setSold] = useState(booking.retail ?? []);
   useEffect(() => {
     void apiRetailItems(shopId).then(setItems);
   }, [shopId]);
+  useEffect(() => {
+    setSold(booking.retail ?? []);
+  }, [booking.id]);
   if (items.length === 0) return null;
-  const sold = booking.retail ?? [];
   return (
     <div className="md-jot" style={{ marginTop: 12 }}>
       <span>🧴 {t('rt_sell')}</span>
@@ -401,7 +418,11 @@ function RetailJot({
             className="btn btn-ghost sm"
             aria-label={t('a11y_delete')}
             style={{ marginLeft: 6 }}
-            onClick={() => void apiRemoveRetail(shopId, booking.id, i).then(() => onChanged('↩ ' + t('team_saved')))}
+            onClick={() =>
+              void apiRemoveRetail(shopId, booking.id, i).then((r) => {
+                if (r.ok) { setSold(r.retail); onTotalChanged(r.totalCents); onChanged('↩ ' + t('team_saved')); }
+              })
+            }
           >
             ✕
           </button>
@@ -421,8 +442,8 @@ function RetailJot({
           className="btn btn-primary sm"
           disabled={!pick}
           onClick={() =>
-            void apiAddRetail(shopId, booking.id, pick).then((ok) => {
-              if (ok) { setPick(''); onChanged('🧴 ' + t('rt_sold')); }
+            void apiAddRetail(shopId, booking.id, pick).then((r) => {
+              if (r.ok) { setSold(r.retail); onTotalChanged(r.totalCents); setPick(''); onChanged('🧴 ' + t('rt_sold')); }
             })
           }
         >
