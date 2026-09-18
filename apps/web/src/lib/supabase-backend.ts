@@ -232,6 +232,41 @@ export async function createDuoHold(
   return pair;
 }
 
+/** The duo, generalized: every seat pushed through the same atomic RPC, all
+ *  rolled back together if any one of them loses a race. */
+export async function createGroupHold(input: HoldInput, friendNames: string[]): Promise<HoldResult[]> {
+  await ensureSynced();
+  const holds = store.createGroupHold(input, friendNames); // local resolution + every row
+  const db = await sb();
+  const pushed: string[] = [];
+  for (const r of holds) {
+    const booking = store.getBooking(r.bookingId)!;
+    const { data, error } = await deadline(db.rpc('create_hold', {
+      p_booking: toRow(booking),
+      p_ranges: booking.staffRanges.map((x) => ({
+        start: new Date(x.start).toISOString(),
+        end: new Date(x.end).toISOString(),
+      })),
+    }));
+    if (error || data?.conflict) {
+      for (const h of holds) store.deleteBooking(h.bookingId);
+      for (const id of pushed) {
+        await deadline(db.rpc('set_booking', { p_id: id, p_data: null, p_release_seat: true })).catch(() => {});
+      }
+      await syncNow();
+      const { slots } = store.availability(
+        input.shopId,
+        input.serviceIds,
+        new Date(input.startsAt).toISOString().slice(0, 10),
+        input.deviceId,
+      );
+      throw new store.SlotTaken(slots.filter((s) => s.staffIds.length >= holds.length).slice(0, 6));
+    }
+    pushed.push(r.bookingId);
+  }
+  return holds;
+}
+
 export async function confirmBooking(
   bookingId: string,
   payment?: { method: store.PaymentMethod; label: string },

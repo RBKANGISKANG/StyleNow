@@ -37,6 +37,7 @@ import {
   apiGapWindows,
   apiDisputesForShop,
   apiResolveDispute,
+  apiConsentRequired,
   type ShopWaitlistRow,
 } from '@/lib/api';
 import type { WalkInEntry, LogEntry, ChecklistTemplate, ChecklistTick, GapWindow as GapWindowT } from '@/core/store';
@@ -716,8 +717,11 @@ function NewBooking({
   const [customer, setCustomer] = useState('');
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
+  const [consentName, setConsentName] = useState('');
+  const [consentText, setConsentText] = useState('');
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [needsConsent, setNeedsConsent] = useState(false);
   // A day already gone is a recording, not a booking — the dialog offers that
   // day's rostered times instead of nothing, and says which it is doing.
   const isPast = date < todayIso();
@@ -725,6 +729,16 @@ function NewBooking({
   useEffect(() => {
     setServiceId((cur) => (services.some((s) => s.id === cur) ? cur : services[0]?.id ?? ''));
   }, [services]);
+
+  // Same gate the online checkout enforces — the desk has a real person to
+  // sign it, so ask for the name rather than let the engine's refusal be the
+  // first anyone hears of it.
+  useEffect(() => {
+    if (!serviceId) { setConsentText(''); return; }
+    let alive = true;
+    void apiConsentRequired(shopId, [serviceId]).then((txt) => { if (alive) setConsentText(txt); });
+    return () => { alive = false; };
+  }, [shopId, serviceId]);
 
   // A click in a stylist's calendar row opens the dialog with that stylist set.
   useEffect(() => {
@@ -751,14 +765,21 @@ function NewBooking({
 
   const create = async () => {
     if (!startsAt || !customer.trim()) return;
+    if (consentText && consentName.trim().length < 3) { setNeedsConsent(true); return; }
     setBusy(true);
     setConflict(false);
+    setNeedsConsent(false);
     const r = await apiShopCreateBooking(shopId, [serviceId], staffId, startsAt, customer.trim(), {
       phone: phone.trim() || undefined,
       note: note.trim() || undefined,
+      consentName: consentText ? consentName.trim() : undefined,
     });
     setBusy(false);
     if (!r.ok) {
+      if (r.code === 'consent_required') {
+        setNeedsConsent(true);
+        return;
+      }
       setConflict(true);
       setStartsAt(null);
       void apiAvailability(shopId, [serviceId], date, staffId, isPast).then((s) =>
@@ -769,6 +790,7 @@ function NewBooking({
     setCustomer('');
     setPhone('');
     setNote('');
+    setConsentName('');
     setStartsAt(null);
     onCreated();
     onClose();
@@ -838,6 +860,21 @@ function NewBooking({
           {t('bf_past_note')}
         </div>
       )}
+      {consentText && (
+        <div className="panel" style={{ marginTop: 10 }}>
+          <p style={{ fontSize: '0.78rem', color: 'var(--ink-soft)', marginBottom: 6 }}>{consentText}</p>
+          <input
+            className="input"
+            placeholder={t('cs_sign')}
+            value={consentName}
+            onChange={(e) => { setConsentName(e.target.value); setNeedsConsent(false); }}
+            maxLength={60}
+          />
+          {needsConsent && (
+            <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: 4 }}>{t('dash_consent_needed')}</p>
+          )}
+        </div>
+      )}
       {slots === null ? (
         <div className="spinner" />
       ) : slots.length === 0 ? (
@@ -863,7 +900,7 @@ function NewBooking({
         </button>
         <button
           className="btn btn-primary"
-          disabled={busy || !startsAt || !customer.trim()}
+          disabled={busy || !startsAt || !customer.trim() || (Boolean(consentText) && consentName.trim().length < 3)}
           onClick={() => void create()}
         >
           {busy ? '…' : t('dash_create')}

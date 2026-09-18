@@ -35,7 +35,7 @@ import {
   addAvailabilityWatch, myWatches, removeAvailabilityWatch,
   addStaffPhoto, staffPhotos, saveStockItem, adjustStock, stockItems, colourServicesThisWeek,
   openDispute, resolveDispute, disputesForShop, myDisputes,
-  createDuoHold, resourceRoomFor, myMembership, bookingsForDevice, effectiveServices,
+  createDuoHold, resourceRoomFor, myMembership, bookingsForDevice, effectiveServices, bookSeries,
   exportShopConfig, applyShopConfig, patchService, serviceOverrideEntries,
   feed, buyCorporateBatch, corporateDiscountPct, myCorporateBatches, corporateBatchesForShop,
   setBundleDiscount, setRunningLate, shopStatus, threadsForDevice, shopThreads,
@@ -1754,6 +1754,76 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   setConsentText(tat.id, '');
 }
 
+// Consent must not silently disable the front desk, standing appointments, or
+// a duo/group basket — each has its own way of satisfying (or refusing) it.
+{
+  const tat = allShops().find((s) => s.id === 'shop-schwarzwerk')!;
+  const needle = tat.services.find((s) => s.adultsOnly)!;
+  setConsentText(tat.id, 'I confirm I am over 18 and have eaten today.');
+
+  let slot: { start: number } | undefined;
+  for (let d = 1; d <= 45 && !slot; d++) {
+    slot = availability(tat.id, [needle.id], addDays(todayIso(), d), 'dev-desk', null).slots.find((x) => x.start > Date.now());
+  }
+  assert.ok(slot, 'fixture: a needle slot for the front desk');
+  // The desk has a real person in front of them who can sign — refusing
+  // silently would disable the shop's own till the moment it sets consent
+  // wording.
+  assert.throws(
+    () => createShopBooking(tat.id, [needle.id], null, slot!.start, 'Walk-in Wanda'),
+    /consent_required/,
+    'no name typed at the till, no seat — same gate as online',
+  );
+  const walkIn = createShopBooking(tat.id, [needle.id], null, slot!.start, 'Walk-in Wanda', { consentName: 'Walk-in Wanda' });
+  assert.equal(walkIn.consent!.name, 'Walk-in Wanda', 'the desk can satisfy the gate by typing the name');
+
+  // A standing appointment already carries a signature for exactly this
+  // treatment — the series must not be refused for a re-consent nobody needs.
+  // The +4-week occurrence can land on a seeded booking that has nothing to do
+  // with consent, so retry a few origins rather than asserting on one attempt
+  // (the fixture surgery this suite already uses elsewhere for this reason).
+  let booked: ReturnType<typeof bookSeries>['booked'] = [];
+  let skippedDates: number[] = [1];
+  for (let d = 46; d <= 90 && skippedDates.length > 0; d++) {
+    const seriesSlot = availability(tat.id, [needle.id], addDays(todayIso(), d), `dev-series-${d}`, null).slots.find((x) => x.start > Date.now());
+    if (!seriesSlot) continue;
+    const originHold = createHold({ shopId: tat.id, serviceIds: [needle.id], staffId: null, startsAt: seriesSlot.start, deviceId: `dev-series-${d}`, guestName: 'Regular Rita', consentName: 'Rita Voigt', idempotencyKey: `cs-series-${d}` });
+    confirmBooking(originHold.bookingId);
+    ({ booked, skippedDates } = bookSeries(`dev-series-${d}`, originHold.bookingId, 4, 1));
+  }
+  assert.equal(skippedDates.length, 0, 'fixture: found an origin whose +4-week occurrence is free');
+  assert.equal(booked.length, 1, 'the carried signature satisfies the gate — nothing skipped for consent');
+  assert.equal(booked[0]!.consent!.name, 'Rita Voigt', 'the child booking carries the same signature forward');
+
+  setConsentText(tat.id, '');
+
+  // A duo/group basket has exactly one consent field for the whole party —
+  // proceeding would either forge a friend's signature or skip consent for a
+  // flagged treatment entirely, so the engine refuses the whole seat rather
+  // than either. Chroma Mitte has three overlapping stylists, so this
+  // exercises the actual consent refusal rather than an unrelated staffing one.
+  const colourShop = allShops().find((s) => s.id === 'shop-chroma-mitte')!;
+  const roots = colourShop.services.find((s) => s.requiresPatchTest)!;
+  setConsentText(colourShop.id, 'I confirm no known allergy to the products named.');
+  let duoSlot: { start: number } | undefined;
+  for (let d = 1; d <= 21 && !duoSlot; d++) {
+    duoSlot = availability(colourShop.id, [roots.id], addDays(todayIso(), d), 'dev-duo-consent', null).slots.find(
+      (x) => x.start > Date.now() && x.staffIds.length >= 2,
+    );
+  }
+  assert.ok(duoSlot, 'fixture: a two-chair slot for the duo attempt');
+  assert.throws(
+    () =>
+      createDuoHold(
+        { shopId: colourShop.id, serviceIds: [roots.id], staffId: null, startsAt: duoSlot!.start, deviceId: 'dev-duo-consent', guestName: 'Ana', consentName: 'Ana Weber', idempotencyKey: 'cs-duo-1' },
+        'Bea',
+      ),
+    /duo_consent_required/,
+  );
+  assert.equal(bookingsForDevice('dev-duo-consent').length, 0, 'a refused duo leaves no orphan seat behind, not even the organizer\'s');
+  setConsentText(colourShop.id, '');
+}
+
 // The door code is for people who hold a booking, not for the public.
 {
   const dev = 'dev-arrival';
@@ -1822,6 +1892,34 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.throws(() => addRefPhoto(held, dev, 'data:image/png;base64,ZZZ'), /refs_full/);
   removeRefPhoto(held, dev, getBooking(held)!.refPhotos![0].id);
   assert.equal(getBooking(held)!.refPhotos!.length, REF_PHOTO_MAX - 1);
+
+  // Erasure covers what this round added: pictures, a signed name, and the
+  // follow list — the last one keyed by deviceId exactly like the people list
+  // two lines above it, and just as much someone's own data to take back.
+  toggleFollowStaff(dev, staff.id);
+  assert.deepEqual(followedStaff(dev), [staff.id], 'fixture: something to erase');
+  assert.ok((exportMyData(dev).follows as string[]).includes(staff.id), 'the export can see what erasure will remove');
+  eraseMyData(dev);
+  assert.equal(getBooking(held)!.refPhotos, undefined, 'the photographs are gone, not just uncounted');
+  assert.deepEqual(followedStaff(dev), [], 'the follow list goes too — same key as the people it sits next to');
+}
+
+// A signed consent is as personal as a name and a note — erasure takes it too.
+{
+  const tat = allShops().find((s) => s.id === 'shop-schwarzwerk')!;
+  const needle = tat.services.find((s) => s.adultsOnly)!;
+  const dev = 'dev-consent-erase';
+  setConsentText(tat.id, 'I confirm I am over 18.');
+  let slot: { start: number } | undefined;
+  for (let d = 1; d <= 45 && !slot; d++) {
+    slot = availability(tat.id, [needle.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+  }
+  assert.ok(slot, 'fixture: a needle slot to sign for');
+  const held = createHold({ shopId: tat.id, serviceIds: [needle.id], staffId: null, startsAt: slot!.start, deviceId: dev, guestName: 'C', consentName: 'Anna Kowalski', idempotencyKey: 'cs-erase-1' }).bookingId;
+  assert.equal(getBooking(held)!.consent!.name, 'Anna Kowalski');
+  eraseMyData(dev);
+  assert.equal(getBooking(held)!.consent, undefined, 'the typed signature is gone on request, like any other name on the booking');
+  setConsentText(tat.id, '');
 }
 
 // Follows, earliest-across and leave-by all answer with real, bookable times.

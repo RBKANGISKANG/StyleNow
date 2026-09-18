@@ -1177,15 +1177,33 @@ export function applyShopConfig(shopId: string, doc: ShopConfig): void {
     else state.bundleDiscounts.delete(shopId); // absent means off, and off must round-trip
   }
   if (doc.payAtSalon !== undefined) state.payAtSalon.set(shopId, Boolean(doc.payAtSalon));
+  // A synced document is untrusted input like any other — clamp it to the
+  // same length its own setter enforces, rather than trust a device that may
+  // have written something the setter would have refused.
   if (doc.consentText !== undefined) {
-    if (doc.consentText) state.consentTexts.set(shopId, doc.consentText);
+    const clean = typeof doc.consentText === 'string' ? doc.consentText.trim().slice(0, CONSENT_MAX) : '';
+    if (clean) state.consentTexts.set(shopId, clean);
     else state.consentTexts.delete(shopId);
   }
   if (doc.arrivalNote !== undefined) {
-    if (doc.arrivalNote) state.arrivalNotes.set(shopId, doc.arrivalNote);
+    const clean = typeof doc.arrivalNote === 'string' ? doc.arrivalNote.trim().slice(0, ARRIVAL_MAX) : '';
+    if (clean) state.arrivalNotes.set(shopId, clean);
     else state.arrivalNotes.delete(shopId);
   }
-  if (doc.retailItems) state.retailItems.set(shopId, doc.retailItems);
+  if (doc.retailItems) {
+    // Same shape saveRetailItem enforces: a real name, a whole positive price
+    // under the till's cap. addRetail trusts this list outright, so a bad row
+    // here would flow straight into a booking's total.
+    const clean = doc.retailItems
+      .filter(
+        (r) =>
+          r && typeof r.id === 'string' && r.id &&
+          typeof r.name === 'string' && r.name.trim() &&
+          Number.isInteger(r.priceCents) && r.priceCents > 0 && r.priceCents <= 50000,
+      )
+      .map((r) => ({ ...r, name: r.name.trim().slice(0, 60) }));
+    state.retailItems.set(shopId, clean);
+  }
   if (doc.logEntries) state.logEntries.set(shopId, doc.logEntries);
   if (doc.checklists) state.checklists.set(shopId, doc.checklists);
   if (doc.checklistTicks) {
@@ -3484,6 +3502,16 @@ export function createDuoHold(
   };
 
   if (!partnerId) rollback();
+  // There is exactly one consent field in the booking flow — the organizer's
+  // — and no way for a friend to sign anything of their own. Proceeding would
+  // either stamp their seat with a signature they never gave, or silently
+  // skip the consent this treatment legally needs; both are worse than
+  // refusing the pair outright until each chair can sign for itself.
+  if (consentRequired(input.shopId, input.serviceIds)) {
+    deleteBooking(first.bookingId);
+    state.idempotency.delete(input.idempotencyKey);
+    throw new Error('duo_consent_required');
+  }
 
   // The friend's seat pays its own way: no codes, points, prepaid cards,
   // stamp rewards or personal flags ride over from the organizer's device.
@@ -3502,6 +3530,10 @@ export function createDuoHold(
       forPersonId: undefined,
       forMinor: undefined,
       guardianName: undefined,
+      // Whoever typed the consent wording signed it for their own chair, not
+      // their friend's — carrying the name over would stamp a legally-flagged
+      // treatment as consented to by someone who was never in that seat.
+      consentName: undefined,
       skipAutoPerks: true,
       idempotencyKey: `${input.idempotencyKey}-duo`,
     });
@@ -3759,7 +3791,7 @@ export function createShopBooking(
   staffId: string | null,
   startsAt: number,
   guestName: string,
-  contact?: { phone?: string; note?: string },
+  contact?: { phone?: string; note?: string; consentName?: string },
 ): Booking {
   const hold = createHold({
     shopId,
@@ -3770,6 +3802,10 @@ export function createShopBooking(
     guestName,
     guestPhone: contact?.phone,
     guestNote: contact?.note,
+    // The desk has a real person in front of them who can sign — same gate as
+    // online checkout, satisfied by whoever is typing the name at the till
+    // rather than the booking silently going through unconsented.
+    consentName: contact?.consentName,
     idempotencyKey: `shopbk-${shopId}-${startsAt}-${state.seq}`,
   });
   const b = confirmBooking(hold.bookingId);
@@ -3841,6 +3877,12 @@ export function bookSeries(
         guestName: b.guestName,
         guestPhone: b.guestPhone,
         guestNote: b.guestNote,
+        // The original booking already carries a signature for this exact
+        // treatment — the standing arrangement is consenting to the same
+        // thing every time, not a new stranger's basket. Carry the name
+        // forward so the gate is satisfied the same way online checkout
+        // satisfies it, instead of refusing the whole series.
+        consentName: b.consent?.name,
         idempotencyKey: `series-${bookingId}-${k}-${target}`,
       });
       const child = confirmBooking(hold.bookingId);
@@ -6582,6 +6624,7 @@ export function exportMyData(deviceId: string): Record<string, unknown> {
     watches: [...state.watches.values()].filter((w) => w.deviceId === deviceId),
     disputes: myDisputes(deviceId),
     corporateBatches: myCorporateBatches(deviceId),
+    follows: followedStaff(deviceId),
   };
 }
 
@@ -6608,6 +6651,10 @@ export function eraseMyData(deviceId: string): number {
     // a third party's real name, and health/disability flags — both go
     delete b.minor;
     delete b.access;
+    // pictures the camera caught, and a real name typed as a signature —
+    // both as personal as anything else erasure covers
+    delete b.refPhotos;
+    delete b.consent;
     touched += 1;
   }
   for (const [k, thread] of state.messages) {
@@ -6633,6 +6680,9 @@ export function eraseMyData(deviceId: string): number {
   state.people.delete(deviceId);
   // health data is the most sensitive record in the system — it goes first
   state.careProfiles.delete(deviceId);
+  // keyed by deviceId exactly like people, two lines up — which stylists
+  // someone follows is preference data, not a business record
+  state.follows.delete(deviceId);
   persist();
   return touched;
 }
@@ -7848,6 +7898,15 @@ export function createGroupHold(input: HoldInput, friendNames: string[]): HoldRe
     );
   };
 
+  // Same reasoning as the duo: one consent field for the whole party, no way
+  // for a friend to sign their own name, so a flagged service refuses the
+  // whole group rather than under- or mis-consenting anyone's chair.
+  if (consentRequired(input.shopId, input.serviceIds)) {
+    for (const r of results) deleteBooking(r.bookingId);
+    state.idempotency.delete(input.idempotencyKey);
+    throw new Error('duo_consent_required');
+  }
+
   for (let i = 0; i < extra.length; i++) {
     const held = occupancyForBasket(input.startsAt, services, shop.rules);
     let partnerId: string | null = null;
@@ -7880,6 +7939,7 @@ export function createGroupHold(input: HoldInput, friendNames: string[]): HoldRe
         forPersonId: undefined,
         forMinor: undefined,
         guardianName: undefined,
+        consentName: undefined,
         skipAutoPerks: true,
         idempotencyKey: `${input.idempotencyKey}-g${i}`,
       });

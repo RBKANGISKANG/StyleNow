@@ -12,12 +12,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const b = createShopBooking(params.id, body.serviceIds, body.staffId ?? null, body.startsAt, body.guestName, {
       phone: body.phone,
       note: body.note,
+      consentName: typeof body.consentName === 'string' ? body.consentName : undefined,
     });
     return NextResponse.json({ id: b.id, reference: b.reference, status: b.status }, { status: 201 });
   } catch (e) {
     if (e instanceof SlotTaken) {
       return NextResponse.json({ error: 'slot_taken', alternatives: e.alternatives }, { status: 409 });
     }
-    return NextResponse.json({ error: (e as Error).message }, { status: 404 });
+    const message = (e as Error).message;
+    // consent_required is a real refusal the front desk needs to see and act
+    // on (collect the name), not a generic 404 — the two were indistinguishable
+    // to the caller before, and the UI showed "this time was just taken" for both.
+    return NextResponse.json({ error: message }, { status: message === 'consent_required' ? 400 : 404 });
   }
 }

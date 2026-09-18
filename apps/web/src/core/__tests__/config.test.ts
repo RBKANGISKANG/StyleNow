@@ -13,6 +13,7 @@ import {
   allShops, addStaff, addLocation, addAbsence, addClosure, setCustomerNote,
   effectiveStaff, shopLocations, shopClosures, absencesFor,
   exportShopConfig, applyShopConfig, setLocalPersistence,
+  consentTextOf, arrivalNoteOf, retailItems, CONSENT_MAX, ARRIVAL_MAX,
 } from '../store';
 
 setLocalPersistence(false);
@@ -63,4 +64,26 @@ assert.ok(effectiveStaff(b.id).some((s) => s.id === stB.id), 'shop B staff survi
 
 console.log('names in A after apply:', names.join(', '));
 console.log('shop B staff still there:', effectiveStaff(b.id).map((s) => s.name).join(', '));
-console.log('\nOK — config document round-trips and stays inside its own shop');
+
+// --- a synced document is untrusted input, not a trusted export ------------
+// applyShopConfig must clamp exactly as hard as the owner's own setters do —
+// a shop_state row is something any device with the sync key can write.
+applyShopConfig(a.id, {
+  ...exportShopConfig(a.id),
+  consentText: 'x'.repeat(CONSENT_MAX + 200),
+  arrivalNote: 'y'.repeat(ARRIVAL_MAX + 200),
+  retailItems: [
+    { id: 'rt-bad-1', name: 'Negative bottle', priceCents: -500000 },
+    { id: 'rt-bad-2', name: '', priceCents: 1000 }, // empty name
+    { id: '', name: 'No id', priceCents: 1000 },
+    { id: 'rt-bad-4', name: 3 as unknown as string, priceCents: 1000 }, // wrong type
+    { id: 'rt-ok', name: 'Good shampoo', priceCents: 2400 },
+  ],
+} as never);
+assert.equal(consentTextOf(a.id).length, CONSENT_MAX, 'consent text clamps to the same cap the setter enforces');
+assert.equal(arrivalNoteOf(a.id).length, ARRIVAL_MAX, 'arrival note clamps the same way');
+const items = retailItems(a.id);
+assert.deepEqual(items.map((r) => r.id), ['rt-ok'], 'only the one valid row survives a malformed sync');
+assert.equal(items[0].priceCents, 2400);
+
+console.log('OK — config document round-trips, stays inside its own shop, and clamps a malformed sync');

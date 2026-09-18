@@ -254,6 +254,7 @@ export async function apiHold(input: Omit<HoldInput, 'idempotencyKey' | 'deviceI
 export type DuoHoldOutcome =
   | { ok: true; first: HoldResult; second: HoldResult }
   | { ok: false; code: 'slot_taken'; alternatives: ApiSlot[] }
+  | { ok: false; code: 'consent_required' }
   | { ok: false; code: 'error' };
 
 /** Two chairs, the same minute, one act — see store.createDuoHold. */
@@ -269,7 +270,11 @@ export async function apiDuoHold(
       body: JSON.stringify({ ...input, friendName, deviceId: deviceId() }),
     });
     if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
-    if (!res.ok) return { ok: false, code: 'error' };
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (body.error === 'duo_consent_required') return { ok: false, code: 'consent_required' };
+      return { ok: false, code: 'error' };
+    }
     const pair = await res.json();
     return { ok: true, first: pair.first, second: pair.second };
   }
@@ -281,6 +286,7 @@ export async function apiDuoHold(
     return { ok: true, ...pair };
   } catch (e) {
     if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    if (e instanceof Error && e.message === 'duo_consent_required') return { ok: false, code: 'consent_required' };
     return { ok: false, code: 'error' };
   }
 }
@@ -601,6 +607,7 @@ export async function apiMyApplications(): Promise<ShopApplication[]> {
 export type ShopBookingOutcome =
   | { ok: true; reference: string }
   | { ok: false; code: 'slot_taken'; alternatives: ApiSlot[] }
+  | { ok: false; code: 'consent_required' }
   | { ok: false; code: 'error' };
 
 export async function apiShopCreateBooking(
@@ -609,7 +616,7 @@ export async function apiShopCreateBooking(
   staffId: string | null,
   startsAt: number,
   guestName: string,
-  contact?: { phone?: string; note?: string },
+  contact?: { phone?: string; note?: string; consentName?: string },
 ): Promise<ShopBookingOutcome> {
   const mode = backendMode();
   if (mode === 'server') {
@@ -619,7 +626,11 @@ export async function apiShopCreateBooking(
       body: JSON.stringify({ serviceIds, staffId, startsAt, guestName, ...contact }),
     });
     if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
-    if (!res.ok) return { ok: false, code: 'error' };
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (body.error === 'consent_required') return { ok: false, code: 'consent_required' };
+      return { ok: false, code: 'error' };
+    }
     return { ok: true, reference: (await res.json()).reference };
   }
   await ready();
@@ -631,6 +642,7 @@ export async function apiShopCreateBooking(
     return { ok: true, reference: b.reference };
   } catch (e) {
     if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    if (e instanceof Error && e.message === 'consent_required') return { ok: false, code: 'consent_required' };
     return { ok: false, code: 'error' };
   }
 }
@@ -2146,19 +2158,41 @@ export async function apiGiftTreatment(
 export type GroupHoldOutcome =
   | { ok: true; holds: HoldResult[] }
   | { ok: false; code: 'slot_taken'; alternatives: ApiSlot[] }
+  | { ok: false; code: 'consent_required' }
   | { ok: false; code: 'error' };
 
+/** Three or more chairs, the same minute, one act — see store.createGroupHold. */
 export async function apiGroupHold(
   input: Omit<store.HoldInput, 'idempotencyKey' | 'deviceId'>,
   friendNames: string[],
 ): Promise<GroupHoldOutcome> {
-  await localWrite();
+  const mode = backendMode();
+  if (mode === 'server') {
+    const res = await fetch('/api/bookings/hold-group', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': newIdempotencyKey() },
+      body: JSON.stringify({ ...input, friendNames, deviceId: deviceId() }),
+    });
+    if (res.status === 409) return { ok: false, code: 'slot_taken', alternatives: (await res.json()).alternatives ?? [] };
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (body.error === 'duo_consent_required') return { ok: false, code: 'consent_required' };
+      return { ok: false, code: 'error' };
+    }
+    const d = await res.json();
+    return { ok: true, holds: d.holds };
+  }
+  await ready();
   const full: store.HoldInput = { ...input, deviceId: deviceId(), idempotencyKey: newIdempotencyKey() };
   try {
-    const holds = store.createGroupHold(full, friendNames);
+    const holds =
+      backendMode() === 'supabase'
+        ? await sb.createGroupHold(full, friendNames)
+        : store.createGroupHold(full, friendNames);
     return { ok: true, holds };
   } catch (e) {
     if (e instanceof store.SlotTaken) return { ok: false, code: 'slot_taken', alternatives: e.alternatives };
+    if (e instanceof Error && e.message === 'duo_consent_required') return { ok: false, code: 'consent_required' };
     return { ok: false, code: 'error' };
   }
 }
@@ -2562,7 +2596,10 @@ export async function apiArrivalNote(shopId: string): Promise<string> {
 
 export async function apiArrivalNoteOwn(shopId: string): Promise<string> {
   if (backendMode() === 'server') {
-    const res = await fetch(`/api/shop/${shopId}/policies`);
+    // Deliberately a different URL from the public policies GET — that one
+    // answers the customer booking flow with no proof of anything, and the
+    // door code has no business riding along in that response.
+    const res = await fetch(`/api/shop/${shopId}/policies/owner`);
     return res.ok ? (await res.json()).arrivalNoteOwn : '';
   }
   await readyForRead();

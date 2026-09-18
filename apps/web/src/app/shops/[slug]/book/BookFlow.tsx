@@ -267,7 +267,14 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   useEffect(() => {
     if (serviceIds.length === 0) { setConsentText(''); return; }
     let alive = true;
-    void apiConsentRequired(shop.id, serviceIds).then((txt) => { if (alive) setConsentText(txt); });
+    void apiConsentRequired(shop.id, serviceIds).then((txt) => {
+      if (!alive) return;
+      setConsentText(txt);
+      // A flagged treatment cannot be booked as a pair — there is nowhere for
+      // a friend to sign. Drop out of duo mode rather than leave the toggle
+      // on behind a panel that just disappeared.
+      if (txt) setDuo(false);
+    });
     return () => { alive = false; };
   }, [shop.id, serviceIds]);
   useEffect(() => {
@@ -327,6 +334,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   const [alternatives, setAlternatives] = useState<Slot[] | null>(null);
   const [expired, setExpired] = useState(false);
+  const [duoConsentBlocked, setDuoConsentBlocked] = useState(false);
   const [confirmed, setConfirmed] = useState<{ reference: string; reference2?: string } | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [voucherInput, setVoucherInput] = useState('');
@@ -635,9 +643,13 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
         setSlot(null);
         setStep(1);
         void loadSlots();
+      } else if (outcome.code === 'consent_required') {
+        setDuoConsentBlocked(true);
+        setDuo(false);
       }
       return;
     }
+    setDuoConsentBlocked(false);
     try {
       window.localStorage.setItem(GUEST_KEY, JSON.stringify({ name: name.trim(), phone: phone.trim() }));
     } catch {
@@ -884,6 +896,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             )}
           </div>
           {expired && <div className="alert">⏱ {t('hold_expired')}</div>}
+          {duoConsentBlocked && <div className="alert">✍️ {t('duo_consent_blocked')}</div>}
           {alternatives && (
             <div className="alert">
               <div style={{ fontWeight: 800 }}>{t('slot_taken_title')}</div>
@@ -909,8 +922,11 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           )}
 
           {/* Together: one flow, two chairs, two friends. The engine will only
-              offer times where two stylists are simultaneously free. */}
-          {shop.staff.length > 1 && (
+              offer times where two stylists are simultaneously free. There is
+              exactly one consent field in this flow — the organizer's — and no
+              way for a friend to sign their own name, so a flagged treatment
+              cannot be booked as a pair here at all. */}
+          {shop.staff.length > 1 && !consentText && (
             <div className="panel duo-panel">
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                 <span className="switch">
