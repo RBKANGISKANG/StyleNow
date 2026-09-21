@@ -11,13 +11,21 @@ export const dynamic = 'force-dynamic';
  * booking only reaches 'confirmed' once the server has settled a real Checkout
  * Session — on the return trip or through the webhook — so this reports that,
  * it is never a shortcut around it.
+ *
+ * Booking ids are sequential and therefore guessable, and this answer
+ * includes a paid amount and a confirmation reference — real financial facts
+ * about a specific person. deviceId is required and must match every seat
+ * asked about, the same ownership check confirmBooking's callers already
+ * expect; nothing here is public the way the shop-facing policies route is.
  */
 export async function GET(req: NextRequest) {
+  const deviceId = req.nextUrl.searchParams.get('deviceId') ?? '';
   const ids = (req.nextUrl.searchParams.get('bookingIds') ?? req.nextUrl.searchParams.get('bookingId') ?? '')
     .split(',')
     .filter(Boolean)
     .slice(0, 8);
-  const seats = ids.map((id) => getBooking(id)).filter(Boolean);
+  if (!deviceId) return NextResponse.json({ error: 'missing_device' }, { status: 400 });
+  const seats = ids.map((id) => getBooking(id)).filter((b) => b && b.deviceId === deviceId);
   if (!seats.length) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   // The basket was one payment, so it is paid when every seat in it is.
   const paid = seats.every((b) => b!.status === 'confirmed');

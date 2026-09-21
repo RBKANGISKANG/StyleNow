@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const full = await stripe().checkout.sessions.retrieve(lean.id, {
       expand: ['payment_intent.payment_method'],
     });
-    settle(full);
+    await settle(full);
   }
 
   return NextResponse.json({ received: true });

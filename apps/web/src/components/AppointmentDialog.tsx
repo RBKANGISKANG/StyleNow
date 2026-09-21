@@ -103,9 +103,14 @@ export function AppointmentDialog({
     onChanged(status === 'completed' ? '✅ ' + t('st_completed') : '🚫 ' + t('st_no_show'));
     onClose();
   };
-  // A visit that was never paid online is settled here, and the drawer at day
-  // close only expects the cash ones — so the floor says which it was.
-  const unpaid = booking.paidCents === 0 || booking.payMethod === 'at_salon';
+  // A visit with money still owed at the counter is settled here — nothing
+  // paid online at all, pay-at-salon, or (just as common) a deposit taken
+  // online with the remainder due at the till. All three need the floor to
+  // say how the rest actually arrived, because drawerReport only expects the
+  // cash ones: `paidCents === 0` alone missed the deposit case entirely, so
+  // a card-settled remainder silently counted as cash in the till and the
+  // drawer came up short by exactly that amount at close.
+  const unpaid = (booking.paidCents ?? 0) < booking.totalCents || booking.payMethod === 'at_salon';
 
   return (
     <>

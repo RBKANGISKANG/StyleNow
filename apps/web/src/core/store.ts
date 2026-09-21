@@ -2243,9 +2243,32 @@ export function dueOnlineCents(b: Booking): number {
 }
 
 /**
+ * Give a held seat more time to actually get paid for. Only ever lengthens
+ * the hold — never shortens one, and never touches a booking that has
+ * already moved past hold/pending_payment. Opening a real Checkout Session
+ * needs this: Stripe's own minimum session lifetime is 30 minutes, longer
+ * than this app's 8-minute seat hold, so without extending it a slow-but-
+ * legitimate payer (3-D Secure, a wallet picker, a slow connection) can have
+ * Stripe successfully capture a charge for a seat the engine already
+ * released back to availability.
+ */
+export function extendHold(bookingId: string, untilMs: number): void {
+  const b = state.bookings.get(bookingId);
+  if (!b || !['hold', 'pending_payment'].includes(b.status)) return;
+  if (!b.holdExpiresAt || untilMs > b.holdExpiresAt) b.holdExpiresAt = untilMs;
+  persist();
+}
+
+/**
  * Remember that a real processor took real money for this booking. Recorded
  * against the booking rather than a side table so a refund never has to guess
- * which charge it is reversing.
+ * which charge it is reversing. Idempotent per Checkout Session: settle() can
+ * legitimately run twice for the same session (the return-page GET racing the
+ * webhook, or Stripe retrying a webhook delivery), and a booking's total can
+ * change in between (a shelf item sold onto an already-confirmed visit) — a
+ * second call for the SAME session must not overwrite the amount actually
+ * charged with whatever the total happens to be now. A different session
+ * (a fresh payment attempt) still updates the record, which is correct.
  */
 export function recordStripeCharge(
   bookingId: string,
@@ -2253,6 +2276,7 @@ export function recordStripeCharge(
 ): Booking {
   const b = state.bookings.get(bookingId);
   if (!b) throw new Error('not_found');
+  if (b.stripe?.sessionId === charge.sessionId) return b;
   b.stripe = { ...charge, refundedCents: b.stripe?.refundedCents ?? 0 };
   persist();
   return b;
@@ -2278,6 +2302,22 @@ export function markStripeRefunded(bookingId: string, cents: number): void {
   const b = state.bookings.get(bookingId);
   if (!b || !b.stripe) return;
   b.stripe.refundedCents = Math.min(b.stripe.chargedCents, b.stripe.refundedCents + Math.max(0, cents));
+  persist();
+}
+
+/**
+ * The other half of markStripeRefunded — releases a reservation that turned
+ * out not to happen. The caller reserves the amount synchronously before
+ * asking Stripe to actually send it (so two requests racing on the same
+ * booking cannot both read "nothing reserved yet" and each book a real
+ * refund on top of the other); if the Stripe call then fails, the
+ * reservation must come back off, or the local ledger would believe money
+ * was returned that never left.
+ */
+export function unmarkStripeRefunded(bookingId: string, cents: number): void {
+  const b = state.bookings.get(bookingId);
+  if (!b || !b.stripe) return;
+  b.stripe.refundedCents = Math.max(0, b.stripe.refundedCents - Math.max(0, cents));
   persist();
 }
 
@@ -3586,10 +3626,44 @@ export function cancelBooking(
   if (!b) throw new Error('not_found');
   // A late-cancellation fee is a percentage of the work that was booked. Any
   // shampoo sold on a previous visit rode along in totalCents and quietly
-  // inflated the fee — goods nobody is cancelling.
+  // inflated the fee — goods nobody is cancelling. In preview mode nothing is
+  // actually unwound, so the retail total is subtracted here to preview the
+  // same figure the real run will land on.
   const retailCents = retailCentsOf(b);
+  if (opts.preview) {
+    const outcome = cancellationOutcome({
+      totalCents: Math.max(0, b.quote.totalCents - retailCents),
+      paidCents: b.paidCents,
+      startsAt: b.startsAt,
+      cancelledAt: Date.now(),
+      freeUntilHours: b.policySnapshot.freeUntilHours,
+      lateFeePercent: b.policySnapshot.lateFeePercent,
+      noShowFeePercent: b.policySnapshot.noShowFeePercent,
+      isNoShow: opts.isNoShow ?? false,
+      cancelledBy: opts.by,
+    });
+    return { ...outcome, booking: b };
+  }
+  const wasConfirmed = b.status === 'confirmed';
+  // The visit is off, so the products on it were never handed over. Take
+  // them back off the bill and put them back on the shelf — newest first, so
+  // each index stays valid as the list shrinks, and before the status moves,
+  // because removeRetail rightly refuses to touch a cancelled booking. This
+  // runs BEFORE the cancellation fee is worked out: removeRetail can itself
+  // correct paidCents/refundedCents (its own overpay guard, for a booking
+  // that was already settled in full), and the fee calculation below must
+  // see that corrected figure — computing it from the pre-unwind paidCents
+  // and then applying both adjustments independently double-counts the
+  // retail correction on top of the fee refund.
+  for (let i = (b.retail ?? []).length - 1; i >= 0; i--) {
+    try {
+      removeRetail(b.shopId, b.id, i);
+    } catch {
+      // nothing to undo — the bill stands as it is
+    }
+  }
   const outcome = cancellationOutcome({
-    totalCents: Math.max(0, b.quote.totalCents - retailCents),
+    totalCents: b.quote.totalCents,
     paidCents: b.paidCents,
     startsAt: b.startsAt,
     cancelledAt: Date.now(),
@@ -3599,41 +3673,27 @@ export function cancelBooking(
     isNoShow: opts.isNoShow ?? false,
     cancelledBy: opts.by,
   });
-  if (!opts.preview) {
-    const wasConfirmed = b.status === 'confirmed';
-    // The visit is off, so the products on it were never handed over. Take
-    // them back off the bill and put them back on the shelf — newest first, so
-    // each index stays valid as the list shrinks, and before the status moves,
-    // because removeRetail rightly refuses to touch a cancelled booking.
-    for (let i = (b.retail ?? []).length - 1; i >= 0; i--) {
-      try {
-        removeRetail(b.shopId, b.id, i);
-      } catch {
-        // nothing to undo — the bill stands as it is
-      }
-    }
-    b.status = opts.isNoShow
-      ? 'no_show'
-      : opts.by === 'customer'
-        ? 'cancelled_by_customer'
-        : 'cancelled_by_shop';
-    b.cancellation = outcome;
-    // Asked once, at the only moment the answer is known — and from a fixed
-    // list, so a year of them can actually be counted.
-    if (opts.reason && CANCEL_REASONS.includes(opts.reason)) b.cancelReason = opts.reason;
-    // Settle the money, don't just calculate it. The refund leaves the shop's
-    // books; what stays behind is the fee. Without this the booking kept
-    // showing the deposit as paid and the customer never got it back.
-    b.refundedCents = (b.refundedCents ?? 0) + outcome.refundCents;
-    b.paidCents = Math.max(b.paidCents - outcome.refundCents, 0);
-    // A shop cancelling on short notice ruined someone's plan. The apology is
-    // automatic and paid by the shop — policy, not mood.
-    if (opts.by === 'shop' && !opts.isNoShow && wasConfirmed) mintGoodwill(b);
-    // The freed seat is worth money the moment it exists: offer it to the
-    // first person already waiting for that day, without a human in between.
-    if (wasConfirmed) autoOfferFreedSlot(b);
-    persist();
-  }
+  b.status = opts.isNoShow
+    ? 'no_show'
+    : opts.by === 'customer'
+      ? 'cancelled_by_customer'
+      : 'cancelled_by_shop';
+  b.cancellation = outcome;
+  // Asked once, at the only moment the answer is known — and from a fixed
+  // list, so a year of them can actually be counted.
+  if (opts.reason && CANCEL_REASONS.includes(opts.reason)) b.cancelReason = opts.reason;
+  // Settle the money, don't just calculate it. The refund leaves the shop's
+  // books; what stays behind is the fee. Without this the booking kept
+  // showing the deposit as paid and the customer never got it back.
+  b.refundedCents = (b.refundedCents ?? 0) + outcome.refundCents;
+  b.paidCents = Math.max(b.paidCents - outcome.refundCents, 0);
+  // A shop cancelling on short notice ruined someone's plan. The apology is
+  // automatic and paid by the shop — policy, not mood.
+  if (opts.by === 'shop' && !opts.isNoShow && wasConfirmed) mintGoodwill(b);
+  // The freed seat is worth money the moment it exists: offer it to the
+  // first person already waiting for that day, without a human in between.
+  if (wasConfirmed) autoOfferFreedSlot(b);
+  persist();
   return { ...outcome, booking: b };
 }
 
@@ -3878,11 +3938,14 @@ export function bookSeries(
         guestPhone: b.guestPhone,
         guestNote: b.guestNote,
         // The original booking already carries a signature for this exact
-        // treatment — the standing arrangement is consenting to the same
-        // thing every time, not a new stranger's basket. Carry the name
-        // forward so the gate is satisfied the same way online checkout
-        // satisfies it, instead of refusing the whole series.
-        consentName: b.consent?.name,
+        // treatment — but only that exact treatment: if the shop has edited
+        // its consent wording since they signed, carrying the old name
+        // forward would freeze a NEW document (today's wording) under a
+        // signature given for a document the guest never saw. Only satisfy
+        // the gate this way when the wording genuinely has not moved; if it
+        // has, the occurrence is skipped and reported below like any other
+        // refusal, rather than silently fabricating a fresh consent record.
+        consentName: b.consent && b.consent.text === consentRequired(b.shopId, b.serviceIds) ? b.consent.name : undefined,
         idempotencyKey: `series-${bookingId}-${k}-${target}`,
       });
       const child = confirmBooking(hold.bookingId);
@@ -3890,7 +3953,10 @@ export function bookSeries(
       child.seriesId = bookingId;
       booked.push(child);
     } catch (e) {
-      if (e instanceof SlotTaken) {
+      // A slot that's gone and a consent that no longer matches what was
+      // signed are the same kind of refusal from the series' point of view:
+      // this one occurrence cannot be booked as-is, the rest still can.
+      if (e instanceof SlotTaken || (e instanceof Error && e.message === 'consent_required')) {
         skippedDates.push(target);
         continue;
       }

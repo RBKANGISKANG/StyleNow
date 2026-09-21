@@ -1686,13 +1686,22 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   setRunningLate(held, dev, 0);
   assert.equal(getBooking(held)!.lateByMin, undefined, 'the announcement can be withdrawn');
   setRunningLate(held, dev, 15);
-  // moving the booking drops a heads-up that was about the old time
-  const target = availability(shop.id, [svc.id], addDays(todayIso(), 9), dev, null).slots.find((x) => x.start > Date.now());
-  if (target) {
-    rescheduleBooking(shop.id, held, target.start, null);
-    assert.equal(getBooking(held)!.lateByMin, undefined, 'a moved booking carries no stale late flag');
-    assert.throws(() => setRunningLate(held, dev, 15), /not_today/, 'and a future day cannot be flagged today');
+  // moving the booking drops a heads-up that was about the old time. The
+  // demo seeds six weeks of bookings so a single fixed day can collide;
+  // widen the search rather than assume day+9 is free (this repo has had
+  // exactly this kind of date-dependent flake before).
+  let moved = false;
+  for (let d = 9; d <= 30 && !moved; d++) {
+    const target = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!target) continue;
+    try {
+      rescheduleBooking(shop.id, held, target.start, null);
+      moved = true;
+    } catch { /* next day */ }
   }
+  assert.ok(moved, 'fixture: a day to move the booking to');
+  assert.equal(getBooking(held)!.lateByMin, undefined, 'a moved booking carries no stale late flag');
+  assert.throws(() => setRunningLate(held, dev, 15), /not_today/, 'and a future day cannot be flagged today');
   void was;
 }
 
@@ -1794,6 +1803,29 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(skippedDates.length, 0, 'fixture: found an origin whose +4-week occurrence is free');
   assert.equal(booked.length, 1, 'the carried signature satisfies the gate — nothing skipped for consent');
   assert.equal(booked[0]!.consent!.name, 'Rita Voigt', 'the child booking carries the same signature forward');
+
+  // But if the shop edits its wording between the original visit and a later
+  // occurrence, carrying the old name forward would freeze a NEW document
+  // (today's wording) under a signature given for one the guest never saw —
+  // a fabricated consent record. That occurrence must be skipped and
+  // reported instead, the same as any other refusal.
+  let changedResult: ReturnType<typeof bookSeries> | null = null;
+  let foundOrigin = false;
+  for (let d = 46; d <= 180 && !foundOrigin; d++) {
+    const dev2 = `dev-series-changed-${d}`;
+    const seriesSlot = availability(tat.id, [needle.id], addDays(todayIso(), d), dev2, null).slots.find((x) => x.start > Date.now());
+    if (!seriesSlot) continue;
+    const originHold = createHold({ shopId: tat.id, serviceIds: [needle.id], staffId: null, startsAt: seriesSlot.start, deviceId: dev2, guestName: 'Old Signature Olaf', consentName: 'Olaf Berg', idempotencyKey: `cs-series-changed-${d}` });
+    confirmBooking(originHold.bookingId);
+    // the shop tightens its wording after Olaf signed, but before the next
+    // occurrence in the series comes up
+    setConsentText(tat.id, 'Completely different wording — a new disclosure the original guest never saw.');
+    changedResult = bookSeries(dev2, originHold.bookingId, 4, 1);
+    foundOrigin = true;
+  }
+  assert.ok(foundOrigin, 'fixture: an origin to test a wording change against');
+  assert.equal(changedResult!.booked.length, 0, 'no child is booked under a signature that was never given for the new wording');
+  assert.equal(changedResult!.skippedDates.length, 1, 'the occurrence is skipped and reported, like any other refusal — not silently forged');
 
   setConsentText(tat.id, '');
 
@@ -2174,6 +2206,47 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   cancelBooking(id, { preview: false, by: 'customer' });
   assert.deepEqual(getBooking(id)!.retail ?? [], [], 'a visit that never happened hands the products back');
   assert.equal(getBooking(id)!.quote.totalCents, serviceOnly, 'and takes them off the bill');
+}
+
+// A fully-paid booking (retail included) that then no-shows: removeRetail's
+// own overpay correction and the no-show fee must reconcile, not stack. The
+// fee is computed AFTER the retail unwind, from the paidCents the unwind
+// leaves behind — computing it from the pre-unwind figure double-counts the
+// retail correction on top of the fee refund.
+{
+  const open = allShops().find((s) => s.depositPercent === 0)!;
+  const svc2 = effectiveServices(open.id)[0];
+  const dev = 'dev-retail-noshow';
+  const item = saveRetailItem(open.id, { name: 'No-show oil', priceCents: 3000 });
+  let id = '';
+  for (let d = 1; d <= 45 && !id; d++) {
+    const s = availability(open.id, [svc2.id], addDays(todayIso(), d), dev, null).slots.find((x) => x.start > Date.now());
+    if (!s) continue;
+    try {
+      const h = createHold({ shopId: open.id, serviceIds: [svc2.id], staffId: null, startsAt: s.start, deviceId: dev, guestName: 'FullyPaid', idempotencyKey: `rtns-${d}` });
+      confirmBooking(h.bookingId, { method: 'card', label: 'Visa ····4242' });
+      id = h.bookingId;
+    } catch { /* next day */ }
+  }
+  assert.ok(id, 'fixture: a fully-paid visit at a no-deposit shop');
+  const serviceOnly = getBooking(id)!.quote.totalCents;
+  addRetail(open.id, id, item.id, 1);
+  const withRetail = getBooking(id)!;
+  assert.equal(withRetail.paidCents, serviceOnly, 'paidCents was never bumped for the retail sale — it rode along in totalCents unpaid');
+  withRetail.paidCents = withRetail.quote.totalCents; // as if the till also collected the retail at time of sale
+  const outcome = cancelBooking(id, { preview: false, by: 'shop', isNoShow: true });
+  const settled = getBooking(id)!;
+  assert.deepEqual(settled.retail ?? [], [], 'the product is handed back');
+  assert.equal(settled.quote.totalCents, serviceOnly, 'and off the bill');
+  // Every cent collected (service + product) is accounted for exactly once —
+  // kept as the no-show fee or recorded as a refund, never both nor neither.
+  // Before this fix, computing the fee from the pre-unwind paidCents while
+  // removeRetail's own overpay guard had already adjusted it independently
+  // let this sum drift: the shop kept less than its own policy's fee, and
+  // more was marked "refunded" than the untouched product actually owed.
+  assert.equal(settled.paidCents + (settled.refundedCents ?? 0), serviceOnly + 3000);
+  assert.equal(settled.paidCents, outcome.feeCents, 'what the shop keeps matches the policy fee it actually charged, on the service alone');
+  assert.equal(settled.refundedCents, outcome.refundCents + 3000, 'the policy refund plus the untouched, unrelated product');
 }
 
 // --- what Stripe is allowed to take, and give back --------------------------

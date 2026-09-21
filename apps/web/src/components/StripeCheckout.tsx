@@ -15,10 +15,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
 import { useI18n } from '@/lib/i18n';
+import { deviceId } from '@/lib/device';
 
 let stripePromise: Promise<Stripe | null> | null = null;
 function stripeFor(key: string): Promise<Stripe | null> {
-  if (!stripePromise) stripePromise = loadStripe(key);
+  if (!stripePromise) {
+    // loadStripe REJECTS (not resolves null) when js.stripe.com fails to
+    // load — an ad blocker, a privacy extension, a restrictive network. Left
+    // uncaught, the rejection is unhandled and @stripe/react-stripe-js's own
+    // provider never initializes: no error, just a permanently blank panel.
+    // Reset the cache on failure so a later retry (a re-mount, without a full
+    // page reload) actually tries loading again instead of replaying the
+    // same dead promise forever.
+    stripePromise = loadStripe(key).catch((e) => {
+      stripePromise = null;
+      throw e;
+    });
+  }
   return stripePromise;
 }
 
@@ -37,6 +50,15 @@ export function StripeCheckout({
 }) {
   const { t } = useI18n();
   const [error, setError] = useState('');
+
+  // The provider swallows a rejected stripe promise silently (its own .then
+  // has no .catch) — watch it ourselves so a failed script load becomes a
+  // real message instead of an empty panel where the payment form should be.
+  useEffect(() => {
+    let alive = true;
+    stripeFor(publishableKey).catch(() => { if (alive) setError('stripe_load_failed'); });
+    return () => { alive = false; };
+  }, [publishableKey]);
 
   const fetchClientSecret = useCallback(async () => {
     const res = await fetch('/api/stripe/session', {
@@ -64,7 +86,9 @@ export function StripeCheckout({
     const tick = async () => {
       if (!alive || tries++ > 240) return;
       try {
-        const res = await fetch(`/api/stripe/status?bookingIds=${encodeURIComponent(bookingIds.join(','))}`);
+        const res = await fetch(
+          `/api/stripe/status?bookingIds=${encodeURIComponent(bookingIds.join(','))}&deviceId=${encodeURIComponent(deviceId())}`,
+        );
         const data = await res.json().catch(() => ({}));
         if (alive && data.paid) { onPaid(String(data.reference ?? '')); return; }
       } catch {

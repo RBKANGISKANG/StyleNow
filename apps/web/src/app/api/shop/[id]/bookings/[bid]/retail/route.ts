@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addRetail, removeRetail } from '@/core/store';
+import { refundThroughStripe } from '@/lib/stripe-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!Number.isInteger(index) || index < 0) return NextResponse.json({ error: 'bad_index' }, { status: 400 });
   try {
     const b = removeRetail(params.id, params.bid, index);
-    return NextResponse.json({ totalCents: b.quote.totalCents, retail: b.retail ?? [] });
+    // removeRetail's own overpay guard can just have marked money owed back —
+    // a shelf item undone on a visit that was already settled in full. That
+    // happens on a *completed* booking (removeRetail is explicitly allowed
+    // there), and nothing else in the app will ever call this booking's
+    // status again once it is completed — so if the refund is not sent from
+    // right here, it is never sent at all. No-ops when nothing is owed.
+    const sent = await refundThroughStripe(params.bid);
+    return NextResponse.json({ totalCents: b.quote.totalCents, retail: b.retail ?? [], stripeRefundedCents: sent });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
