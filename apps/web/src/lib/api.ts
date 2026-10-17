@@ -66,6 +66,10 @@ export function backendMode(): Mode {
     if (want !== 'supabase' || sb.isConfigured()) return want;
   }
   if (sb.isConfigured()) return 'supabase';
+  // Supabase dropped out mid-session: every post-ready() fallback has already
+  // written to the browser store, so the rest of the session must read and
+  // confirm there too — /api has never seen those bookings.
+  if (sb.fellBack()) return 'local';
   return 'server';
 }
 

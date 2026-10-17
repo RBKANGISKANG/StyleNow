@@ -33,6 +33,11 @@ export function isConfigured(): boolean {
   return Boolean(URL_ && KEY) && !unavailable;
 }
 
+/** Configured, but found unreachable this page load — the browser store has taken over. */
+export function fellBack(): boolean {
+  return Boolean(URL_ && KEY) && unavailable;
+}
+
 export function markUnavailable(reason: unknown): void {
   unavailable = true;
   console.warn('[stylenow] Supabase unavailable, falling back to local storage:', reason);
