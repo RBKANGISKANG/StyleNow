@@ -1686,7 +1686,7 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   const span = lb.endsAt - lb.startsAt;
   const was = lb.startsAt;
   // fixture surgery: park it later today
-  lb.startsAt = Date.now() + 30 * 60000;
+  lb.startsAt = Date.now() + 60_000; // a minute ahead: later offsets cross midnight on late runs
   lb.endsAt = lb.startsAt + span;
   setRunningLate(held, dev, 15);
   assert.equal(getBooking(held)!.lateByMin, 15);
