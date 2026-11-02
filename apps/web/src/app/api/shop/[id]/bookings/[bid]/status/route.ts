@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setBookingStatus } from '@/core/store';
 import { refundThroughStripe } from '@/lib/stripe-server';
+import { errStatus } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
       stripeRefundedCents: sent,
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 404 });
+    const msg = (e as Error).message;
+    return NextResponse.json({ error: msg }, { status: errStatus(msg) });
   }
 }

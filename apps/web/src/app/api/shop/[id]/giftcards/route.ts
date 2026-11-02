@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buyGiftCard, giftCardsForShop, GIFT_MIN_CENTS, GIFT_MAX_CENTS } from '@/core/store';
+import { cleanPayment, stripeGuard } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (typeof body.deviceId !== 'string' || !body.deviceId) {
     return NextResponse.json({ error: 'bad_request' }, { status: 400 });
   }
+  const blocked = stripeGuard(body.payment);
+  if (blocked) return blocked;
+  if (body.payment != null && !cleanPayment(body.payment)) {
+    return NextResponse.json({ error: 'bad_payment' }, { status: 400 });
+  }
   try {
     const card = buyGiftCard(
       params.id,
@@ -27,9 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         fromName: typeof body.fromName === 'string' ? body.fromName.slice(0, 60) : undefined,
         message: typeof body.message === 'string' ? body.message.slice(0, 200) : undefined,
       },
-      body.payment && typeof body.payment.label === 'string'
-        ? { method: body.payment.method, label: String(body.payment.label).slice(0, 40) }
-        : undefined,
+      cleanPayment(body.payment),
     );
     return NextResponse.json({ card });
   } catch (e) {

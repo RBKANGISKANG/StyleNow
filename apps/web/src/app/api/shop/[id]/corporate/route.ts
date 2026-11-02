@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buyCorporateBatch, corporateBatchesForShop, CORP_MIN_CARDS, CORP_MAX_CARDS, GIFT_MIN_CENTS, GIFT_MAX_CENTS } from '@/core/store';
+import { cleanPayment, errStatus, stripeGuard } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,10 +22,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!Number.isInteger(amountCents) || amountCents < GIFT_MIN_CENTS || amountCents > GIFT_MAX_CENTS) {
     return NextResponse.json({ error: 'bad_amount' }, { status: 400 });
   }
+  const blocked = stripeGuard(body.payment);
+  if (blocked) return blocked;
+  const payment = cleanPayment(body.payment);
+  if (body.payment != null && !payment) {
+    return NextResponse.json({ error: 'bad_payment' }, { status: 400 });
+  }
   try {
-    const batch = buyCorporateBatch(params.id, body.deviceId, body.company, count, amountCents, body.payment);
+    const batch = buyCorporateBatch(params.id, body.deviceId, body.company, count, amountCents, payment);
     return NextResponse.json({ batch }, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 404 });
+    const msg = (e as Error).message;
+    return NextResponse.json({ error: msg }, { status: errStatus(msg) });
   }
 }

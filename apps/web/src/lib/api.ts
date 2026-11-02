@@ -55,6 +55,26 @@ import * as sb from '@/lib/supabase-backend';
 
 type Mode = 'server' | 'local' | 'supabase';
 
+/** JSON request to this deployment's own /api (server mode). */
+function post(url: string, body: unknown, method = 'POST'): Promise<Response> {
+  return fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+/** GET JSON from this deployment's /api; null when the request fails (reads degrade like an empty store). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getJson(url: string): Promise<any | null> {
+  const res = await fetch(url).catch(() => null);
+  return res?.ok ? res.json().catch(() => null) : null;
+}
+
+/** The JSON body of a server-mode write, or throw its error code — as the local engine call would. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function okJson(res: Response): Promise<any> {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? 'error');
+  return body;
+}
+
 export function backendMode(): Mode {
   // An explicit choice always wins. The Supabase config is checked in so that
   // a zero-setup deploy just works, which used to mean there was no way to say
@@ -308,7 +328,7 @@ export async function apiConfirm(
     const res = await fetch(`/api/bookings/${bookingId}/confirm`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ payment }),
+      body: JSON.stringify({ payment, deviceId: deviceId() }),
     });
     if (res.status === 410) return { ok: false, code: 'hold_expired' };
     if (!res.ok) return { ok: false, code: 'error' };
@@ -343,7 +363,7 @@ export async function apiCancel(
     const res = await fetch(`/api/bookings/${bookingId}/cancel`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preview, reason }),
+      body: JSON.stringify({ preview, reason, deviceId: deviceId() }),
     });
     return res.ok ? await res.json() : null;
   }
@@ -361,8 +381,9 @@ export async function apiCancel(
 
 export async function apiMyBookings(): Promise<BookingView[]> {
   if (backendMode() === 'server') {
-    const res = await fetch(`/api/me/bookings?deviceId=${encodeURIComponent(deviceId())}`);
-    return (await res.json()).bookings;
+    const res = await fetch(`/api/me/bookings?deviceId=${encodeURIComponent(deviceId())}`).catch(() => null);
+    if (!res?.ok) return [];
+    return ((await res.json().catch(() => ({}))).bookings as BookingView[] | undefined) ?? [];
   }
   await readyForRead();
   return store.bookingsForDeviceView(deviceId());
@@ -393,11 +414,13 @@ export async function apiSetStatus(
 ): Promise<void> {
   const mode = backendMode();
   if (mode === 'server') {
-    await fetch(`/api/shop/${shopId}/bookings/${bookingId}/status`, {
+    // Same contract as the local/supabase branches: a refusal throws.
+    const res = await fetch(`/api/shop/${shopId}/bookings/${bookingId}/status`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status, settledBy }),
     });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'status_failed');
     return;
   }
   await ready();
@@ -499,7 +522,7 @@ export async function apiSetReview(
     const res = await fetch(`/api/bookings/${bookingId}/review`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rating, text, tags }),
+      body: JSON.stringify({ rating, text, tags, deviceId: deviceId() }),
     });
     return res.ok;
   }
@@ -519,7 +542,7 @@ export async function apiSetTip(bookingId: string, tipCents: number): Promise<bo
     const res = await fetch(`/api/bookings/${bookingId}/tip`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tipCents }),
+      body: JSON.stringify({ tipCents, deviceId: deviceId() }),
     });
     return res.ok;
   }
@@ -557,7 +580,7 @@ export async function apiWaitlistJoin(shopId: string, serviceIds: string[], isoD
 
 export async function apiWaitlistLeave(id: string): Promise<void> {
   if (backendMode() === 'server') {
-    await fetch(`/api/waitlist/${id}`, { method: 'DELETE' });
+    await fetch(`/api/waitlist/${id}?deviceId=${encodeURIComponent(deviceId())}`, { method: 'DELETE' });
     return;
   }
   await localWrite();
@@ -1132,6 +1155,10 @@ export async function apiSellGiftCard(shopId: string, amountCents: number, toNam
 
 /** The customer's private memo on their own past visit. */
 export async function apiSetCustomerMemo(bookingId: string, text: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/bookings/${bookingId}/memo`, { text, deviceId: deviceId() });
+    return res.ok;
+  }
   await localWrite();
   try {
     store.setCustomerMemo(bookingId, deviceId(), text);
@@ -1143,6 +1170,11 @@ export async function apiSetCustomerMemo(bookingId: string, text: string): Promi
 
 /** A message to the shop straight from one of the customer's bookings. */
 export async function apiSendBookingMessage(bookingId: string, text: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/bookings/${bookingId}/message`, { text, deviceId: deviceId() });
+    if (res.ok) announceMessages();
+    return res.ok;
+  }
   await localWrite();
   try {
     const msg = store.sendBookingMessage(bookingId, deviceId(), text);
@@ -1824,16 +1856,26 @@ export async function apiRebookCadence(): Promise<store.DueRebook[]> {
 }
 
 export async function apiSavedPeople(): Promise<store.SavedPerson[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/me/people?deviceId=${encodeURIComponent(deviceId())}`))?.people ?? [];
+  }
   await readyForRead();
   return store.savedPeople(deviceId());
 }
 
 export async function apiAddPerson(input: { name: string; emoji?: string; note?: string }): Promise<store.SavedPerson> {
+  if (backendMode() === 'server') {
+    return (await okJson(await post('/api/me/people', { ...input, deviceId: deviceId() }))).person;
+  }
   await localWrite();
   return store.addPerson(deviceId(), input);
 }
 
 export async function apiRemovePerson(personId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await fetch(`/api/me/people?deviceId=${encodeURIComponent(deviceId())}&personId=${encodeURIComponent(personId)}`, { method: 'DELETE' }));
+    return;
+  }
   await localWrite();
   store.removePerson(deviceId(), personId);
 }
@@ -1864,6 +1906,10 @@ export async function apiEraseMyData(): Promise<number> {
 // ---- shop-floor batch: check-in, walk-ins, logbook, checklists, tech cards -
 
 export async function apiCheckIn(bookingId: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/bookings/${bookingId}/check-in`, { deviceId: deviceId() });
+    return res.ok;
+  }
   await localWrite();
   try {
     const b = store.checkIn(bookingId, deviceId());
@@ -1876,26 +1922,49 @@ export async function apiCheckIn(bookingId: string): Promise<boolean> {
 }
 
 export async function apiWalkIns(shopId: string): Promise<store.WalkInEntry[]> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/walkins`).catch(() => null);
+    return res?.ok ? (await res.json()).walkIns : [];
+  }
   await readyForRead();
   return store.walkIns(shopId);
 }
 
 export async function apiAddWalkIn(shopId: string, name: string, serviceIds: string[]): Promise<store.WalkInEntry> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/shop/${shopId}/walkins`, { name, serviceIds });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'error');
+    return body.entry;
+  }
   await localWrite();
   return store.addWalkIn(shopId, name, serviceIds);
 }
 
 export async function apiSetWalkInState(shopId: string, id: string, next: store.WalkInEntry['state']): Promise<void> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/shop/${shopId}/walkins/${id}`, { state: next }, 'PATCH');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'error');
+    return;
+  }
   await localWrite();
   store.setWalkInState(shopId, id, next);
 }
 
 export async function apiRemoveWalkIn(shopId: string, id: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/walkins/${id}`, { method: 'DELETE' });
+    return;
+  }
   await localWrite();
   store.removeWalkIn(shopId, id);
 }
 
 export async function apiConvertWalkIn(shopId: string, id: string): Promise<{ ok: boolean; reference?: string }> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/shop/${shopId}/walkins/${id}/convert`, {});
+    return res.ok ? { ok: true, reference: (await res.json()).reference } : { ok: false };
+  }
   await localWrite();
   try {
     const b = store.convertWalkIn(shopId, id);
@@ -1906,34 +1975,55 @@ export async function apiConvertWalkIn(shopId: string, id: string): Promise<{ ok
 }
 
 export async function apiEstimatedWait(shopId: string): Promise<number | null> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/public`))?.waitMin ?? null;
+  }
   await readyForRead();
   return store.estimatedWaitMin(shopId);
 }
 
 export async function apiLogEntries(shopId: string): Promise<store.LogEntry[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/logbook`))?.entries ?? [];
+  }
   await readyForRead();
   return store.logEntries(shopId);
 }
 
 export async function apiAddLogEntry(shopId: string, authorStaffId: string, text: string, pinned?: boolean): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/logbook`, { authorStaffId, text, pinned }));
+    return;
+  }
   await localWrite();
   store.addLogEntry(shopId, authorStaffId, text, pinned);
   syncConfig(shopId);
 }
 
 export async function apiAckLogEntry(shopId: string, entryId: string, staffId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/logbook`, { entryId, staffId }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.ackLogEntry(shopId, entryId, staffId);
   syncConfig(shopId);
 }
 
 export async function apiDeleteLogEntry(shopId: string, entryId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await fetch(`/api/shop/${shopId}/logbook?entryId=${encodeURIComponent(entryId)}`, { method: 'DELETE' }));
+    return;
+  }
   await localWrite();
   store.deleteLogEntry(shopId, entryId);
   syncConfig(shopId);
 }
 
 export async function apiChecklists(shopId: string): Promise<store.ChecklistTemplate[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/checklists`))?.checklists ?? [];
+  }
   await readyForRead();
   return store.checklists(shopId);
 }
@@ -1942,6 +2032,9 @@ export async function apiSaveChecklist(
   shopId: string,
   tpl: Omit<store.ChecklistTemplate, 'id'> & { id?: string },
 ): Promise<store.ChecklistTemplate> {
+  if (backendMode() === 'server') {
+    return (await okJson(await post(`/api/shop/${shopId}/checklists`, { template: tpl }))).checklist;
+  }
   await localWrite();
   const saved = store.saveChecklist(shopId, tpl);
   syncConfig(shopId);
@@ -1949,6 +2042,10 @@ export async function apiSaveChecklist(
 }
 
 export async function apiDeleteChecklist(shopId: string, id: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await fetch(`/api/shop/${shopId}/checklists?checklistId=${encodeURIComponent(id)}`, { method: 'DELETE' }));
+    return;
+  }
   await localWrite();
   store.deleteChecklist(shopId, id);
   syncConfig(shopId);
@@ -1958,16 +2055,26 @@ export async function apiChecklistCompletion(
   shopId: string,
   iso: string,
 ): Promise<ReturnType<typeof store.checklistCompletion>> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/checklists?iso=${iso}`))?.completion ?? [];
+  }
   await readyForRead();
   return store.checklistCompletion(shopId, iso);
 }
 
 export async function apiChecklistTicks(shopId: string, iso: string): Promise<store.ChecklistTick[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/checklists?iso=${iso}`))?.ticks ?? [];
+  }
   await readyForRead();
   return store.checklistTicks(shopId, iso);
 }
 
 export async function apiTickChecklistItem(shopId: string, iso: string, itemId: string, staffId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/checklists`, { iso, itemId, staffId }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.tickChecklistItem(shopId, iso, itemId, staffId);
   syncConfig(shopId);
@@ -1978,6 +2085,10 @@ export async function apiSetTechRecord(
   bookingId: string,
   rec: { formula: string; developer?: string; processingMin?: number; note?: string; byStaffId: string },
 ): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/tech-records`, { bookingId, record: rec }));
+    return;
+  }
   await localWrite();
   const b = store.setTechRecord(shopId, bookingId, rec);
   // a formula card only helps if the tablet at the backwash sees it too
@@ -1988,11 +2099,17 @@ export async function apiLatestTechRecord(
   shopId: string,
   customerKey: string,
 ): Promise<ReturnType<typeof store.latestTechRecord>> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/tech-records?customerKey=${encodeURIComponent(customerKey)}`))?.latest ?? null;
+  }
   await readyForRead();
   return store.latestTechRecord(shopId, customerKey);
 }
 
 export async function apiPublicQueue(shopId: string): Promise<{ queued: number; waitMin: number | null }> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/public`))?.queue ?? { queued: 0, waitMin: null };
+  }
   await readyForRead();
   return store.publicQueue(shopId);
 }
@@ -2000,6 +2117,9 @@ export async function apiPublicQueue(shopId: string): Promise<{ queued: number; 
 // ---- records & reports batch: Kassenbuch, commission, utilization, tags, care
 
 export async function apiCashEntries(shopId: string, iso: string): Promise<store.CashEntry[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/cash?iso=${iso}`))?.entries ?? [];
+  }
   await readyForRead();
   return store.cashEntries(shopId, iso);
 }
@@ -2009,18 +2129,29 @@ export async function apiAddCashEntry(
   iso: string,
   input: { kind: store.CashEntry['kind']; amountCents: number; note?: string },
 ): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/cash`, { iso, ...input }));
+    return;
+  }
   await localWrite();
   store.addCashEntry(shopId, iso, input);
   syncConfig(shopId);
 }
 
 export async function apiDeleteCashEntry(shopId: string, iso: string, id: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await fetch(`/api/shop/${shopId}/cash?iso=${iso}&entryId=${encodeURIComponent(id)}`, { method: 'DELETE' }));
+    return;
+  }
   await localWrite();
   store.deleteCashEntry(shopId, iso, id);
   syncConfig(shopId);
 }
 
 export async function apiDrawerReport(shopId: string, iso: string): Promise<store.DrawerReport> {
+  if (backendMode() === 'server') {
+    return (await okJson(await fetch(`/api/shop/${shopId}/cash?iso=${iso}`))).report;
+  }
   await readyForRead();
   return store.drawerReport(shopId, iso);
 }
@@ -2041,21 +2172,35 @@ export async function apiReviewTagStats(shopId: string): Promise<ReturnType<type
 }
 
 export async function apiCareProfile(): Promise<store.CareProfile> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/me/care?deviceId=${encodeURIComponent(deviceId())}`))?.profile ?? { allergies: [], patchTests: [] };
+  }
   await readyForRead();
   return store.careProfile(deviceId());
 }
 
 export async function apiSetAllergies(allergies: string[]): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post('/api/me/care', { allergies, deviceId: deviceId() }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.setAllergies(deviceId(), allergies);
 }
 
 export async function apiRecordPatchTest(shopId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post('/api/me/care', { shopId, deviceId: deviceId() }));
+    return;
+  }
   await localWrite();
   store.recordPatchTest(deviceId(), shopId);
 }
 
 export async function apiPatchTestValid(shopId: string): Promise<boolean> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/me/care?deviceId=${encodeURIComponent(deviceId())}&shopId=${encodeURIComponent(shopId)}`))?.patchTestValid ?? false;
+  }
   await readyForRead();
   return store.patchTestValid(deviceId(), shopId);
 }
@@ -2098,6 +2243,9 @@ export async function apiConsultDone(shopId: string): Promise<boolean> {
 // ---- money products batch: packages, deals, treatment gifts, groups, club --
 
 export async function apiPackageOffers(shopId: string): Promise<store.PackageOffer[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/packages`))?.offers ?? [];
+  }
   await readyForRead();
   return store.packageOffers(shopId);
 }
@@ -2122,6 +2270,10 @@ export async function apiBuyPackage(
   offerId: string,
   payment?: { method: store.PaymentMethod; label: string },
 ): Promise<store.OwnedPackage | null> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/shop/${shopId}/packages`, { offerId, payment, deviceId: deviceId() });
+    return res.ok ? (await res.json()).pkg : null;
+  }
   await localWrite();
   try {
     return store.buyPackage(shopId, offerId, deviceId(), payment);
@@ -2131,11 +2283,17 @@ export async function apiBuyPackage(
 }
 
 export async function apiMyPackages(): Promise<ReturnType<typeof store.myPackages>> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/me/packages?deviceId=${encodeURIComponent(deviceId())}`))?.packages ?? [];
+  }
   await readyForRead();
   return store.myPackages(deviceId());
 }
 
 export async function apiPackagesForShop(shopId: string): Promise<ReturnType<typeof store.packagesForShop>> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/packages`))?.stats ?? { soldCount: 0, outstandingUses: 0, outstandingCents: 0 };
+  }
   await readyForRead();
   return store.packagesForShop(shopId);
 }
@@ -2151,6 +2309,10 @@ export async function apiGiftTreatment(
   opts: { toName?: string; fromName?: string; message?: string },
   payment?: { method: store.PaymentMethod; label: string },
 ): Promise<store.GiftCard | null> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/shop/${shopId}/gift-treatment`, { serviceId, ...opts, payment, deviceId: deviceId() });
+    return res.ok ? (await res.json()).card : null;
+  }
   await localWrite();
   try {
     return store.giftTreatment(shopId, deviceId(), serviceId, opts, payment);
@@ -2213,11 +2375,19 @@ export async function apiSetMembershipOffer(shopId: string, offer: store.Members
 }
 
 export async function apiMyMembership(shopId: string): Promise<store.Membership | null> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/membership?deviceId=${encodeURIComponent(deviceId())}`).catch(() => null);
+    return res?.ok ? (await res.json()).membership : null;
+  }
   await readyForRead();
   return store.myMembership(deviceId(), shopId);
 }
 
 export async function apiJoinMembership(shopId: string): Promise<store.Membership | null> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/shop/${shopId}/membership`, { deviceId: deviceId() });
+    return res.ok ? (await res.json()).membership : null;
+  }
   await localWrite();
   try {
     return store.joinMembership(deviceId(), shopId);
@@ -2227,11 +2397,18 @@ export async function apiJoinMembership(shopId: string): Promise<store.Membershi
 }
 
 export async function apiLeaveMembership(shopId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await fetch(`/api/shop/${shopId}/membership?deviceId=${encodeURIComponent(deviceId())}`, { method: 'DELETE' });
+    return;
+  }
   await localWrite();
   store.leaveMembership(deviceId(), shopId);
 }
 
 export async function apiMembersOfShop(shopId: string): Promise<number> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/public`))?.members ?? 0;
+  }
   await readyForRead();
   return store.membersOfShop(shopId);
 }
@@ -2239,38 +2416,64 @@ export async function apiMembersOfShop(shopId: string): Promise<number> {
 // ---- care & safety batch: birthday, access, minors, journal ---------------
 
 export async function apiSetBirthday(mmdd: string | null): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post('/api/me/care', { birthday: mmdd, deviceId: deviceId() }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.setBirthday(deviceId(), mmdd);
 }
 
 export async function apiSetAccessNeeds(access: store.AccessNeeds | null): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post('/api/me/care', { access, deviceId: deviceId() }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.setAccessNeeds(deviceId(), access);
 }
 
 export async function apiAccessFacts(shopId: string): Promise<store.AccessFacts | null> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/perks`))?.accessFacts ?? null;
+  }
   await readyForRead();
   return store.accessFactsOf(shopId);
 }
 
 export async function apiSetAccessFacts(shopId: string, facts: store.AccessFacts | null): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/perks`, { accessFacts: facts }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.setAccessFacts(shopId, facts);
   syncConfig(shopId);
 }
 
 export async function apiBirthdayPerk(shopId: string): Promise<number> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/perks`))?.birthdayPerk ?? 0;
+  }
   await readyForRead();
   return store.birthdayPerkOf(shopId);
 }
 
 export async function apiSetBirthdayPerk(shopId: string, pct: number): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/perks`, { birthdayPerk: pct }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.setBirthdayPerk(shopId, pct);
   syncConfig(shopId);
 }
 
 export async function apiSetWouldRepeat(bookingId: string, on: boolean): Promise<boolean> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/bookings/${bookingId}/would-repeat`, { on, deviceId: deviceId() });
+    return res.ok;
+  }
   await localWrite();
   try {
     const b = store.setWouldRepeat(bookingId, deviceId(), on);
@@ -2289,6 +2492,10 @@ export async function apiAddWatch(
   staffId: string | null,
   dow: number | null,
 ): Promise<store.AvailabilityWatch | null> {
+  if (backendMode() === 'server') {
+    const res = await post('/api/me/watches', { shopId, serviceId, staffId, dow, deviceId: deviceId() }).catch(() => null);
+    return res?.ok ? (await res.json()).watch : null;
+  }
   await localWrite();
   try {
     return store.addAvailabilityWatch(deviceId(), shopId, serviceId, staffId, dow);
@@ -2298,11 +2505,18 @@ export async function apiAddWatch(
 }
 
 export async function apiRemoveWatch(watchId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await fetch(`/api/me/watches?deviceId=${encodeURIComponent(deviceId())}&watchId=${encodeURIComponent(watchId)}`, { method: 'DELETE' }));
+    return;
+  }
   await localWrite();
   store.removeAvailabilityWatch(deviceId(), watchId);
 }
 
 export async function apiMyWatches(): Promise<ReturnType<typeof store.myWatches>> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/me/watches?deviceId=${encodeURIComponent(deviceId())}`))?.watches ?? [];
+  }
   await readyForRead();
   return store.myWatches(deviceId());
 }
@@ -2330,6 +2544,9 @@ export async function apiDeleteStaffPhoto(shopId: string, staffId: string, photo
 }
 
 export async function apiStockItems(shopId: string): Promise<store.StockItem[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shop/${shopId}/stock`))?.items ?? [];
+  }
   await readyForRead();
   return store.stockItems(shopId);
 }
@@ -2338,18 +2555,30 @@ export async function apiSaveStockItem(
   shopId: string,
   item: { id?: string; name: string; level: number; reorderAt: number; perColourUse?: number },
 ): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/stock`, { item }));
+    return;
+  }
   await localWrite();
   store.saveStockItem(shopId, item);
   syncConfig(shopId);
 }
 
 export async function apiAdjustStock(shopId: string, itemId: string, delta: number): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await post(`/api/shop/${shopId}/stock`, { itemId, delta }, 'PATCH'));
+    return;
+  }
   await localWrite();
   store.adjustStock(shopId, itemId, delta);
   syncConfig(shopId);
 }
 
 export async function apiDeleteStockItem(shopId: string, itemId: string): Promise<void> {
+  if (backendMode() === 'server') {
+    await okJson(await fetch(`/api/shop/${shopId}/stock?itemId=${encodeURIComponent(itemId)}`, { method: 'DELETE' }));
+    return;
+  }
   await localWrite();
   store.deleteStockItem(shopId, itemId);
   syncConfig(shopId);
@@ -2365,6 +2594,11 @@ export async function apiOpenDispute(
   kind: store.DisputeKind,
   text: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (backendMode() === 'server') {
+    const res = await post(`/api/bookings/${bookingId}/dispute`, { kind, text, deviceId: deviceId() });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: (await res.json().catch(() => ({}))).error ?? 'error' };
+  }
   await localWrite();
   try {
     const d = store.openDispute(bookingId, deviceId(), kind, text);
@@ -2378,11 +2612,18 @@ export async function apiOpenDispute(
 }
 
 export async function apiMyDisputes(): Promise<store.Dispute[]> {
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/me/disputes?deviceId=${encodeURIComponent(deviceId())}`))?.disputes ?? [];
+  }
   await readyForRead();
   return store.myDisputes(deviceId());
 }
 
 export async function apiDisputesForShop(shopId: string): Promise<ReturnType<typeof store.disputesForShop>> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/shop/${shopId}/disputes`).catch(() => null);
+    return res?.ok ? (await res.json()).disputes : [];
+  }
   await readyForRead();
   return store.disputesForShop(shopId);
 }
@@ -2392,8 +2633,17 @@ export async function apiResolveDispute(
   disputeId: string,
   resolution: { kind: 'redo' | 'goodwill' | 'declined'; note?: string },
 ): Promise<void> {
+  if (backendMode() === 'server') {
+    await post(`/api/shop/${shopId}/disputes/${disputeId}`, resolution).catch(() => null);
+    return;
+  }
   await localWrite();
-  const d = store.resolveDispute(shopId, disputeId, resolution);
+  let d: store.Dispute;
+  try {
+    d = store.resolveDispute(shopId, disputeId, resolution);
+  } catch {
+    return; // unknown or foreign dispute — nothing to resolve
+  }
   syncConfig(shopId);
   // Goodwill lives on the booking (b.goodwill), and bookings sync via
   // set_booking, not the config doc — without this push the customer's

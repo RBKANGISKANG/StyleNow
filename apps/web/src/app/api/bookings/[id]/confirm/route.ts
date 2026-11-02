@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { confirmBooking, HoldExpired, type PaymentMethod } from '@/core/store';
 import { stripeConfigured } from '@/lib/stripe-server';
+import { ownBooking } from '@/app/api/_lib/guards';
 
 const METHODS: PaymentMethod[] = ['card', 'paypal', 'apple_pay', 'google_pay', 'sepa', 'at_salon'];
 // Confirming as paid by one of these was always trust-the-client — fine while
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (stripeConfigured() && body?.payment && ONLINE_METHODS.includes(body.payment.method)) {
     return NextResponse.json({ error: 'use_stripe_checkout' }, { status: 403 });
   }
+  // Only the device that placed the hold may confirm it.
+  const own = ownBooking(params.id, body?.deviceId);
+  if ('error' in own) return own.error;
   // only a masked label is accepted here — the client never sends a full PAN
   const payment =
     body?.payment && METHODS.includes(body.payment.method) && typeof body.payment.label === 'string'
