@@ -250,6 +250,10 @@ export function OperatorShell({
     );
   }
 
+  // The owned list arrives a beat before a shop is picked from it; rendering
+  // the tabs in between sends every request to /api/shop//… and 404s.
+  if (!shopId) return <div className="spinner" />;
+
   const current = myShops.find((s) => s.id === shopId);
 
   const picker =
