@@ -7,6 +7,7 @@ import { money, distance } from '@/lib/format';
 import { apiMatch } from '@/lib/api';
 import { allShops } from '@/core/store';
 import { GetApp } from '@/components/GetApp';
+import { HeroStats, HeroVisual, LandingSections, RotatingWord } from '@/components/Landing';
 import { FeedMap } from '@/components/FeedMap';
 import { Heart } from '@/components/Heart';
 import { useFavourites } from '@/lib/favs';
@@ -194,24 +195,32 @@ export default function Explore() {
 
   return (
     <div>
-      <section className="hero">
-        <div className="loc">📍 {loc ? loc.label : t('all_districts')}</div>
-        <h1>{t('hero_title')}</h1>
-        <p>{t('hero_sub')}</p>
-        <div className="loc-row">
-          <input
-            className="loc-input"
-            placeholder={t('loc_ph')}
-            value={locInput}
-            onChange={(e) => setLocInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applyLocation(locInput)}
-            onBlur={() => applyLocation(locInput)}
-          />
-          <button className="btn btn-hero-ghost" onClick={useMyLocation} title={t('loc_mine')}>
-            📍 {t('loc_mine')}
-          </button>
+      <section className="hero hero-x">
+        <div className="hero-aurora" aria-hidden><span /><span /><span /></div>
+        <div className="hero-copy">
+          <div className="loc">📍 {loc ? loc.label : t('all_districts')}</div>
+          <h1>
+            {t('lp_title_a')} <RotatingWord />
+          </h1>
+          <p>{t('hero_sub')}</p>
+          <div className="loc-row">
+            <input
+              className="loc-input"
+              placeholder={t('loc_ph')}
+              aria-label={t('loc_ph')}
+              value={locInput}
+              onChange={(e) => setLocInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && applyLocation(locInput)}
+              onBlur={() => applyLocation(locInput)}
+            />
+            <button className="btn btn-hero-ghost" onClick={useMyLocation} title={t('loc_mine')}>
+              📍 <span className="hide-sm">{t('loc_mine')}</span>
+            </button>
+          </div>
+          {locError && <p style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600 }}>⚠️ {t('loc_unknown')}</p>}
+          <HeroStats />
         </div>
-        {locError && <p style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600 }}>⚠️ {t('loc_unknown')}</p>}
+        <HeroVisual />
       </section>
 
       <NextUp />
@@ -369,6 +378,8 @@ export default function Explore() {
           </div>
         );
       })()}
+
+      <LandingSections />
 
       <GetApp />
 

@@ -311,7 +311,14 @@ assert.equal(st0.stamps, 10);
 assert.equal(st0.rewardsAvailable, 1, 'a full card is one free visit');
 
 // The free visit: whole service subtotal off, engine-gated, hold reserves it.
-const fSlots = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-stamp', staff.id).slots;
+// Seeded days fill up as the calendar advances: take the first day with room
+// for this free visit and the parallel one below.
+let stampDay = isoDateOf(b.startsAt);
+for (let d = 0; d <= 30; d++) {
+  const day = addDays(isoDateOf(b.startsAt), d);
+  if (availability(shop.id, [svc.id], day, 'dev-stamp', staff.id).slots.length >= 8) { stampDay = day; break; }
+}
+const fSlots = availability(shop.id, [svc.id], stampDay, 'dev-stamp', staff.id).slots;
 assert.ok(fSlots.length > 0, 'fixture needs a slot for the free visit');
 const fHold = createHold({
   shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: fSlots[0].start,
@@ -323,7 +330,7 @@ assert.equal(stampStatus(shop.id, 'dev-stamp').rewardsAvailable, 0, 'the live ho
 
 // A second free visit in parallel must bounce — on the reward, not the seat,
 // so ask availability again (it now excludes the held slot) for a free one.
-const fSlots2 = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-stamp', staff.id).slots;
+const fSlots2 = availability(shop.id, [svc.id], stampDay, 'dev-stamp', staff.id).slots;
 assert.ok(fSlots2.length > 0, 'fixture needs a second free slot');
 assert.throws(
   () => createHold({
