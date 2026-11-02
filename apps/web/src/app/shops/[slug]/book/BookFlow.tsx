@@ -704,7 +704,14 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     return (
       <div className="confirm-card">
         <div className="confirm-top">
-          <div className="tick">✓</div>
+          <div className="confetti" aria-hidden>
+            {Array.from({ length: 14 }, (_, i) => <i key={i} />)}
+          </div>
+          <div className="tick" aria-hidden>
+            <svg viewBox="0 0 52 52" width="34" height="34">
+              <path d="M14 27l8 8 16-17" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
           <h2>{t('booked_title')}</h2>
         </div>
         <div className="confirm-body">
@@ -794,7 +801,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const steps = [t('step_service'), t('step_time'), t('step_pay')];
 
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto' }}>
+    <div className="bf" style={{ maxWidth: 640, margin: '0 auto' }}>
       <div className="page-title">
         <h1>
           {shop.emoji} {shop.name}
@@ -806,11 +813,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
       {announcement && <div className="shop-banner">📣 {announcement}</div>}
 
-      <div className="steps">
+      <div className="steps" role="list" style={{ ['--bf-progress-n' as string]: String(Math.min(step, steps.length - 1) / (steps.length - 1)) }}>
         {steps.map((label, i) => (
-          <div key={label} className={`step ${i === step ? 'active' : i < step ? 'done' : ''}`}>
-            {i < step ? '✓ ' : ''}
-            {label}
+          <div
+            key={label}
+            role="listitem"
+            aria-current={i === step ? 'step' : undefined}
+            className={`step ${i === step ? 'active' : i < step ? 'done' : ''}`}
+          >
+            <span className="step-dot">{i < step ? '✓' : i + 1}</span>
+            <span className="step-label">{label}</span>
           </div>
         ))}
       </div>
@@ -827,7 +839,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
           )}
           {serviceRows}
           <button
-            className="btn btn-primary"
+            className="btn btn-primary bf-sticky"
             style={{ width: '100%', marginTop: 10 }}
             disabled={serviceIds.length === 0}
             onClick={() => setStep(1)}
@@ -1735,7 +1747,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
             )
           )}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          <div className="bf-actions" style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button className="btn btn-ghost" onClick={() => (hold ? undefined : setStep(1))} disabled={Boolean(hold)}>
               ← {t('back')}
             </button>

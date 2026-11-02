@@ -179,10 +179,20 @@ export default function PartnerPage() {
   const steps = [t('ps_business'), t('ps_location'), t('ps_offer'), t('ps_legal')];
 
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto' }}>
+    <div className="bf" style={{ maxWidth: 640, margin: '0 auto' }}>
       <div className="page-title" style={{ display: 'block' }}>
         <h1>💼 {t('partner_title')}</h1>
         <p style={{ color: 'var(--ink-soft)', fontSize: '0.88rem', marginTop: 4 }}>{t('partner_sub')}</p>
+      </div>
+
+      <div className="pt-perks">
+        {([['📅', 'pt_p1', 'pt_p1d'], ['💳', 'pt_p2', 'pt_p2d'], ['📈', 'pt_p3', 'pt_p3d']] as const).map(([ico, k, d]) => (
+          <div className="pt-perk" key={k}>
+            <span className="lp-ico">{ico}</span>
+            <b>{t(k)}</b>
+            <span>{t(d)}</span>
+          </div>
+        ))}
       </div>
 
       {pendingRefs.map((ref) => (
@@ -191,11 +201,16 @@ export default function PartnerPage() {
         </div>
       ))}
 
-      <div className="steps">
+      <div className="steps" role="list" style={{ ['--bf-progress-n' as string]: String(step / (steps.length - 1)) }}>
         {steps.map((label, i) => (
-          <div key={label} className={`step ${i === step ? 'active' : i < step ? 'done' : ''}`}>
-            {i < step ? '✓ ' : ''}
-            {label}
+          <div
+            key={label}
+            role="listitem"
+            aria-current={i === step ? 'step' : undefined}
+            className={`step ${i === step ? 'active' : i < step ? 'done' : ''}`}
+          >
+            <span className="step-dot">{i < step ? '✓' : i + 1}</span>
+            <span className="step-label">{label}</span>
           </div>
         ))}
       </div>

@@ -11,7 +11,6 @@ import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnn
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
-import { useStudio } from '@/lib/design';
 import { useFavourites } from '@/lib/favs';
 
 interface LiveReview {
@@ -75,7 +74,6 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
   // The shop can add or archive services at any time — always show the live menu.
   const [services, setServices] = useState(shop.services);
   const hours = useShopHours(shop.id);
-  const studio = useStudio();
   const fav = favs.includes(shop.id);
 
   // Recently viewed, for the explore page's memory strip.
@@ -99,10 +97,6 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
 
   return (
     <div>
-      {/* The identity — logo, name, rating, whether we are open — is the same in
-          both looks; only where it sits differs. Classic keeps it inside the
-          gradient; studio lifts it onto a card overlapping the cover, so the
-          band above can eventually carry a photograph. */}
       {(() => {
         const identity = (
           <>
@@ -110,9 +104,9 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
               {logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={logoUrl} alt="" className="shop-logo-hero" />
-              ) : (
+              ) : coverUrl ? (
                 <span>{shop.emoji}</span>
-              )}
+              ) : null}
               {shop.name}
             </h1>
             <p className="sub">{shop.tagline[lang]}</p>
@@ -149,7 +143,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
 
         const cover = (
           <section
-            className={`shop-hero${studio ? ' cover' : ''}${coverUrl ? ' shot' : ''}`}
+            className={`shop-hero cover sx-cover${coverUrl ? ' shot' : ''}`}
             style={
               coverUrl
                 ? // The scrim keeps white text legible over an unknown photograph;
@@ -165,23 +159,18 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
             <button className="fav-btn" aria-label="favourite" onClick={() => toggleFav(shop.id)}>
               <Heart on={fav} size={20} />
             </button>
-            {studio ? (
-              coverUrl ? null : (
-                <span className="cover-mark">
-                  <Icon name="image" size={13} strokeWidth={2} /> {t('cover_placeholder')}
-                </span>
-              )
-            ) : (
-              identity
+            {!coverUrl && (
+              <span className="sx-emoji" aria-hidden>
+                {shop.emoji}
+              </span>
             )}
           </section>
         );
 
-        if (!studio) return cover;
         return (
           <>
             {cover}
-            <section className="shop-id">{identity}</section>
+            <section className="shop-id sx-id">{identity}</section>
           </>
         );
       })()}
@@ -325,6 +314,20 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
           </div>
         ))}
       </section>
+
+      <div className="sx-bookbar">
+        <div className="sx-bookbar-info">
+          <b>{shop.name}</b>
+          {services.length > 0 && (
+            <span>
+              {t('from')} {money(Math.min(...services.map((x) => x.basePriceCents)), lang)} · ★ {shop.ratingAvg.toFixed(1)}
+            </span>
+          )}
+        </div>
+        <Link className="btn btn-primary" href={`/shops/${shop.slug}/book`}>
+          {t('book_now')} →
+        </Link>
+      </div>
     </div>
   );
 }
