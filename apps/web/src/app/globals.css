@@ -3601,3 +3601,142 @@ main.shell > * { animation: page-in 0.5s var(--ease-out) backwards; }
   .pt-perk { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 12px; }
   .pt-perk span:last-child { flex-basis: 100%; }
 }
+
+/* =====================================================================
+   Night mode. Almost everything reads theme tokens, so this is mostly new
+   values; the explicit rules after it cover the places that painted the
+   ink colour as a background (dark chips with white text) and a few
+   hard-coded light surfaces. Receipts stay on white paper on purpose.
+   ===================================================================== */
+:root { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #120e16;
+  --bg-soft: #1a1520;
+  --surface: #1e1924;
+  --surface-2: #29222f;
+  --ink: #f4eff6;
+  --ink-soft: #a89fb2;
+  --line: rgba(255, 255, 255, 0.09);
+  --primary: #ff6b84;
+  --primary-deep: #f0566e;
+  --primary-soft: rgba(255, 107, 132, 0.15);
+  --teal: #2bc8b4;
+  --teal-soft: rgba(43, 200, 180, 0.14);
+  --amber: #ffb454;
+  --amber-soft: rgba(255, 180, 84, 0.14);
+  --violet: #a48bff;
+  --violet-soft: rgba(164, 139, 255, 0.16);
+  --success: #3ccf8e;
+  --danger: #ff6b6b;
+  --glass: rgba(30, 25, 36, 0.72);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.25);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.35), 0 18px 44px rgba(0, 0, 0, 0.3);
+  --shadow-lift: 0 10px 24px rgba(0, 0, 0, 0.45), 0 30px 70px rgba(0, 0, 0, 0.4);
+  --inverse: #3a3044;
+}
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(900px 500px at 100% -10%, rgba(255, 107, 132, 0.10), transparent 60%),
+    radial-gradient(800px 500px at -10% 10%, rgba(164, 139, 255, 0.10), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+html { transition: background-color 0.4s ease; }
+body, .panel, .shop-card, .svc-row, .topbar, .bottom-nav, .input, .search, .chip, .cat-tile, .bk-card, .stat-tile {
+  transition-property: background-color, border-color, color, box-shadow, transform;
+}
+
+/* dark chips that used the ink colour as their background */
+:root[data-theme="dark"] :is(.top-nav a.active, .btn-dark, .design-btn.on, .op-nav a.on, .pager-btn.on, .date-pill.sel, .nextup-op, .toast) {
+  background: var(--inverse); border-color: var(--inverse); color: #fff;
+}
+:root[data-theme="dark"][data-design="studio"] .review-card:first-of-type { background: var(--inverse); }
+:root[data-theme="dark"] .sx-bookbar { background: rgba(58, 48, 68, 0.88); border: 1px solid var(--line); }
+:root[data-theme="dark"] .lp-biz { background: radial-gradient(500px 240px at 100% 0%, rgba(164,139,255,0.35), transparent 60%), #241c2c; border: 1px solid var(--line); }
+
+/* hard-coded light surfaces */
+:root[data-theme="dark"] .hold-bar .clock,
+:root[data-theme="dark"] .open-badge { background: var(--surface-2); color: var(--ink); }
+:root[data-theme="dark"] :is(.st-no_show, .st-cancelled_by_customer, .st-cancelled_by_shop, .rv-trend.down) { background: rgba(255, 107, 107, 0.14); }
+:root[data-theme="dark"] .mo-cell.off,
+:root[data-theme="dark"] .rc-legend .sw.off { background: repeating-linear-gradient(45deg, #221c27, #221c27 3px, #2b2431 3px, #2b2431 6px); }
+:root[data-theme="dark"] .cal-block.walk,
+:root[data-theme="dark"] .cal-legend .sw.walkin { background: repeating-linear-gradient(45deg, #3a3144, #3a3144 6px, #433a4e 6px, #433a4e 12px); color: var(--ink); }
+:root[data-theme="dark"] .hv-card { background: rgba(30, 25, 36, 0.94); color: var(--ink); }
+:root[data-theme="dark"] .loc-input { background: rgba(30, 25, 36, 0.9); color: var(--ink); }
+:root[data-theme="dark"] .loc-input::placeholder { color: var(--ink-soft); }
+:root[data-theme="dark"] .badge { background: rgba(30, 25, 36, 0.85); color: var(--ink); }
+:root[data-theme="dark"] .fav-btn { background: rgba(30, 25, 36, 0.85); color: var(--ink); }
+:root[data-theme="dark"] .shop-id.sx-id { border-color: var(--line); }
+:root[data-theme="dark"] .lp-num { color: rgba(255, 255, 255, 0.07); }
+:root[data-theme="dark"] img { filter: brightness(0.92); }
+:root[data-theme="dark"] ::selection { background: rgba(255, 107, 132, 0.35); }
+
+/* theme toggle: the sun sets and the moon rises */
+.icon-toggle {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--line); background: var(--surface);
+  transition: transform 0.3s var(--ease-spring), border-color 0.2s;
+}
+.icon-toggle:hover { border-color: var(--primary); }
+.icon-toggle:active { transform: scale(0.9); }
+.tt-icon { position: relative; width: 20px; height: 20px; display: block; overflow: hidden; }
+.tt-icon > span {
+  position: absolute; inset: 0; display: grid; place-items: center; font-size: 1rem; line-height: 1;
+  transition: transform 0.5s var(--ease-spring), opacity 0.3s ease;
+}
+.tt-moon { transform: translateY(120%) rotate(-90deg); opacity: 0; }
+.tt-icon.is-dark .tt-sun { transform: translateY(-120%) rotate(90deg); opacity: 0; }
+.tt-icon.is-dark .tt-moon { transform: none; opacity: 1; }
+
+/* language menu */
+.lang-menu { position: relative; }
+.lang-pop {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 120;
+  width: min(420px, calc(100vw - 24px));
+  padding: 12px; border-radius: 22px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-lift);
+  animation: pop-in 0.3s var(--ease-out) both; transform-origin: top right;
+}
+@keyframes pop-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } }
+.lang-search { width: 100%; margin-bottom: 10px; padding: 10px 14px; }
+.lang-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.lang-opt {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 9px 12px; border-radius: 12px; font-size: 0.88rem; font-weight: 600;
+  transition: background 0.15s ease;
+}
+.lang-opt:hover { background: var(--surface-2); }
+.lang-opt.on { background: var(--primary-soft); color: var(--primary-deep); }
+.lang-opt .lf { font-size: 1.15rem; }
+@media (max-width: 680px) {
+  .lang-pop { position: fixed; left: 12px; right: 12px; top: 68px; width: auto; }
+  .icon-toggle { width: 36px; height: 36px; }
+}
+
+/* ---- my bookings: date tile, one summary row, swipeable actions ---- */
+.bk-when {
+  background: var(--surface-2); border-radius: 18px; padding: 10px 10px 9px; min-width: 76px;
+}
+.bk-when .d { font-size: 0.95rem; line-height: 1.15; }
+.bk-when .t { font-family: var(--font-display); font-size: 1.15rem; color: var(--ink); font-weight: 700; margin-top: 2px; }
+.bk-info .shop { font-size: 1.02rem; letter-spacing: -0.01em; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.bk-strip { height: 5px; }
+@media (max-width: 680px) {
+  .bk-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 14px; padding: 14px 16px; }
+  .bk-info { min-width: 0; }
+  .bk-side {
+    grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding-top: 12px; border-top: 1px dashed var(--line);
+  }
+  .bk-side > span:nth-child(2) { margin-right: auto; font-family: var(--font-display); font-size: 1.1rem; }
+  .bk-actions {
+    flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none;
+    padding: 0 16px 16px !important; scroll-snap-type: x proximity;
+    mask-image: linear-gradient(90deg, #000 88%, transparent);
+  }
+  .bk-actions::-webkit-scrollbar { display: none; }
+  .bk-actions > * { flex-shrink: 0; scroll-snap-align: start; }
+}

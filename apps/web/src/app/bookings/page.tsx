@@ -413,7 +413,7 @@ export default function BookingsPage() {
               </div>
             </div>
             {tab === 'upcoming' && b.status === 'confirmed' && b.shop && (
-              <div style={{ padding: '0 18px 14px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div className="bk-actions" style={{ padding: '0 18px 14px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <a
                   className="btn btn-soft sm"
                   href={icsHref({

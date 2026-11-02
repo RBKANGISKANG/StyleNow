@@ -1574,10 +1574,10 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   }
   confirmBooking(held);
   const lb = getBooking(held)!;
-  // fixture surgery: pull the visit to an hour from now, same licence as the
-  // drift block
+  // fixture surgery: pull the visit to a minute from now, same licence as the
+  // drift block (an hour ahead crosses midnight when the suite runs late)
   const span = lb.endsAt - lb.startsAt;
-  lb.startsAt = Date.now() + 3600_000;
+  lb.startsAt = Date.now() + 60_000;
   lb.endsAt = lb.startsAt + span;
   assert.throws(() => setRunningLate(held, 'stranger', 15), /not_yours/);
   assert.throws(() => setRunningLate(held, dev, 200), /bad_minutes/);

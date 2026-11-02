@@ -26,10 +26,10 @@ interface DesignCtx {
   ready: boolean;
 }
 
-const Ctx = createContext<DesignCtx>({ design: 'classic', setDesign: () => {}, ready: false });
+const Ctx = createContext<DesignCtx>({ design: 'studio', setDesign: () => {}, ready: false });
 
 export function DesignProvider({ children }: { children: ReactNode }) {
-  const [design, setState] = useState<Design>('classic');
+  const [design, setState] = useState<Design>('studio');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export function DesignProvider({ children }: { children: ReactNode }) {
     } catch {
       // private mode, or storage blocked — classic is a fine answer
     }
-    if (stored === 'studio' || stored === 'classic') setState(stored);
+    if (stored === 'studio' || stored === 'classic') setState('studio');
     setReady(true);
   }, []);
 
@@ -66,4 +66,48 @@ export function useDesign(): DesignCtx {
 /** Shorthand for the many places that only branch on "is this the new look". */
 export function useStudio(): boolean {
   return useContext(Ctx).design === 'studio';
+}
+
+export type ThemePref = 'light' | 'dark' | 'system';
+const THEME_KEY = 'stylenow.theme';
+
+/** Runs inline in <head> so the first paint is already in the right theme. */
+export const THEME_BOOT = `try{var p=localStorage.getItem('${THEME_KEY}')||'system';var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}`;
+
+export function useTheme(): { pref: ThemePref; dark: boolean; setPref: (p: ThemePref) => void } {
+  const [pref, setPrefState] = useState<ThemePref>('system');
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem(THEME_KEY);
+      if (s === 'light' || s === 'dark' || s === 'system') setPrefState(s);
+    } catch {
+      // storage blocked — follow the device
+    }
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const d = pref === 'dark' || (pref === 'system' && mq.matches);
+      document.documentElement.dataset.theme = d ? 'dark' : 'light';
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', d ? '#17121c' : '#f0566e');
+      setDark(d);
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [pref]);
+
+  const setPref = useCallback((p: ThemePref) => {
+    setPrefState(p);
+    try {
+      localStorage.setItem(THEME_KEY, p);
+    } catch {
+      // still applies for this session
+    }
+  }, []);
+
+  return { pref, dark, setPref };
 }

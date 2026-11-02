@@ -1,15 +1,16 @@
 'use client';
 /**
- * UI catalogues for the two launch languages (spec: DE + EN). Locale
- * resolution reuses @stylenow/shared/i18n — explicit choice, then browser
- * language, then de-DE.
+ * UI catalogues. EN and DE live here (EN is the source of every key); the
+ * other interface languages are JSON files in ./locales, loaded on demand and
+ * falling back to EN key by key.
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { resolveLocale, type Locale } from '@stylenow/shared/i18n';
+import { matchUiLanguage, uiLanguage } from '@/lib/languages';
 
 export type Lang = 'en' | 'de';
 
-const CATALOGUE = {
+export const CATALOGUE = {
   en: {
     tag: 'Beauty, booked in a minute',
     nav_explore: 'Explore',
@@ -51,6 +52,9 @@ const CATALOGUE = {
     lp_trending: 'Trending now',
     lp_book_cta: 'Book',
     book_now: 'Book now',
+    theme_light: 'Switch to light mode',
+    theme_dark: 'Switch to dark mode',
+    lang_pick: 'Language',
     pt_p1: 'Fill your calendar', pt_p1d: 'Online bookings 24/7, waitlists and quiet-hour pricing.',
     pt_p2: 'Get paid, no no-shows', pt_p2d: 'Deposits, card or pay-at-salon, weekly payouts.',
     pt_p3: 'Run the whole shop', pt_p3d: 'Team rota, stock, loyalty and revenue in one place.',
@@ -1470,6 +1474,9 @@ const CATALOGUE = {
     lp_trending: 'Gerade gefragt',
     lp_book_cta: 'Buchen',
     book_now: 'Jetzt buchen',
+    theme_light: 'Zum hellen Modus wechseln',
+    theme_dark: 'Zum dunklen Modus wechseln',
+    lang_pick: 'Sprache',
     pt_p1: 'Volle Termine', pt_p1d: 'Online-Buchungen rund um die Uhr, Warteliste und Preise für ruhige Zeiten.',
     pt_p2: 'Bezahlt, ohne No-Shows', pt_p2d: 'Anzahlung, Karte oder Zahlung im Salon, wöchentliche Auszahlung.',
     pt_p3: 'Den ganzen Salon führen', pt_p3d: 'Dienstplan, Lager, Treueprogramm und Umsatz an einem Ort.',
@@ -2852,47 +2859,78 @@ const CATALOGUE = {
 export type MsgKey = keyof (typeof CATALOGUE)['en'];
 
 interface I18nCtx {
+  /** Language for shop-provided content and formatting: always en or de. */
   lang: Lang;
+  /** The interface language the person chose (see lib/languages). */
+  uiLang: string;
   locale: Locale;
   setLang: (l: Lang) => void;
+  setUiLang: (code: string) => void;
   t: (key: MsgKey, vars?: Record<string, string | number>) => string;
+}
+
+type Extra = Partial<Record<MsgKey, string>>;
+
+async function loadCatalogue(code: string): Promise<Extra> {
+  if (code === 'en-GB' || code === 'de') return {};
+  try {
+    return (await import(`./locales/${code}.json`)).default as Extra;
+  } catch {
+    return {};
+  }
 }
 
 const Ctx = createContext<I18nCtx | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>('en');
+  const [uiLang, setUiLangState] = useState('en-GB');
+  const [extra, setExtra] = useState<Extra>({});
+  const lang: Lang = uiLanguage(uiLang).content;
 
   useEffect(() => {
-    const stored = localStorage.getItem('sn-lang');
-    const locale = resolveLocale(
-      stored === 'de' ? 'de-DE' : stored === 'en' ? 'en-GB' : null,
-      navigator.language,
-      null,
-    );
-    setLangState(locale.startsWith('de') ? 'de' : 'en');
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem('sn-lang');
+    } catch {
+      // storage blocked — fall through to the browser language
+    }
+    if (stored === 'en') stored = 'en-GB';
+    const picked =
+      matchUiLanguage(stored) ??
+      matchUiLanguage(navigator.language) ??
+      (resolveLocale(null, navigator.language, null).startsWith('de') ? 'de' : 'en-GB');
+    setUiLangState(picked);
   }, []);
 
-  // The document must say which language it speaks — screen readers pick
-  // their voice from this, and a German page announced in an English voice
-  // is unintelligible, not just wrong.
   useEffect(() => {
-    document.documentElement.lang = lang;
-  }, [lang]);
+    let live = true;
+    void loadCatalogue(uiLang).then((c) => live && setExtra(c));
+    // The document must say which language it speaks — screen readers pick
+    // their voice from this.
+    document.documentElement.lang = uiLang;
+    return () => {
+      live = false;
+    };
+  }, [uiLang]);
 
-  const setLang = (l: Lang) => {
-    localStorage.setItem('sn-lang', l);
-    setLangState(l);
+  const setUiLang = (code: string) => {
+    try {
+      localStorage.setItem('sn-lang', code);
+    } catch {
+      // the choice still applies for this session
+    }
+    setUiLangState(code);
   };
+  const setLang = (l: Lang) => setUiLang(l === 'de' ? 'de' : 'en-GB');
 
   const t = (key: MsgKey, vars?: Record<string, string | number>) => {
-    let s: string = CATALOGUE[lang][key] ?? CATALOGUE.en[key] ?? key;
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+    let s: string = extra[key] ?? CATALOGUE[lang][key] ?? CATALOGUE.en[key] ?? key;
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
     return s;
   };
 
   const locale: Locale = lang === 'de' ? 'de-DE' : 'en-GB';
-  return <Ctx.Provider value={{ lang, locale, setLang, t }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ lang, uiLang, locale, setLang, setUiLang, t }}>{children}</Ctx.Provider>;
 }
 
 export function useI18n(): I18nCtx {

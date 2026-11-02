@@ -3,7 +3,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
-import { useDesign } from '@/lib/design';
+import { useState, useRef, useEffect } from 'react';
+import { useDesign, useTheme } from '@/lib/design';
+import { UI_LANGUAGES, uiLanguage } from '@/lib/languages';
 import { Icon, type IconName } from '@/components/Icon';
 import { NotificationBell } from '@/components/NotificationBell';
 
@@ -15,26 +17,87 @@ const TABS = [
   { href: '/account', key: 'nav_account', ico: '👤', icon: 'user' },
 ] as const satisfies ReadonlyArray<{ href: string; key: string; ico: string; icon: IconName }>;
 
-/**
- * Classic or studio, in one press.
- *
- * It sits in the header rather than buried in account settings because its
- * whole point is comparison: you flip it, look at the same page, and flip back.
- */
-function DesignToggle() {
+function ThemeToggle() {
   const { t } = useI18n();
-  const { design, setDesign } = useDesign();
-  const studio = design === 'studio';
+  const { dark, setPref } = useTheme();
   return (
     <button
-      className={`design-btn${studio ? ' on' : ''}`}
-      onClick={() => setDesign(studio ? 'classic' : 'studio')}
-      aria-pressed={studio}
-      title={t(studio ? 'design_on' : 'design_off')}
+      className="icon-toggle"
+      onClick={() => setPref(dark ? 'light' : 'dark')}
+      aria-label={t(dark ? 'theme_light' : 'theme_dark')}
+      title={t(dark ? 'theme_light' : 'theme_dark')}
     >
-      <Icon name="sparkle" size={15} />
-      <span className="design-label">{t(studio ? 'design_studio' : 'design_classic')}</span>
+      <span className={`tt-icon${dark ? ' is-dark' : ''}`} aria-hidden>
+        <span className="tt-sun">☀️</span>
+        <span className="tt-moon">🌙</span>
+      </span>
     </button>
+  );
+}
+
+function LanguageMenu() {
+  const { t, uiLang, setUiLang } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const current = uiLanguage(uiLang);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const list = UI_LANGUAGES.filter((l) => !q || `${l.name} ${l.code}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="lang-menu" ref={box}>
+      <button
+        className="lang-btn"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={t('lang_pick')}
+      >
+        {current.flag} {current.code.split('-')[0].toUpperCase()}
+      </button>
+      {open && (
+        <div className="lang-pop" role="dialog" aria-label={t('lang_pick')}>
+          <input
+            className="input lang-search"
+            placeholder={`🔍 ${t('lang_pick')}`}
+            value={q}
+            autoFocus
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="lang-grid">
+            {list.map((l) => (
+              <button
+                key={l.code}
+                className={`lang-opt${l.code === uiLang ? ' on' : ''}`}
+                aria-pressed={l.code === uiLang}
+                lang={l.code}
+                onClick={() => {
+                  setUiLang(l.code);
+                  setOpen(false);
+                  setQ('');
+                }}
+              >
+                <span className="lf">{l.flag}</span>
+                <span>{l.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -43,7 +106,7 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 export function Header() {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const { user } = useAuth();
   const pathname = usePathname();
   return (
@@ -61,16 +124,10 @@ export function Header() {
           ))}
         </nav>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DesignToggle />
+          <ThemeToggle />
         </div>
         <NotificationBell />
-        <button
-          className="lang-btn"
-          onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
-          aria-label="Switch language"
-        >
-          {lang === 'en' ? '🇩🇪 DE' : '🇬🇧 EN'}
-        </button>
+        <LanguageMenu />
         <Link
           href="/account"
           aria-label={t('nav_account')}
