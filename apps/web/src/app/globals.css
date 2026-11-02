@@ -3879,3 +3879,11 @@ body, .panel, .shop-card, .svc-row, .topbar, .bottom-nav, .input, .search, .chip
   .seg-x { display: flex; } .seg-x button { flex: 1; }
   .acc-lang { max-width: none; }
 }
+
+/* night mode: the remaining light hatched cells (HR roster, staff week) */
+:root[data-theme="dark"] .rc-cell.off,
+:root[data-theme="dark"] .rc-cell.closed,
+:root[data-theme="dark"] .rc-legend .sw.off { background: repeating-linear-gradient(45deg, #221c27, #221c27 3px, #2b2431 3px, #2b2431 6px); }
+:root[data-theme="dark"] .sweek-block.walk { background: repeating-linear-gradient(45deg, #3a3144, #3a3144 3px, #433a4e 3px, #433a4e 6px); }
+:root[data-theme="dark"] select:not(.input) { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+:root[data-theme="dark"] .sweek-off { background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.04) 0 5px, transparent 5px 10px); }
