@@ -39,7 +39,7 @@ import {
   type SeedService,
   type Voucher,
 } from './seed';
-import { dayStart, isoDateOf, isoDow, minuteOfDay, addDays, todayIso } from './time';
+import { atMinute, dayStart, isoDateOf, isoDow, minuteOfDay, addDays, todayIso } from './time';
 
 const MIN = 60_000;
 
@@ -910,6 +910,9 @@ function seedDemoHistory(shop: SeedShop): void {
       // mean something.
       const density = d < 0 ? 0.55 : d === 0 ? 0.5 : Math.max(0.32 - d * 0.02, 0.08);
 
+      // A colour service can outlast the 90-minute grid; the next visit must
+      // wait until the chair is actually free, or the demo book double-books.
+      let busyUntil = 0;
       for (const w of shifts) {
         for (let min = w.startMin; min + 60 <= w.endMin; min += 90) {
           if (rand() > density) continue;
@@ -921,7 +924,7 @@ function seedDemoHistory(shop: SeedShop): void {
           const person = rand() < 0.06
             ? DEMO_REGULARS[Math.floor(rand() * DEMO_REGULARS.length)]
             : demoPool[Math.floor(rand() * demoPool.length)];
-          const startsAt = dayStart(iso) + min * MIN;
+          const startsAt = atMinute(iso, min);
           const durMs = (svc.durationMin + svc.processingGapMin + svc.finishMin) * MIN;
           const price = svc.basePriceCents;
 
@@ -932,6 +935,7 @@ function seedDemoHistory(shop: SeedShop): void {
             d >= 0 ? 'confirmed' : roll < 0.06 ? 'no_show' : roll < 0.11 ? 'cancelled_by_customer' : 'completed';
           if (status === 'cancelled_by_customer' && rand() < 0.5) continue;
 
+          if (startsAt < busyUntil) continue;
           const id = `demo-${shop.id}-${iso}-${staff.id}-${min}`;
           const b: Booking = {
             id,
@@ -973,6 +977,26 @@ function seedDemoHistory(shop: SeedShop): void {
           }
           if (status === 'completed' && rand() < 0.3) b.tipCents = 200 + Math.floor(rand() * 6) * 100;
 
+          // Settled the way a real cancellation is: the same policy decides
+          // what the shop keeps and what went back.
+          if (status === 'no_show' || status === 'cancelled_by_customer') {
+            const outcome = cancellationOutcome({
+              totalCents: price,
+              paidCents: b.paidCents,
+              startsAt,
+              cancelledAt: status === 'no_show' ? startsAt + 15 * MIN : startsAt - 2 * 24 * 60 * MIN,
+              freeUntilHours: shop.policy.freeUntilHours,
+              lateFeePercent: shop.policy.lateFeePercent,
+              noShowFeePercent: shop.policy.noShowFeePercent,
+              isNoShow: status === 'no_show',
+              cancelledBy: 'customer',
+            });
+            b.cancellation = outcome;
+            b.refundedCents = outcome.refundCents;
+            b.paidCents = Math.max(b.paidCents - outcome.refundCents, 0);
+          }
+
+          busyUntil = startsAt + durMs;
           state.bookings.set(id, b);
         }
       }
@@ -2072,8 +2096,8 @@ function staffWindows(shop: SeedShop, staffId: string, isoDate: string): Interva
   const start = dayStart(isoDate);
   const dow = isoDow(start + 12 * 60 * MIN);
   return (staff.shifts[dow] ?? []).map((w) => ({
-    start: start + w.startMin * MIN,
-    end: start + w.endMin * MIN,
+    start: atMinute(isoDate, w.startMin),
+    end: w.endMin >= 24 * 60 ? dayStart(addDays(isoDate, 1)) : atMinute(isoDate, w.endMin),
   }));
 }
 
@@ -2085,7 +2109,7 @@ function staffDayOf(
   excludeBookingId?: string,
 ): StaffDay {
   const working = staffWindows(shop, staffId, isoDate);
-  const dayInterval: Interval = { start: dayStart(isoDate), end: dayStart(isoDate) + 24 * 60 * MIN };
+  const dayInterval: Interval = { start: dayStart(isoDate), end: dayStart(addDays(isoDate, 1)) };
   return {
     staffId,
     working,
@@ -3367,7 +3391,11 @@ export function createHold(input: HoldInput): HoldResult {
     // owed AFTER the percentage perks above — otherwise a membership visit
     // would silently burn more of the card than the bill.
     const payableSoFar = Math.max(q.subtotalCents + primeCents + travelFeeCents - discountCents, 0);
-    const applied = isGift ? Math.min(v.discountCents, payableSoFar) : v.discountCents;
+    // A percentage voucher compounds like every other percentage perk (on
+    // what is still payable, not the gross), and no voucher may take off
+    // more than is left to pay.
+    const raw = !isGift && v.voucher.kind === 'percent' ? Math.round((payableSoFar * v.voucher.value) / 100) : v.discountCents;
+    const applied = Math.min(raw, payableSoFar);
     discountCents += applied;
     if (isGift) giftCents = applied;
     if (applied > 0) {
@@ -3377,7 +3405,7 @@ export function createHold(input: HoldInput): HoldResult {
   let pointsSpent = 0;
   if (!stampFree && !packageUsed && input.pointsToSpend && input.pointsToSpend > 0) {
     const balance = loyaltyBalance(input.deviceId);
-    const remainder = Math.max(q.subtotalCents + travelFeeCents - discountCents, 0);
+    const remainder = Math.max(q.subtotalCents + primeCents + travelFeeCents - discountCents, 0);
     pointsSpent = Math.min(input.pointsToSpend, balance);
     let pointsValue = Math.floor((pointsSpent / LOYALTY_POINTS_PER_EURO_REDEEMED) * 100);
     pointsValue = Math.min(pointsValue, remainder);
@@ -3391,11 +3419,17 @@ export function createHold(input: HoldInput): HoldResult {
   }
 
   const totalCents = Math.max(q.subtotalCents + primeCents + travelFeeCents - discountCents, 0);
+  // VAT follows the consideration actually agreed: perks, vouchers, points
+  // and free stamp/package visits lower it; a gift card is only a way of
+  // paying (a multi-purpose voucher), so its share still carries VAT.
+  const grossCents = q.subtotalCents + primeCents;
+  const priceCutCents = Math.min(Math.max(discountCents - giftCents, 0), grossCents);
+  const netFactor = grossCents === 0 ? 0 : (grossCents - priceCutCents) / grossCents;
   const vatCents = services.reduce((sum, s) => {
     const share = q.subtotalCents === 0 ? 0 : s.basePriceCents / q.baseCents;
     // The Prime premium is part of the service's consideration, so it carries
     // the same VAT as the services it rides on.
-    const line = Math.round((q.subtotalCents + primeCents) * share);
+    const line = Math.round(grossCents * netFactor * share);
     return sum + Math.round((line * s.vatRateBps) / (10_000 + s.vatRateBps));
   }, 0);
   const depositCents = Math.round((totalCents * shop.depositPercent) / 100);
@@ -3608,6 +3642,11 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
     if (!payAtSalonOf(b.shopId)) throw new Error('at_salon_not_offered');
     if (b.quote.depositCents > 0) throw new Error('deposit_required');
   }
+  // Two holds can quote the same card; only one of them can actually spend it.
+  if (b.voucherCode && b.giftCents) {
+    const card = state.giftCards.get(b.voucherCode);
+    if (!card || card.balanceCents < b.giftCents) throw new Error('gift_insufficient');
+  }
   b.status = 'confirmed';
   b.holdExpiresAt = null;
   b.paidCents = atSalon ? 0 : b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
@@ -3624,6 +3663,11 @@ export function cancelBooking(
 ): { feeCents: number; refundCents: number; reason: string; booking: Booking } {
   const b = state.bookings.get(id);
   if (!b) throw new Error('not_found');
+  // Only a visit that is still ahead can be called off; a no-show only once
+  // it was firmly booked. Anything else would refund money for work done or
+  // re-run the fee on a booking that was already settled.
+  if (!['hold', 'pending_payment', 'confirmed'].includes(b.status)) throw new Error('not_cancellable');
+  if (opts.isNoShow && b.status !== 'confirmed') throw new Error('not_cancellable');
   // A late-cancellation fee is a percentage of the work that was booked. Any
   // shampoo sold on a previous visit rode along in totalCents and quietly
   // inflated the fee — goods nobody is cancelling. In preview mode nothing is
@@ -3687,6 +3731,7 @@ export function cancelBooking(
   // showing the deposit as paid and the customer never got it back.
   b.refundedCents = (b.refundedCents ?? 0) + outcome.refundCents;
   b.paidCents = Math.max(b.paidCents - outcome.refundCents, 0);
+  returnGiftCardShare(b, opts);
   // A shop cancelling on short notice ruined someone's plan. The apology is
   // automatic and paid by the shop — policy, not mood.
   if (opts.by === 'shop' && !opts.isNoShow && wasConfirmed) mintGoodwill(b);
@@ -3775,6 +3820,9 @@ export function rescheduleBooking(
     if (b.deviceId !== opts.byDevice) throw new Error('not_yours');
     if (Date.now() > b.startsAt - b.policySnapshot.freeUntilHours * 36e5) throw new Error('too_late');
   }
+  // A customer (or a Prime booking, which skips the slot grid) can only move
+  // forward in time; the front desk may still correct a visit after the fact.
+  if ((opts.byDevice || b.isPrime) && newStartsAt <= Date.now()) throw new Error('past');
   const movedFrom = b.startsAt;
   const shop = shopById(shopId);
   if (!shop) throw new Error('shop_not_found');
@@ -3912,7 +3960,7 @@ export function bookSeries(
   const baseIso = isoDateOf(b.startsAt);
   const minutes = minuteOfDay(b.startsAt);
   for (let k = 1; k <= count; k++) {
-    const target = dayStart(addDays(baseIso, everyWeeks * 7 * k)) + minutes * 60_000;
+    const target = atMinute(addDays(baseIso, everyWeeks * 7 * k), minutes);
     // Rerunning the same series must not double it: a member already holding
     // this exact seat counts as done, not as a new booking.
     const dup = [...state.bookings.values()].some(
@@ -4207,6 +4255,8 @@ export function setBookingStatus(
   const b = state.bookings.get(bookingId);
   if (!b || b.shopId !== shopId) throw new Error('not_found');
   if (status === 'completed') {
+    // Re-completing settles a later shelf sale; anything else must have been booked.
+    if (b.status !== 'confirmed' && b.status !== 'completed') throw new Error('not_completable');
     b.status = 'completed';
     b.completedAt = Date.now();
     b.paidCents = b.quote.totalCents;
@@ -4546,6 +4596,33 @@ function redeemGiftCard(b: Booking): void {
   card.redemptions.push({ at: Date.now(), cents, reference: b.reference });
 }
 
+/**
+ * The card's share of a called-off visit goes back on the card, under the
+ * same policy as money: a free cancellation returns all of it, a late one or
+ * a no-show keeps the fee's share.
+ */
+function returnGiftCardShare(b: Booking, opts: { by: 'customer' | 'shop'; isNoShow?: boolean }): void {
+  if (!b.voucherCode) return;
+  const card = state.giftCards.get(b.voucherCode);
+  if (!card) return;
+  const spent = card.redemptions.filter((r) => r.reference === b.reference).reduce((n, r) => n + r.cents, 0);
+  if (spent <= 0) return;
+  const back = cancellationOutcome({
+    totalCents: spent,
+    paidCents: spent,
+    startsAt: b.startsAt,
+    cancelledAt: Date.now(),
+    freeUntilHours: b.policySnapshot.freeUntilHours,
+    lateFeePercent: b.policySnapshot.lateFeePercent,
+    noShowFeePercent: b.policySnapshot.noShowFeePercent,
+    isNoShow: opts.isNoShow ?? false,
+    cancelledBy: opts.by,
+  }).refundCents;
+  if (back <= 0) return;
+  card.balanceCents += back;
+  card.redemptions.push({ at: Date.now(), cents: -back, reference: b.reference });
+}
+
 export type VoucherResult =
   | { ok: true; voucher: Voucher; discountCents: number; giftBalanceCents?: number }
   | { ok: false; reason: 'unknown_code' | 'min_subtotal' | 'empty_card'; minSubtotalCents?: number };
@@ -4728,7 +4805,7 @@ export function setReviewReply(shopId: string, bookingId: string, text: string):
   const b = state.bookings.get(bookingId);
   if (!b || b.shopId !== shopId || !b.review) throw new Error('not_found');
   const trimmed = text.trim();
-  if (trimmed) b.reviewReply = { text: trimmed, at: new Date().toISOString().slice(0, 10) };
+  if (trimmed) b.reviewReply = { text: trimmed, at: todayIso() };
   else delete b.reviewReply;
   persist();
 }
@@ -6635,7 +6712,7 @@ export function customerRecap(deviceId: string, year: number): YearRecap {
   let freeVisits = 0;
   for (const b of state.bookings.values()) {
     if (b.deviceId !== deviceId || b.status !== 'completed') continue;
-    if (new Date(b.startsAt).getFullYear() !== year) continue;
+    if (Number(isoDateOf(b.startsAt).slice(0, 4)) !== year) continue;
     visits += 1;
     spentCents += b.quote.totalCents + (b.tipCents ?? 0);
     savedCents += b.quote.discountCents;
@@ -6644,7 +6721,8 @@ export function customerRecap(deviceId: string, year: number): YearRecap {
     byShop.set(b.shopId, (byShop.get(b.shopId) ?? 0) + 1);
     byStaff.set(`${b.shopId}:${b.staffId}`, (byStaff.get(`${b.shopId}:${b.staffId}`) ?? 0) + 1);
     byDow.set(isoDow(b.startsAt), (byDow.get(isoDow(b.startsAt)) ?? 0) + 1);
-    byHour.set(new Date(b.startsAt).getHours(), (byHour.get(new Date(b.startsAt).getHours()) ?? 0) + 1);
+    const hour = Math.floor(minuteOfDay(b.startsAt) / 60);
+    byHour.set(hour, (byHour.get(hour) ?? 0) + 1);
   }
   const top = <K,>(m: Map<K, number>): K | null =>
     [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
@@ -7550,9 +7628,9 @@ function birthdayWindow(deviceId: string, startsAt: number): boolean {
   const bd = careProfile(deviceId).birthday;
   if (!bd) return false;
   const [mm, dd] = bd.split('-').map(Number);
-  const d = new Date(startsAt);
-  for (const year of [d.getFullYear() - 1, d.getFullYear(), d.getFullYear() + 1]) {
-    const b = new Date(year, mm - 1, dd, 12).getTime();
+  const y = Number(isoDateOf(startsAt).slice(0, 4));
+  for (const year of [y - 1, y, y + 1]) {
+    const b = dayStart(`${year}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`) + 12 * 36e5;
     if (Math.abs(startsAt - b) <= BIRTHDAY_WINDOW_DAYS * 864e5) return true;
   }
   return false;
@@ -8396,3 +8474,16 @@ export function resolveDispute(
 // temporal dead zone if this ran up beside the localStorage restore. Guarded
 // inside, so a restored snapshot carrying real bookings is never overwritten.
 if (IS_BROWSER) seedDemoIfEmpty();
+
+/** One waitlist entry by id — the API route needs its owner to check a DELETE. */
+export function waitlistEntry(id: string): WaitlistEntry | undefined {
+  return state.waitlist.get(id);
+}
+
+/** Read-only copies of every booking and gift card, for scripts/db-check.ts. */
+export function integritySnapshot(): { bookings: Booking[]; giftCards: GiftCard[] } {
+  return {
+    bookings: [...state.bookings.values()].map((b) => structuredClone(b)),
+    giftCards: [...state.giftCards.values()].map((c) => structuredClone(c)),
+  };
+}

@@ -38,6 +38,18 @@ export function dayStart(isoDate: string): number {
   return guess - offsetAt(once); // second pass handles DST-transition midnights
 }
 
+/**
+ * Epoch of a wall-clock minute (0–1439) on a local date. Not dayStart + n
+ * minutes: on the two days a year the clocks change, that drifts by an hour.
+ */
+export function atMinute(isoDate: string, minute: number): number {
+  const hh = String(Math.floor(minute / 60)).padStart(2, '0');
+  const mm = String(minute % 60).padStart(2, '0');
+  const guess = Date.parse(`${isoDate}T${hh}:${mm}:00Z`);
+  const once = guess - offsetAt(guess);
+  return guess - offsetAt(once);
+}
+
 export function isoDateOf(epoch: number): string {
   const p = parts(epoch);
   return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;

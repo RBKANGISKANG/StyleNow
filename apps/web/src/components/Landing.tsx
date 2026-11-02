@@ -14,10 +14,11 @@ export function RotatingWord() {
     const id = setInterval(() => setI((n) => (n + 1) % words.length), 2400);
     return () => clearInterval(id);
   }, [words.length]);
+  const word = words[i % words.length];
   return (
     <span className="rot" aria-live="off">
-      <span key={`${words[i]}-${i}`} className="rot-word">
-        {words[i % words.length]}
+      <span key={`${word}-${i}`} className="rot-word">
+        {word}
       </span>
     </span>
   );

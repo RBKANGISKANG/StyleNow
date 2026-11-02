@@ -48,7 +48,7 @@ import {
   payAtSalonOf, setPayAtSalon, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
-import { todayIso, addDays, isoDow, dayStart, isoDateOf } from '../time';
+import { todayIso, addDays, isoDow, dayStart, isoDateOf, atMinute } from '../time';
 
 setLocalPersistence(false);
 
@@ -346,7 +346,11 @@ const st1 = stampStatus(shop.id, 'dev-stamp');
 assert.equal(st1.stamps, 10, 'the free visit itself earns no stamp');
 assert.equal(st1.rewardsAvailable, 0, 'and the reward is spent');
 
-// The shop cancelling the free visit hands the reward back — derived, not stored.
+// A visit that already happened cannot be cancelled after the fact.
+assert.throws(() => cancelBooking(fBooking.id, { preview: false, by: 'shop' }), /not_cancellable/);
+// The shop cancelling the free visit hands the reward back — derived, not
+// stored. Fixture surgery: put it back to booked to exercise that path.
+fBooking.status = 'confirmed';
 cancelBooking(fBooking.id, { preview: false, by: 'shop' });
 assert.equal(stampStatus(shop.id, 'dev-stamp').rewardsAvailable, 1, 'a cancelled free visit returns the reward');
 
@@ -847,9 +851,11 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
     const s = availability(shop5.id, [gapSvc.id], dayIso, 'dev-gap', null).slots.find((x) => x.start > Date.now());
     if (!s) continue;
     try {
-      const h = createHold({ shopId: shop5.id, serviceIds: [gapSvc.id], staffId: null, startsAt: s.start, deviceId: 'dev-gap', guestName: 'G', idempotencyKey: 'gap-1' });
+      const h = createHold({ shopId: shop5.id, serviceIds: [gapSvc.id], staffId: null, startsAt: s.start, deviceId: 'dev-gap', guestName: 'G', idempotencyKey: `gap-${d}` });
       confirmBooking(h.bookingId);
-      iso = dayIso;
+      // The first free slot can itself sit inside another colour client's
+      // Einwirkzeit, filling it — then its own gap is genuinely taken too.
+      if (gapWindows(shop5.id, dayIso).some((g) => g.bookingRef === getBooking(h.bookingId)!.reference)) iso = dayIso;
     } catch { /* next day */ }
   }
   assert.ok(iso, 'fixture: a colour booking');
@@ -1577,7 +1583,7 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   // fixture surgery: pull the visit to a minute from now, same licence as the
   // drift block (an hour ahead crosses midnight when the suite runs late)
   const span = lb.endsAt - lb.startsAt;
-  lb.startsAt = Date.now() + 60_000;
+  lb.startsAt = Math.max(dayStart(todayIso()), Date.now() - 60_000); // under way, and always today
   lb.endsAt = lb.startsAt + span;
   assert.throws(() => setRunningLate(held, 'stranger', 15), /not_yours/);
   assert.throws(() => setRunningLate(held, dev, 200), /bad_minutes/);
@@ -1686,7 +1692,7 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   const span = lb.endsAt - lb.startsAt;
   const was = lb.startsAt;
   // fixture surgery: park it later today
-  lb.startsAt = Date.now() + 60_000; // a minute ahead: later offsets cross midnight on late runs
+  lb.startsAt = Math.max(dayStart(todayIso()), Date.now() - 60_000); // under way, and always today
   lb.endsAt = lb.startsAt + span;
   setRunningLate(held, dev, 15);
   assert.equal(getBooking(held)!.lateByMin, 15);
@@ -2305,6 +2311,58 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(getBooking(noDeposit)!.stripe!.refundedCents, 2000, 'a double-tap cannot over-refund');
   assert.equal(stripeRefundableCents('no-such-booking'), 0, 'an unknown booking refunds nothing');
   assert.equal(stripeRefundableCents(withDeposit), 0, 'and so does one no card ever paid for');
+}
+
+// --- full-audit fixes: money on cancellation, card double-spend, VAT, guards, DST ---
+{
+  const shop = allShops().find((s) => s.depositPercent === 0) ?? allShops()[1];
+  const svc = effectiveServices(shop.id).find((s) => s.basePriceCents > 0 && !s.requiresPatchTest && !s.consultationFirst)!;
+  const roomyDay = (dev: string) => {
+    for (let d = 3; d <= 45; d++) {
+      const sl = availability(shop.id, [svc.id], addDays(todayIso(), d), dev, null).slots;
+      if (sl.length >= 8) return sl;
+    }
+    throw new Error('fixture: no roomy day');
+  };
+  const hold = (dev: string, startsAt: number, key: string, extra: Record<string, unknown> = {}) =>
+    createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt, deviceId: dev, guestName: 'Audit', idempotencyKey: key, ...extra });
+
+  // A shop cancellation hands the gift card's share back to the card.
+  const card = buyGiftCard(shop.id, 'dev-audit', 50_000);
+  const sl = roomyDay('dev-audit');
+  const paidByCard = hold('dev-audit', sl[0].start, 'aud-1', { voucherCode: card.code });
+  confirmBooking(paidByCard.bookingId);
+  assert.ok(giftCard(card.code)!.balanceCents < 50_000, 'the visit spent from the card');
+  cancelBooking(paidByCard.bookingId, { preview: false, by: 'shop' });
+  assert.equal(giftCard(card.code)!.balanceCents, 50_000, 'and a shop cancellation puts it all back');
+
+  // Nothing can be cancelled or completed twice over.
+  assert.throws(() => cancelBooking(paidByCard.bookingId, { preview: false, by: 'shop' }), /not_cancellable/);
+  assert.throws(() => setBookingStatus(shop.id, paidByCard.bookingId, 'completed'), /not_completable/);
+
+  // Two holds quoting one small card: only the first confirm may spend it.
+  const tiny = buyGiftCard(shop.id, 'dev-audit2', 1_000);
+  const a = hold('dev-audit2', sl[2].start, 'aud-2', { voucherCode: tiny.code });
+  const b2 = hold('dev-audit2', sl[5].start, 'aud-3', { voucherCode: tiny.code });
+  confirmBooking(a.bookingId);
+  assert.throws(() => confirmBooking(b2.bookingId), /gift_insufficient/, 'the second hold cannot ride on a spent card');
+
+  // VAT follows the discounted price, not the list price.
+  const discounted = hold('dev-audit3', sl[7].start, 'aud-4', { voucherCode: 'WELCOME10' });
+  const q = getBooking(discounted.bookingId)!.quote;
+  const expectVat = Math.round((q.totalCents * svc.vatRateBps) / (10_000 + svc.vatRateBps));
+  assert.ok(Math.abs(q.vatCents - expectVat) <= 2, `VAT ${q.vatCents} should match the discounted total (${expectVat})`);
+
+  // A customer cannot move a visit into the past.
+  confirmBooking(discounted.bookingId);
+  assert.throws(
+    () => rescheduleBooking(shop.id, discounted.bookingId, Date.now() - 2 * 36e5, null, { byDevice: 'dev-audit3' }),
+    /past/,
+  );
+
+  // Wall-clock times stay put on the days the clocks change.
+  assert.equal(atMinute('2026-10-25', 600), Date.UTC(2026, 9, 25, 9), '10:00 on the autumn change is 09:00 UTC');
+  assert.equal(atMinute('2027-03-28', 600), Date.UTC(2027, 2, 28, 8), '10:00 on the spring change is 08:00 UTC');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

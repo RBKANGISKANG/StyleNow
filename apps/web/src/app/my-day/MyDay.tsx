@@ -157,11 +157,11 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
             <div className="spinner" />
           ) : (
             <>
-              <div className="md-hero">
+              {me && <div className="md-hero">
                 <div className="md-hero-hi">
-                  <span className="md-avatar" aria-hidden>{me?.name?.[0] ?? '✂'}</span>
+                  <span className="md-avatar" aria-hidden>{me.name[0]}</span>
                   <div>
-                    <b>{t('md_hello', { name: me?.name ?? '' })}</b>
+                    <b>{t('md_hello', { name: me.name })}</b>
                     <span>
                       {t('md_appointments')}: {myBookings.length} · ✂️ {workingMin ? hours(workingMin) : '—'}
                     </span>
@@ -183,7 +183,7 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
                     </div>
                   );
                 })()}
-              </div>
+              </div>}
 
               <div className="stat-row">
                 <div className="stat-tile">
