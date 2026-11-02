@@ -157,6 +157,34 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
             <div className="spinner" />
           ) : (
             <>
+              <div className="md-hero">
+                <div className="md-hero-hi">
+                  <span className="md-avatar" aria-hidden>{me?.name?.[0] ?? '✂'}</span>
+                  <div>
+                    <b>{t('md_hello', { name: me?.name ?? '' })}</b>
+                    <span>
+                      {t('md_appointments')}: {myBookings.length} · ✂️ {workingMin ? hours(workingMin) : '—'}
+                    </span>
+                  </div>
+                </div>
+                {date === todayIso() && nextIdx >= 0 && (() => {
+                  const nb = myBookings[nextIdx];
+                  const mins = Math.max(0, Math.round((nb.startsAt - now) / 60_000));
+                  return (
+                    <div className="md-next-card">
+                      <span className="md-next-lbl">
+                        <span className="live-dot" /> {t('md_next')} · {t('md_in', { t: mins >= 60 ? hours(mins) : `${mins} min` })}
+                      </span>
+                      <b>
+                        {timeOf(nb.startsAt, lang)} · {nb.guestName}
+                      </b>
+                      <span>{nb.serviceNames.join(', ')}</span>
+                      {nb.guestNote && <em>💬 {nb.guestNote}</em>}
+                    </div>
+                  );
+                })()}
+              </div>
+
               <div className="stat-row">
                 <div className="stat-tile">
                   <div className="lbl">{t('md_appointments')}</div>

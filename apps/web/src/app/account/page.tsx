@@ -5,6 +5,8 @@ import { useI18n } from '@/lib/i18n';
 import { useAuth, emptyProfile, type Profile } from '@/lib/auth';
 import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData, apiCareProfile, apiSetBirthday, apiSetAccessNeeds, apiSetAllergies } from '@/lib/api';
 import { ReferralPanel } from '@/components/ReferralPanel';
+import { useTheme, type ThemePref } from '@/lib/design';
+import { UI_LANGUAGES } from '@/lib/languages';
 import { useConfirm } from '@/components/ConfirmDialog';
 
 const SOCIALS = [
@@ -24,6 +26,7 @@ export default function AccountPage() {
         <h1>👤 {t('acc_title')}</h1>
       </div>
       {user ? <ProfileView /> : <AuthForms />}
+      <Preferences />
       {/* Device data exists with or without an account — so do its rights. */}
       {!user && <GuestPrivacy />}
       <CarePanel />
@@ -278,18 +281,22 @@ function ProfileView() {
 
   return (
     <>
-      <div className="panel">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div className="avatar" style={{ background: 'var(--primary)', margin: 0 }}>{user.name[0]?.toUpperCase() ?? '?'}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800 }}>{t('acc_welcome', { name: user.name })}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--ink-soft)' }}>
-              {user.email} · {t('acc_via')} {user.provider}
-            </div>
-            {user.demo && <span className="st-badge st-pending_payment" style={{ marginTop: 4, display: 'inline-block' }}>{t('acc_demo_badge')}</span>}
-          </div>
-          <button className="btn btn-soft sm" onClick={() => void logout()}>{t('acc_signout')}</button>
+      <div className="acc-hero">
+        <div className="acc-avatar" aria-hidden>{user.name[0]?.toUpperCase() ?? '?'}</div>
+        <div className="acc-hero-txt">
+          <b>{t('acc_welcome', { name: user.name })}</b>
+          <span>
+            {user.email} · {t('acc_via')} {user.provider}
+          </span>
+          {user.demo && <span className="acc-demo">{t('acc_demo_badge')}</span>}
         </div>
+        <button className="btn acc-signout sm" onClick={() => void logout()}>{t('acc_signout')}</button>
+      </div>
+      <div className="acc-quick">
+        <Link href="/bookings"><span>📅</span>{t('nav_bookings')}</Link>
+        <Link href="/favourites"><span>❤️</span>{t('fav_title')}</Link>
+        <Link href="/messages"><span>💬</span>{t('mg_title')}</Link>
+        <Link href="/deals"><span>⚡</span>{t('dl_title')}</Link>
       </div>
 
       <div className="panel" style={{ marginTop: 14 }}>
@@ -313,14 +320,6 @@ function ProfileView() {
         </button>
       </div>
 
-      {/* The design switch lives in the header for quick comparison; this is
-          where you go to see what it actually changes. */}
-      <div className="panel" style={{ marginTop: 14 }}>
-        <Link className="btn btn-soft" href="/design">
-          {t('ds_title')} →
-        </Link>
-        <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('ds_lead')}</p>
-      </div>
 
       {/* Invite a friend: they save €5 on a first booking over €25; when it
           confirms, a €5 gift card lands on your account automatically. */}
@@ -500,6 +499,40 @@ function CarePanel() {
         💾 {t('acc_save')}
       </button>
       {saved && <span style={{ marginLeft: 10, color: 'var(--teal)', fontSize: '0.85rem' }}>✅</span>}
+    </div>
+  );
+}
+function Preferences() {
+  const { t, uiLang, setUiLang } = useI18n();
+  const { pref, setPref } = useTheme();
+  const modes: Array<[ThemePref, string, string]> = [
+    ['light', '☀️', t('theme_l')],
+    ['dark', '🌙', t('theme_d')],
+    ['system', '🖥️', t('theme_auto')],
+  ];
+  return (
+    <div className="panel acc-prefs" style={{ marginTop: 14 }}>
+      <h3>{t('acc_prefs')}</h3>
+      <div className="acc-pref-row">
+        <span>{t('acc_appearance')}</span>
+        <div className="seg-x" role="radiogroup" aria-label={t('acc_appearance')}>
+          {modes.map(([m, ico, label]) => (
+            <button key={m} role="radio" aria-checked={pref === m} className={pref === m ? 'on' : ''} onClick={() => setPref(m)}>
+              {ico} {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="acc-pref-row">
+        <span>{t('lang_pick')}</span>
+        <select className="input acc-lang" value={uiLang} onChange={(e) => setUiLang(e.target.value)}>
+          {UI_LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.flag} {l.name}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }

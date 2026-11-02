@@ -134,7 +134,10 @@ function TodayTab({ shopId }: { shopId: string }) {
     if (centred.current || span !== 'day' || !stripRef.current) return;
     const sel = stripRef.current.querySelector('.date-pill.sel') as HTMLElement | null;
     if (!sel) return;
-    stripRef.current.scrollLeft = Math.max(sel.offsetLeft - 12, 0);
+    const strip = stripRef.current;
+    // offsetLeft is measured from the nearest positioned ancestor, not the
+    // strip, so it overshot and scrolled today out of view.
+    strip.scrollLeft += sel.getBoundingClientRect().left - strip.getBoundingClientRect().left - 12;
     centred.current = true;
   }, [span, data]);
 
