@@ -411,6 +411,9 @@ function RetailJot({
   }, [shopId]);
   useEffect(() => {
     setSold(booking.retail ?? []);
+    // Only a different booking resets the list; a re-render of the same one
+    // must not throw away sales rung up since the dialog opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booking.id]);
   if (items.length === 0) return null;
   return (

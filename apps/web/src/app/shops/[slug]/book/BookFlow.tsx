@@ -364,7 +364,8 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [watchSet, setWatchSet] = useState(false);
   // A different stylist, service OR day-of-week is a different wish — the
   // button un-disables for it (the engine dedupes identical re-adds anyway).
-  useEffect(() => setWatchSet(false), [staffId, serviceIds.join(','), watchDow]);
+  const serviceKey = serviceIds.join(',');
+  useEffect(() => setWatchSet(false), [staffId, serviceKey, watchDow]);
   const [staffLangs, setStaffLangs] = useState<Record<string, string[]>>({});
   useEffect(() => {
     let alive = true;

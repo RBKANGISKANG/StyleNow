@@ -22,7 +22,8 @@
     "test:hours": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/core/__tests__/hours.test.ts",
     "test:requests": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/core/__tests__/requests.test.ts",
     "test:payments": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/core/__tests__/payments.test.ts",
-    "db:check": "tsx --tsconfig apps/web/tsconfig.json scripts/db-check.ts"
+    "db:check": "tsx --tsconfig apps/web/tsconfig.json scripts/db-check.ts",
+    "lint": "npm run lint -w @stylenow/web"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

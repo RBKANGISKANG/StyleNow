@@ -764,7 +764,7 @@ function NewBooking({
         setStartsAt(nearest.start);
       }
     });
-  }, [open, shopId, serviceId, staffId, date, prefill]);
+  }, [open, shopId, serviceId, staffId, date, prefill, isPast]);
 
   const create = async () => {
     if (!startsAt || !customer.trim()) return;

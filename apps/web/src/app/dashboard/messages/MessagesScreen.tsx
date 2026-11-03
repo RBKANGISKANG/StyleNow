@@ -79,7 +79,9 @@ function MessagesTab({ shopId }: { shopId: string }) {
       if (!needle) return true;
       return `${label(r)} ${r.customerPhone} ${r.lastMessage?.text ?? ''}`.toLowerCase().includes(needle);
     });
-  }, [threads, q, unreadOnly]);
+    // label() reads only t(), so the language is the dependency that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads, q, unreadOnly, t]);
 
   const paged = usePaged(filtered, 15, `${q}|${unreadOnly}`);
   const chosen = (threads ?? []).find((r) => r.customerKey === open) ?? null;
