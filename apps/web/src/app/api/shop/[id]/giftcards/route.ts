@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buyGiftCard, giftCardsForShop, GIFT_MIN_CENTS, GIFT_MAX_CENTS } from '@/core/store';
-import { cleanPayment, stripeGuard } from '@/app/api/_lib/guards';
+import { buyGiftCard, giftCardsForShop, sellGiftCardAtCounter, GIFT_MIN_CENTS, GIFT_MAX_CENTS } from '@/core/store';
+import { badRequest, cleanPayment, isStr, stripeGuard } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +36,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       cleanPayment(body.payment),
     );
     return NextResponse.json({ card });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
+}
+
+/** A card sold over the counter (paid at the salon): { amountCents, toName? }. */
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  const body = await req.json().catch(() => ({}));
+  if (typeof body.amountCents !== 'number' || (body.toName != null && !isStr(body.toName))) return badRequest();
+  try {
+    return NextResponse.json({ card: sellGiftCardAtCounter(params.id, body.amountCents, body.toName ?? undefined) });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
