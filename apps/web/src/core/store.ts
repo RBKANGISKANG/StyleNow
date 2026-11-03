@@ -474,6 +474,7 @@ interface State {
   shopPhotos: Map<string, ShopPhoto[]>; // shopId → gallery, first one is the cover
   customCategories: Map<string, string>; // id → label
   shopOwners: Map<string, string>; // shopId → ownerKey (account email or device)
+  shopMembers: Map<string, string[]>; // demo shops: further owner keys that joined without displacing the owner
   customServices: Map<string, SeedService[]>; // shopId → services the shop added
   archivedServices: Set<string>; // services are archived, never dropped (old receipts must render)
   customRules: Map<string, PricingRule[]>; // shopId → rules the shop authored
@@ -562,6 +563,7 @@ const state: State =
     shopPhotos: new Map(),
     customCategories: new Map(),
     shopOwners: new Map(),
+    shopMembers: new Map(),
     customServices: new Map(),
     archivedServices: new Set(),
     customRules: new Map(),
@@ -655,6 +657,7 @@ function persist(): boolean {
         shopPhotos: [...state.shopPhotos.entries()],
         customCategories: [...state.customCategories.entries()],
         shopOwners: [...state.shopOwners.entries()],
+        shopMembers: [...state.shopMembers.entries()],
         customServices: [...state.customServices.entries()],
         archivedServices: [...state.archivedServices],
         customRules: [...state.customRules.entries()],
@@ -725,6 +728,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         shopPhotos?: Array<[string, ShopPhoto[]]>;
         customCategories?: Array<[string, string]>;
         shopOwners?: Array<[string, string]>;
+        shopMembers?: Array<[string, string[]]>;
         customServices?: Array<[string, SeedService[]]>;
         archivedServices?: string[];
         customRules?: Array<[string, PricingRule[]]>;
@@ -782,6 +786,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.shopPhotos = new Map(d.shopPhotos ?? []);
       state.customCategories = new Map(d.customCategories ?? []);
       state.shopOwners = new Map(d.shopOwners ?? []);
+      state.shopMembers = new Map(d.shopMembers ?? []);
       state.customServices = new Map(d.customServices ?? []);
       state.archivedServices = new Set(d.archivedServices ?? []);
       state.customRules = new Map(d.customRules ?? []);
@@ -1350,16 +1355,44 @@ export function applyExternalState(snapshot: {
 // --- shop ownership: a dashboard only ever shows the operator's own shops ---
 
 export function shopsForOwner(ownerKey: string): string[] {
-  return [...state.shopOwners.entries()].filter(([, o]) => o === ownerKey).map(([id]) => id);
+  const ids = new Set([...state.shopOwners.entries()].filter(([, o]) => o === ownerKey).map(([id]) => id));
+  for (const [id, keys] of state.shopMembers) if (keys.includes(ownerKey)) ids.add(id);
+  return [...ids];
 }
 
+/** Does this key run the shop — as its owner, or as a member of a demo shop? */
+export function isShopOwner(shopId: string, ownerKey: string): boolean {
+  if (!ownerKey) return false;
+  return state.shopOwners.get(shopId) === ownerKey || (state.shopMembers.get(shopId) ?? []).includes(ownerKey);
+}
+
+/**
+ * A shop belongs to whoever claims it first. The seeded demo shops are shared
+ * on purpose — everyone trying the dashboard joins as a member — but a real
+ * shop that already has an owner cannot be taken over by claiming it again.
+ */
 export function claimShop(shopId: string, ownerKey: string): void {
-  state.shopOwners.set(shopId, ownerKey);
+  const owner = state.shopOwners.get(shopId);
+  if (!owner || owner === ownerKey) {
+    state.shopOwners.set(shopId, ownerKey);
+  } else if (SHOPS.some((s) => s.id === shopId)) {
+    const keys = state.shopMembers.get(shopId) ?? [];
+    if (!keys.includes(ownerKey)) state.shopMembers.set(shopId, [...keys, ownerKey]);
+  } else {
+    throw new Error('already_owned');
+  }
   persist();
 }
 
-export function releaseShop(shopId: string): void {
-  state.shopOwners.delete(shopId);
+/** Let go of a shop: the owner frees it; a demo member only leaves it. */
+export function releaseShop(shopId: string, ownerKey?: string): void {
+  if (ownerKey === undefined || state.shopOwners.get(shopId) === ownerKey) {
+    state.shopOwners.delete(shopId);
+  } else {
+    const keys = (state.shopMembers.get(shopId) ?? []).filter((k) => k !== ownerKey);
+    if (keys.length) state.shopMembers.set(shopId, keys);
+    else state.shopMembers.delete(shopId);
+  }
   persist();
 }
 

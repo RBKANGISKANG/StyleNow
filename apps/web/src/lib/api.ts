@@ -61,21 +61,18 @@ function post(url: string, body: unknown, method = 'POST'): Promise<Response> {
 }
 
 /** GET JSON from this deployment's /api; null when the request fails (reads degrade like an empty store). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getJson(url: string): Promise<any | null> {
   const res = await fetch(url).catch(() => null);
   return res?.ok ? res.json().catch(() => null) : null;
 }
 
 /** POST a JSON query to this deployment's /api; null when it fails (for reads whose input is a list). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function postJson(url: string, body: unknown): Promise<any | null> {
   const res = await post(url, body).catch(() => null);
   return res?.ok ? res.json().catch(() => null) : null;
 }
 
 /** The JSON body of a server-mode write, or throw its error code — as the local engine call would. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function okJson(res: Response): Promise<any> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? 'error');
@@ -1091,9 +1088,9 @@ export async function apiMyNotices(ownerKey: string | null): Promise<AppNotice[]
 // ---- shop backup & restore ------------------------------------------------
 
 /** The shop's whole configuration as one downloadable document. */
-export async function apiShopBackup(shopId: string): Promise<store.ShopConfig | null> {
+export async function apiShopBackup(shopId: string, ownerKey: string): Promise<store.ShopConfig | null> {
   if (backendMode() === 'server') {
-    return (await getJson(`/api/shop/${shopId}/backup`))?.doc ?? null;
+    return (await getJson(`/api/shop/${shopId}/backup?ownerKey=${encodeURIComponent(ownerKey)}`))?.doc ?? null;
   }
   await readyForRead();
   try {
@@ -1103,9 +1100,9 @@ export async function apiShopBackup(shopId: string): Promise<store.ShopConfig | 
   }
 }
 
-export async function apiShopRestore(shopId: string, doc: store.ShopConfig): Promise<boolean> {
+export async function apiShopRestore(shopId: string, doc: store.ShopConfig, ownerKey: string): Promise<boolean> {
   if (backendMode() === 'server') {
-    return (await post(`/api/shop/${shopId}/backup`, { doc })).ok;
+    return (await post(`/api/shop/${shopId}/backup`, { doc, ownerKey })).ok;
   }
   await localWrite();
   try {
@@ -1375,13 +1372,13 @@ export async function apiClaimShop(shopId: string, ownerKey: string): Promise<vo
   syncConfig(shopId);
 }
 
-export async function apiReleaseShop(shopId: string): Promise<void> {
+export async function apiReleaseShop(shopId: string, ownerKey: string): Promise<void> {
   if (backendMode() === 'server') {
-    await okJson(await fetch(`/api/shop/${shopId}/owner`, { method: 'DELETE' }));
+    await okJson(await fetch(`/api/shop/${shopId}/owner?ownerKey=${encodeURIComponent(ownerKey)}`, { method: 'DELETE' }));
     return;
   }
   await localWrite();
-  store.releaseShop(shopId);
+  store.releaseShop(shopId, ownerKey);
   syncConfig(shopId);
 }
 

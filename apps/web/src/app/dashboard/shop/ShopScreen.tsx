@@ -270,7 +270,7 @@ function ShopTab({
 
       <section className="section">
         <h2>💾 {t('bk_title')}</h2>
-        <BackupPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+        <BackupPanel shopId={shopId} ownerKey={ownerKey ?? ""} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -314,7 +314,7 @@ function ShopTab({
                 confirmLabel: t('co_del_confirm'),
                 run: async (answers) => {
                   await apiRecordExitFeedback('shop', shopId, answers);
-                  await apiReleaseShop(shopId);
+                  await apiReleaseShop(shopId, ownerKey);
                   refresh();
                 },
               });
@@ -758,13 +758,13 @@ function AnnouncementPanel({ shopId, onChanged }: { shopId: string; onChanged: (
  * so obliging. Restore merges only this shop's slice, exactly like a sync
  * document, then pushes to the shop's other devices.
  */
-function BackupPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+function BackupPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKey: string; onChanged: (msg: string) => void }) {
   const { t } = useI18n();
   const { ask, dialog } = useConfirm();
   const [busy, setBusy] = useState(false);
 
   const download = async () => {
-    const doc = await apiShopBackup(shopId);
+    const doc = await apiShopBackup(shopId, ownerKey);
     if (!doc) return;
     const stamp = todayIso();
     const blob = new Blob([JSON.stringify({ shopId, exportedAt: new Date().toISOString(), config: doc }, null, 2)], {
@@ -804,7 +804,7 @@ function BackupPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: s
         confirmLabel: t('bk_restore_confirm'),
         run: async () => {
           setBusy(true);
-          const ok = await apiShopRestore(shopId, config);
+          const ok = await apiShopRestore(shopId, config, ownerKey);
           setBusy(false);
           onChanged(ok ? '✅ ' + t('bk_restored') : '⚠️ ' + t('bk_bad_file'));
         },

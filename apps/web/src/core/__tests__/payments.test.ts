@@ -45,7 +45,7 @@ import {
   addRefPhoto, removeRefPhoto, REF_PHOTO_MAX, toggleFollowStaff, followedStaff, followedOpenings,
   earliestAcross, leaveBy, cancelReasonStats, durationHint, followedOpeningsFor,
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
-  payAtSalonOf, setPayAtSalon, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
+  payAtSalonOf, setPayAtSalon, claimShop, releaseShop, isShopOwner, shopsForOwner, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf, atMinute } from '../time';
@@ -2363,6 +2363,22 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   // Wall-clock times stay put on the days the clocks change.
   assert.equal(atMinute('2026-10-25', 600), Date.UTC(2026, 9, 25, 9), '10:00 on the autumn change is 09:00 UTC');
   assert.equal(atMinute('2027-03-28', 600), Date.UTC(2027, 2, 28, 8), '10:00 on the spring change is 08:00 UTC');
+}
+
+// --- shop ownership: no takeovers, shared demo shops, release only your own ---
+{
+  const demo = allShops()[2].id;
+  claimShop(demo, 'owner-a');
+  claimShop(demo, 'owner-b'); // a seeded demo shop: b joins, a is not displaced
+  assert.ok(isShopOwner(demo, 'owner-a') && isShopOwner(demo, 'owner-b'), 'both run the demo shop');
+  assert.ok(!isShopOwner(demo, 'owner-c'));
+  releaseShop(demo, 'owner-b');
+  assert.ok(isShopOwner(demo, 'owner-a') && !isShopOwner(demo, 'owner-b'), 'a member leaving does not free the shop');
+  assert.ok(shopsForOwner('owner-a').includes(demo));
+  // A real (non-seeded) shop someone owns cannot be claimed out from under them.
+  claimShop('shop-real-test', 'owner-a');
+  assert.throws(() => claimShop('shop-real-test', 'owner-z'), /already_owned/);
+  assert.ok(isShopOwner('shop-real-test', 'owner-a'));
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');
