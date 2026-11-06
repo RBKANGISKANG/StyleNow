@@ -31,6 +31,7 @@ import {
 } from '@stylenow/api/modules/booking/booking.service';
 import {
   SHOPS,
+  STANDARD_RULES,
   USER_LOCATION,
   VOUCHERS,
   LOYALTY_EARN_PER_EURO,
@@ -40,6 +41,7 @@ import {
   type Voucher,
 } from './seed';
 import { atMinute, dayStart, isoDateOf, isoDow, minuteOfDay, addDays, todayIso } from './time';
+import { resolveLocation } from './geo';
 
 const MIN = 60_000;
 
@@ -461,6 +463,10 @@ export interface ShopApplication {
   status: 'pending' | 'approved' | 'rejected';
   data: Record<string, unknown>;
   createdAt: number;
+  /** The live salon an approved application became. */
+  shopId?: string;
+  decidedAt?: number;
+  rejectReason?: string;
 }
 
 interface State {
@@ -475,6 +481,9 @@ interface State {
   customCategories: Map<string, string>; // id → label
   shopOwners: Map<string, string>; // shopId → ownerKey (account email or device)
   shopMembers: Map<string, string[]>; // demo shops: further owner keys that joined without displacing the owner
+  registeredShops: Map<string, SeedShop>; // salons that signed up through the partner form
+  pausedShops: Set<string>; // taken off search and booking by the platform
+  platform: { requireApproval: boolean };
   customServices: Map<string, SeedService[]>; // shopId → services the shop added
   archivedServices: Set<string>; // services are archived, never dropped (old receipts must render)
   customRules: Map<string, PricingRule[]>; // shopId → rules the shop authored
@@ -564,6 +573,9 @@ const state: State =
     customCategories: new Map(),
     shopOwners: new Map(),
     shopMembers: new Map(),
+    registeredShops: new Map(),
+    pausedShops: new Set(),
+    platform: { requireApproval: false },
     customServices: new Map(),
     archivedServices: new Set(),
     customRules: new Map(),
@@ -658,6 +670,9 @@ function persist(): boolean {
         customCategories: [...state.customCategories.entries()],
         shopOwners: [...state.shopOwners.entries()],
         shopMembers: [...state.shopMembers.entries()],
+        registeredShops: [...state.registeredShops.entries()],
+        pausedShops: [...state.pausedShops],
+        platform: state.platform,
         customServices: [...state.customServices.entries()],
         archivedServices: [...state.archivedServices],
         customRules: [...state.customRules.entries()],
@@ -729,6 +744,9 @@ if (IS_BROWSER && state.bookings.size === 0) {
         customCategories?: Array<[string, string]>;
         shopOwners?: Array<[string, string]>;
         shopMembers?: Array<[string, string[]]>;
+        registeredShops?: Array<[string, SeedShop]>;
+        pausedShops?: string[];
+        platform?: { requireApproval: boolean };
         customServices?: Array<[string, SeedService[]]>;
         archivedServices?: string[];
         customRules?: Array<[string, PricingRule[]]>;
@@ -787,6 +805,9 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.customCategories = new Map(d.customCategories ?? []);
       state.shopOwners = new Map(d.shopOwners ?? []);
       state.shopMembers = new Map(d.shopMembers ?? []);
+      state.registeredShops = new Map(d.registeredShops ?? []);
+      state.pausedShops = new Set(d.pausedShops ?? []);
+      state.platform = { requireApproval: d.platform?.requireApproval === true };
       state.customServices = new Map(d.customServices ?? []);
       state.archivedServices = new Set(d.archivedServices ?? []);
       state.customRules = new Map(d.customRules ?? []);
@@ -1510,14 +1531,18 @@ export function deleteBooking(id: string): void {
 // shop lookups
 // ---------------------------------------------------------------------------
 
+/** Every salon: the seeded ones plus those that registered through the partner form. */
 export function allShops(): SeedShop[] {
-  return SHOPS;
+  return state.registeredShops.size ? [...SHOPS, ...state.registeredShops.values()] : SHOPS;
 }
 export function shopBySlug(slug: string): SeedShop | undefined {
-  return SHOPS.find((s) => s.slug === slug);
+  return SHOPS.find((s) => s.slug === slug) ?? [...state.registeredShops.values()].find((s) => s.slug === slug);
 }
 export function shopById(id: string): SeedShop | undefined {
-  return SHOPS.find((s) => s.id === id);
+  return SHOPS.find((s) => s.id === id) ?? state.registeredShops.get(id);
+}
+export function isShopPaused(shopId: string): boolean {
+  return state.pausedShops.has(shopId);
 }
 
 export function serviceOf(shop: SeedShop, serviceId: string): SeedService | undefined {
@@ -3086,7 +3111,7 @@ function priceFromOf(shopId: string): number {
 export function feed(q: FeedQuery): FeedCard[] {
   const now = Date.now();
   const origin = q.lat !== undefined && q.lng !== undefined ? { lat: q.lat, lng: q.lng } : USER_LOCATION;
-  let shops = allShops();
+  let shops = allShops().filter((s) => !state.pausedShops.has(s.id));
   // "At home" is a property, not a genre: a mobile physio is category
   // 'physio' AND comes to you, so the chip filters on the flag.
   if (q.category === 'mobile') shops = shops.filter((s) => s.isMobile);
@@ -3250,6 +3275,7 @@ export function createHold(input: HoldInput): HoldResult {
 
   const shop = shopById(input.shopId);
   if (!shop) throw new Error('shop_not_found');
+  if (state.pausedShops.has(shop.id)) throw new Error('shop_paused');
   const services = input.serviceIds
     .map((id) => serviceOf(shop, id))
     .filter((s): s is SeedService => Boolean(s));
@@ -6497,8 +6523,252 @@ export function submitShopApplication(deviceId: string, data: Record<string, unk
     createdAt: Date.now(),
   };
   state.applications.set(app.id, app);
+  // While the platform does not review sign-ups, a complete application is
+  // a live salon the moment it arrives.
+  if (!state.platform.requireApproval) {
+    try {
+      approveApplication(app.id);
+    } catch {
+      // not publishable as sent (no bookable service) — it waits for review
+    }
+  }
   persist();
   return app;
+}
+
+export function platformSettings(): { requireApproval: boolean } {
+  return { ...state.platform };
+}
+
+export function setRequireApproval(on: boolean): void {
+  state.platform = { ...state.platform, requireApproval: on };
+  persist();
+}
+
+export function allApplications(): ShopApplication[] {
+  return [...state.applications.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Publish the salon an application describes; its applicant becomes the owner. */
+export function approveApplication(id: string): ShopApplication {
+  const app = state.applications.get(id);
+  if (!app) throw new Error('not_found');
+  if (app.status === 'approved') return app;
+  const shop = shopFromApplication(app);
+  state.registeredShops.set(shop.id, shop);
+  const ownerKey = typeof app.data.ownerKey === 'string' && app.data.ownerKey ? app.data.ownerKey : app.deviceId;
+  if (!state.shopOwners.has(shop.id)) state.shopOwners.set(shop.id, ownerKey);
+  app.status = 'approved';
+  app.shopId = shop.id;
+  app.decidedAt = Date.now();
+  delete app.rejectReason;
+  persist();
+  return app;
+}
+
+export function rejectApplication(id: string, reason: string): ShopApplication {
+  const app = state.applications.get(id);
+  if (!app) throw new Error('not_found');
+  if (app.status === 'approved') throw new Error('already_live');
+  app.status = 'rejected';
+  app.rejectReason = reason.trim().slice(0, 500);
+  app.decidedAt = Date.now();
+  persist();
+  return app;
+}
+
+export const PLATFORM_COMMISSION_PCT = 12;
+
+export interface PlatformShopRow {
+  shopId: string;
+  name: string;
+  district: string;
+  registered: boolean;
+  paused: boolean;
+  bookings: number;
+  volumeCents: number;
+  onlineCompletedCents: number;
+  commissionCents: number;
+  noShowPct: number | null;
+  ratingAvg: number;
+}
+
+/**
+ * The platform's view of every salon over a window: bookings made, money
+ * booked, and the commission owed — the partner terms charge it only on
+ * completed bookings paid online, so pay-at-salon visits carry none.
+ */
+export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg'> } {
+  const from = dayStart(fromIso);
+  const to = dayStart(addDays(toIso, 1));
+  const rows = new Map<string, PlatformShopRow & { noShows: number; settled: number }>();
+  for (const s of allShops()) {
+    rows.set(s.id, {
+      shopId: s.id, name: s.name, district: s.district, registered: state.registeredShops.has(s.id),
+      paused: state.pausedShops.has(s.id), bookings: 0, volumeCents: 0, onlineCompletedCents: 0,
+      commissionCents: 0, noShowPct: null, ratingAvg: s.ratingAvg, noShows: 0, settled: 0,
+    });
+  }
+  for (const b of state.bookings.values()) {
+    if (b.startsAt < from || b.startsAt >= to) continue;
+    const r = rows.get(b.shopId);
+    if (!r || b.status === 'hold') continue;
+    r.bookings += 1;
+    if (b.status === 'confirmed' || b.status === 'completed') r.volumeCents += b.quote.totalCents;
+    if (b.status === 'completed' || b.status === 'no_show') r.settled += 1;
+    if (b.status === 'no_show') r.noShows += 1;
+    if (b.status === 'completed' && b.payment && b.payment.method !== 'at_salon') {
+      r.onlineCompletedCents += b.quote.totalCents;
+    }
+  }
+  const out: PlatformShopRow[] = [];
+  const totals = { bookings: 0, volumeCents: 0, onlineCompletedCents: 0, commissionCents: 0 };
+  for (const r of rows.values()) {
+    r.commissionCents = Math.round((r.onlineCompletedCents * PLATFORM_COMMISSION_PCT) / 100);
+    r.noShowPct = r.settled ? Math.round((r.noShows / r.settled) * 100) : null;
+    const { noShows: _n, settled: _s, ...row } = r;
+    out.push(row);
+    totals.bookings += r.bookings;
+    totals.volumeCents += r.volumeCents;
+    totals.onlineCompletedCents += r.onlineCompletedCents;
+    totals.commissionCents += r.commissionCents;
+  }
+  out.sort((a, b) => b.volumeCents - a.volumeCents);
+  return { rows: out, totals };
+}
+
+/** Take a salon off search and booking, or put it back. Existing bookings stand. */
+export function setShopPaused(shopId: string, paused: boolean): void {
+  if (!shopById(shopId)) throw new Error('not_found');
+  if (paused) state.pausedShops.add(shopId);
+  else state.pausedShops.delete(shopId);
+  persist();
+}
+
+const CATEGORY_MAP: Record<string, SeedShop['category']> = {
+  hair: 'hair', barber: 'barber', nails: 'nails', brows: 'brows', makeup: 'makeup',
+  skincare: 'spa', massage: 'spa', waxing: 'spa', tanning: 'spa', tattoo: 'tattoo',
+};
+const CATEGORY_LOOK: Record<SeedShop['category'], { emoji: string; gradient: [string, string] }> = {
+  hair: { emoji: '💇', gradient: ['#5c4b8a', '#b4552d'] },
+  barber: { emoji: '💈', gradient: ['#2b2b2b', '#5b5b5b'] },
+  nails: { emoji: '💅', gradient: ['#d94f8a', '#f2a1c0'] },
+  brows: { emoji: '👁️', gradient: ['#7a4e8c', '#c29bd3'] },
+  mobile: { emoji: '🚗', gradient: ['#139a74', '#3fd97a'] },
+  spa: { emoji: '💆', gradient: ['#1f6f6b', '#7cc6a9'] },
+  makeup: { emoji: '💄', gradient: ['#c0446d', '#f07a8c'] },
+  tattoo: { emoji: '🖋️', gradient: ['#1d1d1d', '#4a4a4a'] },
+  physio: { emoji: '🤸', gradient: ['#1e5f8c', '#5bb3d9'] },
+  kids: { emoji: '🧒', gradient: ['#f6a53c', '#fbd38d'] },
+};
+
+const clampNum = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), min), max) : fallback;
+};
+
+function shopFromApplication(app: ShopApplication): SeedShop {
+  const d = app.data as {
+    business?: { displayName?: string; legalName?: string; categories?: string[] };
+    locations?: Array<{ mobile?: boolean; street?: string; zip?: string; city?: string; district?: string }>;
+    offer?: {
+      openingHours?: Record<string, { open?: string; close?: string; closed?: boolean }>;
+      services?: Array<{ name?: string; priceCents?: number; durationMin?: number }>;
+      staffCount?: number;
+      languages?: string[];
+    };
+    payoutAndPolicy?: { freeUntilHours?: number; lateFeePercent?: number; noShowFeePercent?: number; depositPercent?: number };
+  };
+  const name = (d.business?.displayName || d.business?.legalName || 'New salon').trim().slice(0, 60);
+  const loc = d.locations?.[0] ?? {};
+  const isMobile = Boolean(loc.mobile);
+  const category: SeedShop['category'] = isMobile
+    ? 'mobile'
+    : (d.business?.categories ?? []).map((c) => CATEGORY_MAP[c]).find(Boolean) ?? 'hair';
+  const look = CATEGORY_LOOK[category];
+  const place =
+    resolveLocation(loc.zip ?? '') ?? resolveLocation(loc.district ?? '') ?? resolveLocation(loc.city ?? '') ?? { ...USER_LOCATION, label: 'Berlin' };
+  const district = (loc.district || place.label.replace(/^\d{5}\s*·\s*/, '') || 'Berlin').trim();
+  const id = `shop-reg-${app.id.split('-')[1]}-${hash(app.id).toString(36)}`;
+  const base = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'salon';
+  let slug = base;
+  for (let n = 2; shopBySlug(slug); n++) slug = `${base}-${n}`;
+
+  const services: SeedService[] = (d.offer?.services ?? [])
+    .filter((s) => s.name && Number(s.priceCents) > 0)
+    .slice(0, 40)
+    .map((s, i) => ({
+      id: `${id}-svc-${i + 1}`,
+      emoji: look.emoji,
+      name: { en: String(s.name).slice(0, 60), de: String(s.name).slice(0, 60) },
+      durationMin: clampNum(s.durationMin, 10, 480, 45),
+      processingGapMin: 0,
+      finishMin: 0,
+      basePriceCents: clampNum(s.priceCents, 100, 1_000_000, 3000),
+      vatRateBps: 1900,
+      dynamicPricing: false,
+    }));
+  if (!services.length) throw new Error('no_services');
+
+  const toMin = (hhmm?: string) => {
+    const [h, m] = String(hhmm ?? '').split(':').map(Number);
+    return Number.isFinite(h) ? h * 60 + (Number.isFinite(m) ? m : 0) : NaN;
+  };
+  const shifts: Partial<Record<number, Array<{ startMin: number; endMin: number }>>> = {};
+  for (let dow = 1; dow <= 7; dow++) {
+    const h = d.offer?.openingHours?.[String(dow)];
+    const start = toMin(h?.open);
+    const end = toMin(h?.close);
+    if (!h || h.closed || !(end > start)) continue;
+    shifts[dow] = [{ startMin: start, endMin: Math.min(end, 24 * 60) }];
+  }
+  const staffCount = clampNum(d.offer?.staffCount, 1, 30, 1);
+  const staff = Array.from({ length: staffCount }, (_, i) => ({
+    id: `${id}-st-${i + 1}`,
+    name: staffCount === 1 ? name : `Stylist ${i + 1}`,
+    role: { en: 'Stylist', de: 'Stylist:in' },
+    tier: 'stylist' as const,
+    shifts,
+  }));
+  const p = d.payoutAndPolicy ?? {};
+  const langs = (d.offer?.languages ?? ['de']).filter((l) => typeof l === 'string').slice(0, 8);
+  const street = [loc.street, [loc.zip, loc.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+
+  return {
+    id,
+    slug,
+    name,
+    category,
+    tagline: { en: `${name} in ${district}`, de: `${name} in ${district}` },
+    about: { en: `New on StyleNow — ${name}, ${district}.`, de: `Neu auf StyleNow — ${name}, ${district}.` },
+    address: street || district,
+    district,
+    lat: place.lat,
+    lng: place.lng,
+    gradient: look.gradient,
+    emoji: look.emoji,
+    languagesSpoken: langs.length ? langs : ['de'],
+    ratingAvg: 0,
+    ratingCount: 0,
+    isNew: true,
+    isMobile,
+    chainId: null,
+    tags: [],
+    semanticSimilarity: 0.5,
+    cancellationRate: 0,
+    rules: STANDARD_RULES,
+    depositPercent: clampNum(p.depositPercent, 0, 100, 0),
+    policy: {
+      freeUntilHours: clampNum(p.freeUntilHours, 0, 168, 24),
+      lateFeePercent: clampNum(p.lateFeePercent, 0, 100, 50),
+      noShowFeePercent: clampNum(p.noShowFeePercent, 0, 100, 100),
+    },
+    timezone: 'Europe/Berlin',
+    services,
+    staff,
+    pricingRules: [],
+    reviews: [],
+  };
 }
 
 export function applicationsForDevice(deviceId: string): ShopApplication[] {

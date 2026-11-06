@@ -96,7 +96,7 @@ export interface SeedShop {
 const week = (windows: Array<{ startMin: number; endMin: number }>, dows: number[]) =>
   Object.fromEntries(dows.map((d) => [d, windows]));
 
-const STANDARD_RULES: ShopBookingRules = {
+export const STANDARD_RULES: ShopBookingRules = {
   slotGranularityMin: 15,
   bufferBeforeMin: 0,
   bufferAfterMin: 10,

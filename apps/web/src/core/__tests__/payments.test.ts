@@ -45,7 +45,9 @@ import {
   addRefPhoto, removeRefPhoto, REF_PHOTO_MAX, toggleFollowStaff, followedStaff, followedOpenings,
   earliestAcross, leaveBy, cancelReasonStats, durationHint, followedOpeningsFor,
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
-  payAtSalonOf, setPayAtSalon, claimShop, releaseShop, isShopOwner, shopsForOwner, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
+  payAtSalonOf, setPayAtSalon, claimShop, releaseShop, isShopOwner, shopsForOwner,
+  submitShopApplication, approveApplication, rejectApplication, setRequireApproval, platformSettings,
+  setShopPaused, platformOverview, shopBySlug, shopById, feed, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf, atMinute } from '../time';
@@ -2379,6 +2381,75 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   claimShop('shop-real-test', 'owner-a');
   assert.throws(() => claimShop('shop-real-test', 'owner-z'), /already_owned/);
   assert.ok(isShopOwner('shop-real-test', 'owner-a'));
+}
+
+// --- partner sign-up: live on arrival by default, reviewable later, pausable ---
+{
+  const form = (name: string, extra: Record<string, unknown> = {}) => ({
+    business: { legalName: `${name} GmbH`, displayName: name, categories: ['nails'] },
+    locations: [{ mobile: false, street: 'Florastraße 12', zip: '13187', city: 'Berlin', district: '' }],
+    offer: {
+      openingHours: Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((d) => [d, { open: '09:00', close: '18:00', closed: d === 7 }])),
+      services: [{ name: 'Gel manicure', priceCents: 3500, durationMin: 45 }],
+      staffCount: 2,
+      languages: ['de', 'en'],
+    },
+    payoutAndPolicy: { freeUntilHours: 24, lateFeePercent: 50, noShowFeePercent: 100, depositPercent: 0 },
+    ownerKey: 'owner@nails.test',
+    ...extra,
+  });
+
+  assert.equal(platformSettings().requireApproval, false, 'approval is off by default');
+  const live = submitShopApplication('dev-signup', form('Nagelstudio Lumi'));
+  assert.equal(live.status, 'approved', 'a complete sign-up goes live at once');
+  const shop = shopById(live.shopId!)!;
+  assert.ok(shop && shopBySlug(shop.slug)?.id === shop.id, 'and is findable by id and slug');
+  assert.equal(shop.category, 'nails');
+  assert.equal(shop.district, 'Pankow', 'the postcode places it on the map');
+  assert.ok(isShopOwner(shop.id, 'owner@nails.test'), 'its applicant runs it');
+  assert.ok(feed({}).some((c) => c.shopId === shop.id), 'it shows up in search');
+
+  // Bookable like any salon.
+  const svc = shop.services[0];
+  let held = '';
+  for (let d = 1; d <= 14 && !held; d++) {
+    const sl = availability(shop.id, [svc.id], addDays(todayIso(), d), 'dev-lumi', null).slots;
+    if (sl.length) held = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: sl[0].start, deviceId: 'dev-lumi', guestName: 'L', idempotencyKey: 'lumi-1' }).bookingId;
+  }
+  assert.ok(held, 'a customer can book the new salon');
+  confirmBooking(held, { method: 'card', label: 'Visa ····4242' });
+  const b = getBooking(held)!;
+  b.startsAt = Date.now() - 2 * 36e5; // fixture surgery: the visit happened
+  b.endsAt = Date.now() - 36e5;
+  setBookingStatus(shop.id, held, 'completed');
+  const row = platformOverview(addDays(todayIso(), -1), todayIso()).rows.find((r) => r.shopId === shop.id)!;
+  assert.equal(row.commissionCents, Math.round(b.quote.totalCents * 0.12), '12 % commission on a completed online booking');
+
+  // Pausing hides it and stops new bookings.
+  setShopPaused(shop.id, true);
+  assert.ok(!feed({}).some((c) => c.shopId === shop.id), 'a paused salon leaves search');
+  assert.throws(
+    () => createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: Date.now() + 864e5, deviceId: 'dev-lumi', guestName: 'L', idempotencyKey: 'lumi-2' }),
+    /shop_paused/,
+  );
+  setShopPaused(shop.id, false);
+
+  // With review switched on, sign-ups wait; approve and reject both work.
+  setRequireApproval(true);
+  const waiting = submitShopApplication('dev-signup2', form('Studio Wartend'));
+  assert.equal(waiting.status, 'pending');
+  assert.ok(!allShops().some((s) => s.name === 'Studio Wartend'), 'not live while pending');
+  approveApplication(waiting.id);
+  assert.ok(allShops().some((s) => s.name === 'Studio Wartend'), 'live once approved');
+  const nope = submitShopApplication('dev-signup3', form('Studio Nein'));
+  rejectApplication(nope.id, 'Missing photos');
+  assert.equal(nope.status, 'rejected');
+  assert.throws(() => rejectApplication(waiting.id, 'x'), /already_live/);
+  setRequireApproval(false);
+
+  // A sign-up with nothing bookable waits for review instead of failing.
+  const empty = submitShopApplication('dev-signup4', form('Studio Leer', { offer: { services: [] } }));
+  assert.equal(empty.status, 'pending');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');
