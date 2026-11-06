@@ -637,6 +637,23 @@ const IS_BROWSER = typeof window !== 'undefined';
 const LS_KEY = 'sn-state-v1';
 let persistenceEnabled = IS_BROWSER;
 
+/**
+ * Where the server process keeps its state: a database or a file, attached
+ * once at start-up (src/instrumentation.ts → lib/server-persistence.ts).
+ * Next loads this module separately into each route bundle, so the sink
+ * lives on globalThis like the state itself — every copy saves to the same
+ * place.
+ */
+type ServerSink = { save: (json: string) => void };
+const sinkHolder = globalThis as typeof globalThis & { __stylenowSink?: ServerSink | null };
+
+/** Server only: restore a saved snapshot, then send every later change to `save`. */
+export function attachServerStore(initial: string | null, save: (json: string) => void): void {
+  if (IS_BROWSER) return;
+  if (initial) restoreSnapshot(initial);
+  sinkHolder.__stylenowSink = { save };
+}
+
 export function setLocalPersistence(on: boolean): void {
   persistenceEnabled = IS_BROWSER && on;
 }
@@ -657,10 +674,11 @@ let stateVersion = 0;
  */
 function persist(): boolean {
   stateVersion += 1;
-  if (!persistenceEnabled) return true;
+  const sink = IS_BROWSER ? null : sinkHolder.__stylenowSink;
+  if (!persistenceEnabled && !sink) return true;
   try {
-    localStorage.setItem(
-      LS_KEY,
+    const write = (json: string) => (sink ? sink.save(json) : localStorage.setItem(LS_KEY, json));
+    write(
       JSON.stringify({
         bookings: [...state.bookings.values()],
         ruleDisabled: [...state.ruleDisabled],
@@ -732,9 +750,8 @@ function persist(): boolean {
   }
 }
 
-if (IS_BROWSER && state.bookings.size === 0) {
+function restoreSnapshot(raw: string | null): void {
   try {
-    const raw = localStorage.getItem(LS_KEY);
     if (raw) {
       const d = JSON.parse(raw) as {
         bookings: Booking[];
@@ -863,6 +880,14 @@ if (IS_BROWSER && state.bookings.size === 0) {
     }
   } catch {
     // corrupted snapshot — start fresh
+  }
+}
+
+if (IS_BROWSER && state.bookings.size === 0) {
+  try {
+    restoreSnapshot(localStorage.getItem(LS_KEY));
+  } catch {
+    // storage blocked — start fresh
   }
 }
 

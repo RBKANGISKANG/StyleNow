@@ -39,3 +39,7 @@ select 'typed columns disagree with the stored document', count(*) from public.b
 
 select 'occupancy rows pointing at a missing booking', count(*) from public.staff_occupancy o
   where not exists (select 1 from public.bookings b where b.id = o.booking_id);
+
+select 'server state row missing (server mode never saved)', count(*) from (select 1) x
+  where to_regclass('public.stylenow_state') is not null
+    and not exists (select 1 from public.stylenow_state where id = 'main');

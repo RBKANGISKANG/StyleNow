@@ -309,3 +309,16 @@ create index if not exists waitlist_shop_day on public.waitlist (shop_id, iso_da
 alter table public.waitlist enable row level security;
 drop policy if exists waitlist_rw on public.waitlist;
 create policy waitlist_rw on public.waitlist for all using (true) with check (true);
+
+-- ---------------------------------------------------------------------------
+-- stylenow_state: the server engine's durable state (server mode). The app
+-- creates it on start-up if missing (apps/web/src/lib/server-persistence.ts);
+-- it is listed here so a fresh project has it from the first migration.
+-- Server-side only: no anon/authenticated access.
+-- ---------------------------------------------------------------------------
+create table if not exists public.stylenow_state (
+  id         text primary key,
+  doc        jsonb       not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.stylenow_state enable row level security;

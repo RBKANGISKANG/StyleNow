@@ -12,7 +12,10 @@ const nextConfig = {
         trailingSlash: true,
         images: { unoptimized: true },
       }
-    : {}),
+    : {
+        // The server keeps its state in Postgres or a file, loaded at start-up.
+        experimental: { instrumentationHook: true, serverComponentsExternalPackages: ['pg'] },
+      }),
   env: {
     // PWA assets (manifest, service worker) need absolute paths that survive
     // the GitHub Pages base path.

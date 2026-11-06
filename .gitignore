@@ -8,3 +8,6 @@ out/
 
 # Seeded design canvas — 2.6 MB of editor payload, rebuilt from design/*.dc.html
 design/stylenow-design-pass.html
+
+# server state (bookings, salons) when no DATABASE_URL is set — never commit
+.data/
