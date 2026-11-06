@@ -7,8 +7,8 @@
  * remembered in localStorage so the dashboard and the HR page stay on the same
  * shop when you move between them.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { apiMyShops } from './api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { apiMyShops, apiShopRefs } from './api';
 import { useAuth } from './auth';
 import { deviceId } from './device';
 
@@ -56,7 +56,27 @@ export function useOwnedShops(shops: ShopRef[]): OwnedShops {
     void apiMyShops(ownerKey).then(setOwnedIds);
   }, [ownerKey]);
 
-  const myShops = shops.filter((s) => (ownedIds ?? []).includes(s.id));
+  // `shops` is built at build time, so a salon registered since then is not in
+  // it: fetch the refs of owned ids it lacks and merge them in.
+  const [extra, setExtra] = useState<ShopRef[]>([]);
+  const missingKey = (ownedIds ?? []).filter((id) => !shops.some((s) => s.id === id)).join(',');
+  useEffect(() => {
+    if (!missingKey) {
+      setExtra([]);
+      return;
+    }
+    let live = true;
+    void apiShopRefs(missingKey.split(',')).then((refs) => live && setExtra(refs));
+    return () => {
+      live = false;
+    };
+  }, [missingKey]);
+
+  const myShops = useMemo(() => {
+    const owned = ownedIds ?? [];
+    const known = shops.filter((s) => owned.includes(s.id));
+    return [...known, ...extra.filter((e) => owned.includes(e.id) && !known.some((k) => k.id === e.id))];
+  }, [shops, ownedIds, extra]);
 
   const setShopId = useCallback((id: string) => {
     setShopIdState(id);

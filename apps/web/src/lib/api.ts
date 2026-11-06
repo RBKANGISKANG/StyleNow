@@ -602,7 +602,10 @@ export async function apiMyWaitlist(): Promise<WaitlistView[]> {
 
 // ---- partner registration -------------------------------------------------
 
-export async function apiPartnerApply(data: Record<string, unknown>): Promise<ShopApplication | null> {
+/** A submitted application; `shop` is set when it went live at once (auto-approval). */
+export type PartnerApplyResult = ShopApplication & { shop?: { id: string; slug: string } | null };
+
+export async function apiPartnerApply(data: Record<string, unknown>): Promise<PartnerApplyResult | null> {
   const mode = backendMode();
   if (mode === 'server') {
     const res = await fetch('/api/partner/apply', {
@@ -610,7 +613,9 @@ export async function apiPartnerApply(data: Record<string, unknown>): Promise<Sh
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId: deviceId(), data }),
     });
-    return res.ok ? (await res.json()).application : null;
+    if (!res.ok) return null;
+    const body = await res.json();
+    return { ...body.application, shop: body.shop ?? null };
   }
   await localWrite();
   const app = store.submitShopApplication(deviceId(), data);
@@ -621,7 +626,8 @@ export async function apiPartnerApply(data: Record<string, unknown>): Promise<Sh
       console.warn('[stylenow] application stored locally only:', e);
     }
   }
-  return app;
+  const live = app.shopId ? store.shopById(app.shopId) : undefined;
+  return { ...app, shop: live ? { id: live.id, slug: live.slug } : null };
 }
 
 export async function apiMyApplications(): Promise<ShopApplication[]> {
@@ -3217,4 +3223,114 @@ export async function apiLeaveBy(
   }
   await readyForRead();
   return store.leaveBy(shopId, startsAt, mode);
+}
+
+// ---- shop refs (salons registered after the build) -------------------------
+
+export async function apiShopRefs(ids: string[]): Promise<Array<{ id: string; name: string; emoji: string }>> {
+  if (ids.length === 0) return [];
+  if (backendMode() === 'server') {
+    return (await getJson(`/api/shops/refs?ids=${ids.map(encodeURIComponent).join(',')}`))?.shops ?? [];
+  }
+  await readyForRead();
+  return ids.flatMap((id) => {
+    const s = store.shopById(id);
+    return s ? [{ id: s.id, name: s.name, emoji: s.emoji }] : [];
+  });
+}
+
+// ---- platform admin -------------------------------------------------------
+//
+// Server mode: every call carries the key the admin typed on /admin, held in
+// sessionStorage only (gone when the tab closes), as `x-admin-key`; the routes
+// compare it with STYLENOW_ADMIN_KEY. Local/static mode (and the Supabase
+// mirror) runs the engine in this browser — there is no server to protect
+// anything, so these call the store directly; it is a demo of the screen.
+
+const ADMIN_KEY_STORE = 'stylenow.admin.key';
+
+export function adminKey(): string {
+  try {
+    return window.sessionStorage.getItem(ADMIN_KEY_STORE) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function setAdminKey(key: string): void {
+  try {
+    if (key) window.sessionStorage.setItem(ADMIN_KEY_STORE, key);
+    else window.sessionStorage.removeItem(ADMIN_KEY_STORE);
+  } catch {
+    // storage blocked — the key lives only as long as this page
+  }
+}
+
+/** Whether the admin screen needs a key at all (only the server transport checks one). */
+export function adminNeedsKey(): boolean {
+  return backendMode() === 'server';
+}
+
+async function adminFetch(url: string, method = 'GET', body?: unknown): Promise<any> {
+  const res = await fetch(url, {
+    method,
+    headers: { 'x-admin-key': adminKey(), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return okJson(res); // throws 'unauthorized' / 'admin_not_configured' / engine codes
+}
+
+type RawOverview = ReturnType<typeof store.platformOverview>;
+// liveSince/freeUntil: the first 12 months on the platform carry no commission (engine-side).
+export type PlatformRow = RawOverview['rows'][number] & { slug: string; liveSince?: string; freeUntil?: string };
+export interface PlatformOverview {
+  rows: PlatformRow[];
+  totals: RawOverview['totals'];
+}
+
+export async function apiAdminApplications(): Promise<ShopApplication[]> {
+  if (backendMode() === 'server') return (await adminFetch('/api/admin/applications')).applications;
+  await readyForRead();
+  return store.allApplications();
+}
+
+export async function apiAdminDecide(id: string, action: 'approve' | 'reject', reason?: string): Promise<ShopApplication> {
+  if (backendMode() === 'server') {
+    return (await adminFetch('/api/admin/applications', 'POST', { id, action, reason })).application;
+  }
+  await localWrite();
+  return action === 'approve' ? store.approveApplication(id) : store.rejectApplication(id, reason ?? '');
+}
+
+export async function apiAdminSettings(): Promise<{ requireApproval: boolean }> {
+  if (backendMode() === 'server') return (await adminFetch('/api/admin/settings')).settings;
+  await readyForRead();
+  return store.platformSettings();
+}
+
+export async function apiAdminSetRequireApproval(on: boolean): Promise<{ requireApproval: boolean }> {
+  if (backendMode() === 'server') {
+    return (await adminFetch('/api/admin/settings', 'PATCH', { requireApproval: on })).settings;
+  }
+  await localWrite();
+  store.setRequireApproval(on);
+  return store.platformSettings();
+}
+
+export async function apiAdminOverview(fromIso: string, toIso: string): Promise<PlatformOverview> {
+  if (backendMode() === 'server') {
+    return adminFetch(`/api/admin/shops?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`);
+  }
+  await readyForRead();
+  const { rows, totals } = store.platformOverview(fromIso, toIso);
+  return { rows: rows.map((r) => ({ ...r, slug: store.shopById(r.shopId)?.slug ?? '' })), totals };
+}
+
+export async function apiAdminSetPaused(shopId: string, paused: boolean): Promise<void> {
+  if (backendMode() === 'server') {
+    await adminFetch('/api/admin/shops', 'PATCH', { shopId, paused });
+    return;
+  }
+  await localWrite();
+  store.setShopPaused(shopId, paused);
 }

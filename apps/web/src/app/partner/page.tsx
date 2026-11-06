@@ -8,10 +8,12 @@
  * (GET /admin/shops/pending → decision).
  */
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
 import { apiPartnerApply, apiMyApplications, apiCustomCategories, apiAddCustomCategory } from '@/lib/api';
 import { fileToLogoDataUrl } from '@/lib/image';
+import { deviceId } from '@/lib/device';
 import { BASE_CATEGORIES } from '@/core/categories';
 
 // Multi-select: a studio can offer several of these at once. "Mobile" is not
@@ -42,6 +44,7 @@ export default function PartnerPage() {
   const [step, setStep] = useState(0);
   const [error, setError] = useState(false);
   const [doneRef, setDoneRef] = useState<string | null>(null);
+  const [liveSlug, setLiveSlug] = useState<string | null>(null);
   const [pendingRefs, setPendingRefs] = useState<string[]>([]);
 
   // business
@@ -155,10 +158,35 @@ export default function PartnerPage() {
       },
       consents: { partnerTerms: acceptTerms, accuracy: acceptTruth, submittedAt: new Date().toISOString() },
       locale: lang,
+      // the key the dashboard scopes by, so the new salon shows up there
+      ownerKey: user?.email ?? deviceId(),
     });
     setBusy(false);
-    if (app) setDoneRef(app.id);
+    if (app) {
+      setLiveSlug(app.status === 'approved' && app.shop ? app.shop.slug : null);
+      setDoneRef(app.id);
+    }
   };
+
+  if (doneRef && liveSlug) {
+    return (
+      <div className="confirm-card">
+        <div className="confirm-top">
+          <div className="tick">✓</div>
+          <h2>{t('p_live_title')}</h2>
+        </div>
+        <div className="confirm-body">
+          <div style={{ color: 'var(--ink-soft)', fontSize: '0.85rem' }}>{t('p_live_sub')}</div>
+          <div className="ref">{doneRef.toUpperCase()}</div>
+          <p style={{ fontSize: '0.9rem' }}>{t('p_live_body')}</p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+            <Link className="btn btn-primary" href={`/shops/${liveSlug}`}>{t('p_live_view')}</Link>
+            <Link className="btn btn-soft" href="/dashboard">{t('p_live_dashboard')}</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (doneRef) {
     return (
