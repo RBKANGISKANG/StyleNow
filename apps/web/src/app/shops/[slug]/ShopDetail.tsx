@@ -12,6 +12,7 @@ import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
 import { useFavourites } from '@/lib/favs';
+import { shopHref } from '@/lib/shop-href';
 
 interface LiveReview {
   author: string;
@@ -200,7 +201,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
                   </div>
                 </div>
                 <div className="svc-price">{money(s.basePriceCents, lang)}</div>
-                <Link className="btn btn-primary sm" href={`/shops/${shop.slug}/book?service=${s.id}`}>
+                <Link className="btn btn-primary sm" href={shopHref(shop.slug, 'book', `service=${s.id}`)}>
                   {t('book')}
                 </Link>
               </div>
@@ -219,7 +220,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
             <strong>{t('gc_promo_title')}</strong>
             <span className="gc-promo-sub">{t('gc_promo_sub')}</span>
           </span>
-          <Link className="btn btn-soft sm" href={`/shops/${shop.slug}/gift`}>
+          <Link className="btn btn-soft sm" href={shopHref(shop.slug, 'gift')}>
             {t('gc_promo_cta')}
           </Link>
         </div>
@@ -324,7 +325,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
             </span>
           )}
         </div>
-        <Link className="btn btn-primary" href={`/shops/${shop.slug}/book`}>
+        <Link className="btn btn-primary" href={shopHref(shop.slug, 'book')}>
           {t('book_now')} →
         </Link>
       </div>

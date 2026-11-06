@@ -9,6 +9,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import {
   apiSetShopLogo,
+  apiPayoutStatus,
+  apiPayoutOnboarding,
+  type PayoutStatus,
   apiAddLocation,
   apiPatchLocation,
   apiDeleteLocation,
@@ -266,6 +269,11 @@ function ShopTab({
       <section className="section">
         <h2>📣 {t('an_title')}</h2>
         <AnnouncementPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>💸 {t('po_title')}</h2>
+        <PayoutsPanel shopId={shopId} ownerKey={ownerKey ?? ''} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1363,6 +1371,47 @@ function StockPanel({ shopId }: { shopId: string }) {
         <p style={{ fontSize: '0.82rem', fontWeight: 700, marginTop: 10 }}>
           🛒 {t('sk_list')}: {low.map((i) => i.name).join(', ')}
         </p>
+      )}
+    </div>
+  );
+}
+function PayoutsPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKey: string; onChanged: (msg: string) => void }) {
+  const { t, lang } = useI18n();
+  const [st, setSt] = useState<PayoutStatus | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setSt(undefined);
+    void apiPayoutStatus(shopId, ownerKey).then((r) => live && setSt(r));
+    return () => {
+      live = false;
+    };
+  }, [shopId, ownerKey]);
+  if (st === undefined) return <p className="muted">…</p>;
+  if (!st || !st.configured) return <p className="muted">{t('po_demo')}</p>;
+  const ready = st.chargesEnabled && st.payoutsEnabled;
+  const date = new Date(`${st.freeUntil}T12:00:00Z`).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return (
+    <div className="stack">
+      <p>
+        <span className={`badge ${ready ? 'ok' : 'warn'}`}>{ready ? '✓' : '•'}</span>{' '}
+        {ready ? t('po_ready') : st.connected ? t('po_pending') : t('po_none')}
+      </p>
+      <p className="muted">{t('po_free', { date, pct: st.commissionPct })}</p>
+      {!ready && (
+        <button
+          className="btn btn-primary"
+          disabled={busy || !ownerKey}
+          onClick={async () => {
+            setBusy(true);
+            const r = await apiPayoutOnboarding(shopId, ownerKey);
+            setBusy(false);
+            if (r.url) window.location.assign(r.url);
+            else onChanged('⚠️ ' + (r.error ?? 'error'));
+          }}
+        >
+          {st.connected ? t('po_continue') : t('po_connect')}
+        </button>
       )}
     </div>
   );

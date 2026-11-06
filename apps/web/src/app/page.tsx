@@ -12,6 +12,7 @@ import { FeedMap } from '@/components/FeedMap';
 import { Heart } from '@/components/Heart';
 import { useFavourites } from '@/lib/favs';
 import { resolveLocation } from '@/core/geo';
+import { shopHref } from '@/lib/shop-href';
 
 const CATEGORIES = [
   { id: 'hair', emoji: '💇', en: 'Hair', de: 'Haare' },
@@ -428,7 +429,7 @@ function ShopCard({ card, fav, onFav }: { card: Card; fav: boolean; onFav: () =>
     return label === key ? null : label;
   };
   return (
-    <Link href={`/shops/${card.slug}`} className="shop-card">
+    <Link href={shopHref(card.slug)} className="shop-card">
       {/* A photograph if the salon has uploaded one; otherwise the gradient and
           their mark, which is a placeholder that at least looks deliberate. */}
       <div
@@ -520,7 +521,7 @@ function RecentlyViewed() {
     <div className="seen-strip">
       <span className="seen-label">{t('seen_title')}:</span>
       {ordered.map((s) => (
-        <Link key={s.id} className="chip" href={`/shops/${s.slug}`}>
+        <Link key={s.id} className="chip" href={shopHref(s.slug)}>
           {s.emoji} {s.name}
         </Link>
       ))}

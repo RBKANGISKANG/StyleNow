@@ -25,6 +25,7 @@ import {
   type PlatformOverview,
   type PlatformRow,
 } from '@/lib/api';
+import { shopHref } from '@/lib/shop-href';
 
 type Period = 'month' | '30d';
 type Selected = { kind: 'app'; id: string } | { kind: 'shop'; id: string } | null;
@@ -384,6 +385,15 @@ function FreeBadge({ row }: { row: PlatformRow }) {
   return <span className="adm-badge ok">{t('adm_free_until', { date: when })}</span>;
 }
 
+/** Whether the salon gets its money automatically through its own Stripe account. */
+function PayoutBadge({ row }: { row: PlatformRow }) {
+  const { t } = useI18n();
+  const p = (row as { payouts?: string }).payouts;
+  if (p === 'ready') return <span className="adm-badge ok">💸 {t('po_title')}</span>;
+  if (p === 'pending') return <span className="adm-badge warn">💸 …</span>;
+  return null;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="adm-field">
@@ -480,7 +490,7 @@ function ShopDetail({ row, busy, onPause }: { row: PlatformRow; busy: boolean; o
   return (
     <div className="panel adm-card">
       <h3>
-        {row.name} {row.paused && <span className="adm-badge warn">{t('adm_paused')}</span>} <FreeBadge row={row} />
+        {row.name} {row.paused && <span className="adm-badge warn">{t('adm_paused')}</span>} <FreeBadge row={row} /> <PayoutBadge row={row} />
       </h3>
       <p className="adm-muted">{row.district}</p>
       <div className="adm-stats">
@@ -494,7 +504,7 @@ function ShopDetail({ row, busy, onPause }: { row: PlatformRow; busy: boolean; o
       {row.paused && <p className="adm-muted adm-note">{t('adm_paused_note')}</p>}
       <div className="adm-actions">
         {row.slug && (
-          <Link className="btn btn-soft" href={`/shops/${row.slug}`}>
+          <Link className="btn btn-soft" href={shopHref(row.slug)}>
             {t('adm_open_shop')} ↗
           </Link>
         )}

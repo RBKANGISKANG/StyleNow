@@ -19,6 +19,7 @@ import { apiBuyGiftCard, apiGiftTreatment, apiShopServices, apiBuyCorporateBatch
 import { PayMethod } from '@/components/PayMethod';
 import { rememberPayment, type PaymentChoice } from '@/lib/payments';
 import { GIFT_MIN_CENTS, GIFT_MAX_CENTS, corporateDiscountPct, type CorporateBatch } from '@/core/store';
+import { shopHref } from '@/lib/shop-href';
 
 const PRESETS = [2500, 5000, 7500, 10000];
 
@@ -75,7 +76,7 @@ export function GiftFlow({
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
       <div className="page-title">
         <h1>🎁 {t('gc_title', { shop: shop.name })}</h1>
-        <Link href={`/shops/${shop.slug}`} className="btn btn-ghost sm">
+        <Link href={shopHref(shop.slug)} className="btn btn-ghost sm">
           ← {t('back')}
         </Link>
       </div>
@@ -244,6 +245,7 @@ function CorporatePanel({ shop }: { shop: { id: string; name: string } }) {
           <h3>💼 {t('corp_done', { n: String(batch.count), company: batch.company })}</h3>
           <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 10px' }}>{t('corp_codes_hint')}</p>
           <BatchCodes batch={batch} />
+          <Link href="/company" className="btn btn-soft sm" style={{ marginTop: 10 }}>🏢 {t('co_title')} →</Link>
         </>
       ) : (
         <>
@@ -381,7 +383,7 @@ export function GiftCardSheet({
               {t('rc_close')}
             </button>
           ) : (
-            <Link className="btn btn-ghost" href={`/shops/${shop.slug}`}>
+            <Link className="btn btn-ghost" href={shopHref(shop.slug)}>
               {t('back')}
             </Link>
           )}

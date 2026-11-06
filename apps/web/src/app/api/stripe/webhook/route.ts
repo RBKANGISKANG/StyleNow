@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type Stripe from 'stripe';
-import { settle, stripe, stripeConfigured } from '@/lib/stripe-server';
+import { settle, stripe, stripeConfigured, syncPayoutAccount } from '@/lib/stripe-server';
+import { shopForPayoutAccount } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest) {
       expand: ['payment_intent.payment_method'],
     });
     await settle(full);
+  }
+
+  if (event.type === 'account.updated') {
+    const acct = event.data.object as Stripe.Account;
+    const shopId = shopForPayoutAccount(acct.id);
+    if (shopId) syncPayoutAccount(shopId, acct);
   }
 
   return NextResponse.json({ received: true });

@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { money, timeOf } from '@/lib/format';
 import { apiMyBookings, apiLoyaltyBalance } from '@/lib/api';
+import { shopHref } from '@/lib/shop-href';
 
 /** 100 points = €1, and the first meaningful reward is €5 off. */
 const POINTS_PER_EURO = 100;
@@ -106,7 +107,7 @@ export function NextUp() {
         </Link>
       ) : last ? (
         <Link
-          href={`/shops/${last.shopSlug}/book?service=${encodeURIComponent(last.serviceIds[0] ?? '')}`}
+          href={shopHref(last.shopSlug, 'book', `service=${encodeURIComponent(last.serviceIds[0] ?? '')}`)}
           className="nu-main"
         >
           <span className="nu-ico">{last.shopEmoji}</span>

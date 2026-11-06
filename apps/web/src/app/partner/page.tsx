@@ -15,6 +15,7 @@ import { apiPartnerApply, apiMyApplications, apiCustomCategories, apiAddCustomCa
 import { fileToLogoDataUrl } from '@/lib/image';
 import { deviceId } from '@/lib/device';
 import { BASE_CATEGORIES } from '@/core/categories';
+import { shopHref } from '@/lib/shop-href';
 
 // Multi-select: a studio can offer several of these at once. "Mobile" is not
 // a category here — it's the service-mode toggle in the location step.
@@ -180,7 +181,7 @@ export default function PartnerPage() {
           <div className="ref">{doneRef.toUpperCase()}</div>
           <p style={{ fontSize: '0.9rem' }}>{t('p_live_body')}</p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
-            <Link className="btn btn-primary" href={`/shops/${liveSlug}`}>{t('p_live_view')}</Link>
+            <Link className="btn btn-primary" href={shopHref(liveSlug)}>{t('p_live_view')}</Link>
             <Link className="btn btn-soft" href="/dashboard">{t('p_live_dashboard')}</Link>
           </div>
         </div>

@@ -16,6 +16,7 @@ import { money, timeOf, weekdayShort } from '@/lib/format';
 import { apiNextOpenings } from '@/lib/api';
 import type { Opening } from '@/core/store';
 import { todayIso, addDays } from '@/core/time';
+import { shopHref } from '@/lib/shop-href';
 
 interface Svc {
   id: string;
@@ -62,7 +63,7 @@ export function NextOpenings({ shopId, slug, services }: { shopId: string; slug:
             <Link
               key={o.start}
               className="no-slot"
-              href={`/shops/${slug}/book?service=${service.id}&date=${o.iso}&at=${o.start}`}
+              href={shopHref(slug, 'book', `service=${service.id}&date=${o.iso}&at=${o.start}`)}
             >
               <span className="no-day">{dayLabel(o.iso)}</span>
               <span className="no-time">{timeOf(o.start, lang)}</span>
@@ -71,7 +72,7 @@ export function NextOpenings({ shopId, slug, services }: { shopId: string; slug:
           ))}
         </div>
       )}
-      <Link className="btn btn-soft sm" href={`/shops/${slug}/book?service=${service.id}`}>
+      <Link className="btn btn-soft sm" href={shopHref(slug, 'book', `service=${service.id}`)}>
         {t('no_more')} →
       </Link>
     </section>

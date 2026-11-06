@@ -295,6 +295,7 @@ function ProfileView() {
       <div className="acc-quick">
         <Link href="/bookings"><span>📅</span>{t('nav_bookings')}</Link>
         <Link href="/favourites"><span>❤️</span>{t('fav_title')}</Link>
+        <Link href="/company"><span>🏢</span>{t('co_title')}</Link>
         <Link href="/messages"><span>💬</span>{t('mg_title')}</Link>
         <Link href="/deals"><span>⚡</span>{t('dl_title')}</Link>
       </div>

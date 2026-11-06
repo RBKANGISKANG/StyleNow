@@ -47,6 +47,7 @@ import { isoDateOf as isoDay } from '@/core/time';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
 import { ReferralPanel } from '@/components/ReferralPanel';
+import { shopHref } from '@/lib/shop-href';
 
 interface Bk {
   id: string;
@@ -247,7 +248,7 @@ export default function BookingsPage() {
               </span>
               <Link
                 className="btn btn-primary sm"
-                href={`/shops/${d.slug}/book?service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}${d.personId ? `&for=${d.personId}` : ''}`}
+                href={shopHref(d.slug, 'book', `service=${d.serviceId}${d.staffId ? `&staff=${d.staffId}` : ''}${d.personId ? `&for=${d.personId}` : ''}`)}
               >
                 {t('due_book')}
               </Link>
@@ -634,7 +635,7 @@ export default function BookingsPage() {
                   </span>
                   <Link
                     className="btn btn-primary sm"
-                    href={`/shops/${w.shop.slug}/book?service=${w.serviceIds[0] ?? ''}&date=${w.isoDate}&at=${w.offer.startsAt}`}
+                    href={shopHref(w.shop.slug, 'book', `service=${w.serviceIds[0] ?? ''}&date=${w.isoDate}&at=${w.offer.startsAt}`)}
                   >
                     {t('wl_cus_take')}
                   </Link>
@@ -678,7 +679,7 @@ export default function BookingsPage() {
                 </span>
               </span>
               {c.rewardsAvailable > 0 ? (
-                <Link className="btn btn-primary sm" href={`/shops/${c.shopSlug}/book`}>
+                <Link className="btn btn-primary sm" href={shopHref(c.shopSlug, 'book')}>
                   🎉 {t('stamp_reward_ready')}
                 </Link>
               ) : (
@@ -713,7 +714,7 @@ export default function BookingsPage() {
               {w.hit && (
                 <Link
                   className="btn btn-primary sm"
-                  href={`/shops/${w.slug}/book?service=${w.serviceId}${w.staffId ? `&staff=${w.staffId}` : ''}&date=${w.hit.iso}&at=${w.hit.start}`}
+                  href={shopHref(w.slug, 'book', `service=${w.serviceId}${w.staffId ? `&staff=${w.staffId}` : ''}&date=${w.hit.iso}&at=${w.hit.start}`)}
                 >
                   {t('due_book')}
                 </Link>
@@ -742,7 +743,7 @@ export default function BookingsPage() {
                 <span>{pk.shopName} · {pk.remaining}/{pk.total}</span>
               </span>
               {pk.remaining > 0 && (
-                <Link className="btn btn-soft sm" href={`/shops/${pk.slug}/book?service=${pk.serviceId}`}>
+                <Link className="btn btn-soft sm" href={shopHref(pk.slug, 'book', `service=${pk.serviceId}`)}>
                   {t('due_book')}
                 </Link>
               )}
@@ -920,7 +921,7 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
         <div style={{ marginTop: 10 }}>
           <Link
             className="btn btn-soft sm"
-            href={`/shops/${booking.shop.slug}/book?service=${booking.serviceIds[0]}${booking.staffId ? `&staff=${booking.staffId}` : ''}`}
+            href={shopHref(booking.shop.slug, 'book', `service=${booking.serviceIds[0]}${booking.staffId ? `&staff=${booking.staffId}` : ''}`)}
           >
             🔄 {booking.staffName ? t('rebook_with', { name: booking.staffName }) : t('rebook')}
           </Link>
@@ -1158,7 +1159,7 @@ function FollowPanel() {
               </div>
             </div>
             {r.start !== null && (
-              <Link className="btn btn-primary sm" href={`/shops/${r.shopSlug}/book?staff=${r.staffId}&date=${r.iso}`}>
+              <Link className="btn btn-primary sm" href={shopHref(r.shopSlug, 'book', `staff=${r.staffId}&date=${r.iso}`)}>
                 {t('book')}
               </Link>
             )}
@@ -1202,7 +1203,7 @@ function EarliestPanel() {
                 {dateOf(r.start, lang)}, {timeOf(r.start, lang)} · {money(r.priceCents, lang)}
               </div>
             </div>
-            <Link className="btn btn-primary sm" href={`/shops/${r.slug}/book?date=${r.iso}`}>
+            <Link className="btn btn-primary sm" href={shopHref(r.slug, 'book', `date=${r.iso}`)}>
               {t('book')}
             </Link>
           </div>

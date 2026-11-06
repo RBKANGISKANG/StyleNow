@@ -18,6 +18,7 @@ import {
   HoldExpired,
   markStripeRefunded,
   recordStripeCharge,
+  setPayoutAccount,
   stripeRefundableCents,
   unmarkStripeRefunded,
   type PaymentMethod,
@@ -88,7 +89,7 @@ export async function refundThroughStripe(bookingId: string): Promise<number> {
   markStripeRefunded(bookingId, cents);
   try {
     await stripe().refunds.create(
-      { payment_intent: b.stripe.paymentIntentId, amount: cents, metadata: { bookingId } },
+      { payment_intent: b.stripe.paymentIntentId, amount: cents, metadata: { bookingId }, ...(await reversal(b.stripe.paymentIntentId)) },
       { idempotencyKey: `refund-${bookingId}-${before}-${cents}` },
     );
     return cents;
@@ -185,7 +186,7 @@ export async function settle(session: Stripe.Checkout.Session): Promise<{
             markStripeRefunded(id, remaining);
             try {
               await stripe().refunds.create(
-                { payment_intent: paymentIntentId, amount: remaining, metadata: { bookingId: id, reason: 'hold_expired_before_settle' } },
+                { payment_intent: paymentIntentId, amount: remaining, metadata: { bookingId: id, reason: 'hold_expired_before_settle' }, ...(await reversal(paymentIntentId)) },
                 { idempotencyKey: `refund-expired-${id}-${session.id}-${already}` },
               );
             } catch {
@@ -203,4 +204,29 @@ export async function settle(session: Stripe.Checkout.Session): Promise<{
     bookingIds: ids,
     reference: first?.reference ?? '',
   };
+}
+
+/**
+ * A refund on a split charge must also pull the salon's share back (and give
+ * the platform's fee back), or the platform pays the guest out of its own
+ * pocket while the salon keeps the money.
+ */
+async function reversal(paymentIntentId: string): Promise<{ reverse_transfer?: boolean; refund_application_fee?: boolean }> {
+  try {
+    const pi = await stripe().paymentIntents.retrieve(paymentIntentId);
+    if (!pi.transfer_data?.destination) return {};
+    return { reverse_transfer: true, ...(pi.application_fee_amount ? { refund_application_fee: true } : {}) };
+  } catch {
+    return {};
+  }
+}
+
+/** Mirror a connected account's readiness onto the shop it belongs to. */
+export function syncPayoutAccount(shopId: string, acct: Stripe.Account) {
+  return setPayoutAccount(shopId, {
+    accountId: acct.id,
+    chargesEnabled: Boolean(acct.charges_enabled),
+    payoutsEnabled: Boolean(acct.payouts_enabled),
+    detailsSubmitted: Boolean(acct.details_submitted),
+  });
 }

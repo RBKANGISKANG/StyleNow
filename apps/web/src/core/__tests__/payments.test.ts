@@ -4,6 +4,7 @@
  * (the Bundesbank example plus a corrupted copy), and what the engine records.
  */
 import assert from 'node:assert/strict';
+import * as storeAll from '../store';
 import {
   luhnValid, cardBrand, formatCardNumber, expiryValid, cvcValid,
   ibanValid, maskedCardLabel, maskedIbanLabel,
@@ -2453,6 +2454,38 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   // A sign-up with nothing bookable waits for review instead of failing.
   const empty = submitShopApplication('dev-signup4', form('Studio Leer', { offer: { services: [] } }));
   assert.equal(empty.status, 'pending');
+}
+
+// ---- automatic payouts + company statement ----
+{
+  const { setPayoutAccount, payoutAccount, shopForPayoutAccount, applicationFeeCents, commissionFreeUntil, companyStatement, buyCorporateBatch, giftCard, allShops: shops } = storeAll;
+  const shop = shops()[0];
+  assert.throws(() => setPayoutAccount(shop.id, { accountId: 'nope', chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true }), /bad_account/);
+  assert.throws(() => setPayoutAccount('no-such-shop', { accountId: 'acct_1', chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true }), /shop_not_found/);
+  setPayoutAccount(shop.id, { accountId: 'acct_Test1', chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false });
+  assert.equal(shopForPayoutAccount('acct_Test1'), shop.id);
+  assert.equal(payoutAccount(shop.id)?.chargesEnabled, false);
+  // Inside the free year the platform takes nothing; after it, 12 %.
+  const free = commissionFreeUntil(shop.id);
+  const before = Date.parse(`${free}T00:00:00Z`) - 864e5;
+  const after = Date.parse(`${free}T12:00:00Z`);
+  assert.equal(applicationFeeCents(shop.id, 10000, before), 0, 'no fee in the free year');
+  assert.equal(applicationFeeCents(shop.id, 10000, after), 1200, '12 % afterwards');
+  assert.equal(applicationFeeCents(shop.id, -5, after), 0);
+
+  // The company statement derives balances live from the cards.
+  const batch = buyCorporateBatch(shop.id, 'dev-company', 'Acme GmbH', 5, 5000);
+  const st0 = companyStatement('dev-company');
+  assert.equal(st0.totals.cards, 5);
+  assert.equal(st0.totals.openCents, 25000);
+  assert.equal(st0.totals.unusedCards, 5);
+  const card = giftCard(batch.codes[0])!;
+  card.balanceCents -= 2000; // fixture surgery: one employee spent 20 €
+  card.redemptions.push({ at: Date.now(), cents: 2000, reference: 'T-1' });
+  const st1 = companyStatement('dev-company');
+  assert.equal(st1.totals.usedCents, 2000);
+  assert.equal(st1.totals.unusedCards, 4);
+  assert.equal(companyStatement('someone-else').batches.length, 0, 'only your own orders');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

@@ -482,6 +482,7 @@ interface State {
   shopOwners: Map<string, string>; // shopId → ownerKey (account email or device)
   shopMembers: Map<string, string[]>; // demo shops: further owner keys that joined without displacing the owner
   registeredShops: Map<string, SeedShop>; // salons that signed up through the partner form
+  payoutAccounts: Map<string, PayoutAccount>; // shopId → the salon's Stripe connected account
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
@@ -575,6 +576,7 @@ const state: State =
     shopOwners: new Map(),
     shopMembers: new Map(),
     registeredShops: new Map(),
+    payoutAccounts: new Map(),
     pausedShops: new Set(),
     shopLiveSince: new Map(),
     platform: { requireApproval: false },
@@ -691,6 +693,7 @@ function persist(): boolean {
         shopOwners: [...state.shopOwners.entries()],
         shopMembers: [...state.shopMembers.entries()],
         registeredShops: [...state.registeredShops.entries()],
+        payoutAccounts: [...state.payoutAccounts.entries()],
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
@@ -765,6 +768,7 @@ function restoreSnapshot(raw: string | null): void {
         shopOwners?: Array<[string, string]>;
         shopMembers?: Array<[string, string[]]>;
         registeredShops?: Array<[string, SeedShop]>;
+        payoutAccounts?: Array<[string, PayoutAccount]>;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
@@ -827,6 +831,7 @@ function restoreSnapshot(raw: string | null): void {
       state.shopOwners = new Map(d.shopOwners ?? []);
       state.shopMembers = new Map(d.shopMembers ?? []);
       state.registeredShops = new Map(d.registeredShops ?? []);
+      state.payoutAccounts = new Map(d.payoutAccounts ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
@@ -6643,6 +6648,8 @@ export interface PlatformShopRow {
   /** ISO date the salon went live, and the first day commission applies. */
   liveSince: string;
   freeUntil: string;
+  /** automatic payouts through the salon's own Stripe account */
+  payouts: 'ready' | 'pending' | 'none';
 }
 
 /**
@@ -6651,7 +6658,7 @@ export interface PlatformShopRow {
  * completed bookings paid online, so pay-at-salon visits carry none, and
  * nothing at all during a salon's first year on the platform.
  */
-export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg' | 'liveSince' | 'freeUntil'> } {
+export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg' | 'liveSince' | 'freeUntil' | 'payouts'> } {
   const from = dayStart(fromIso);
   const to = dayStart(addDays(toIso, 1));
   const rows = new Map<string, PlatformShopRow & { noShows: number; settled: number; chargeable: number }>();
@@ -6661,6 +6668,10 @@ export function platformOverview(fromIso: string, toIso: string): { rows: Platfo
       paused: state.pausedShops.has(s.id), bookings: 0, volumeCents: 0, onlineCompletedCents: 0,
       commissionCents: 0, noShowPct: null, ratingAvg: s.ratingAvg, noShows: 0, settled: 0,
       liveSince: shopLiveSince(s.id), freeUntil: commissionFreeUntil(s.id), chargeable: 0,
+      payouts: (() => {
+        const a = state.payoutAccounts.get(s.id);
+        return !a ? 'none' : a.chargesEnabled && a.payoutsEnabled ? 'ready' : 'pending';
+      })(),
     });
   }
   for (const b of state.bookings.values()) {
@@ -8844,5 +8855,99 @@ export function integritySnapshot(): { bookings: Booking[]; giftCards: GiftCard[
   return {
     bookings: [...state.bookings.values()].map((b) => structuredClone(b)),
     giftCards: [...state.giftCards.values()].map((c) => structuredClone(c)),
+  };
+}
+
+// ---- automatic payouts (Stripe Connect) -----------------------------------
+
+/**
+ * A salon's own Stripe account. Once it can take charges, every online
+ * payment for that salon is split at the source: the salon's share lands in
+ * its Stripe balance and Stripe pays it out to the salon's bank on its own
+ * schedule; the platform keeps only the commission (nothing in the first year).
+ */
+export interface PayoutAccount {
+  accountId: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  updatedAt: number;
+}
+
+export function payoutAccount(shopId: string): PayoutAccount | null {
+  return state.payoutAccounts.get(shopId) ?? null;
+}
+
+export function setPayoutAccount(shopId: string, acc: Omit<PayoutAccount, 'updatedAt'>): PayoutAccount {
+  if (!shopById(shopId)) throw new Error('shop_not_found');
+  if (!/^acct_[A-Za-z0-9]+$/.test(acc.accountId)) throw new Error('bad_account');
+  const next: PayoutAccount = {
+    accountId: acc.accountId,
+    chargesEnabled: Boolean(acc.chargesEnabled),
+    payoutsEnabled: Boolean(acc.payoutsEnabled),
+    detailsSubmitted: Boolean(acc.detailsSubmitted),
+    updatedAt: Date.now(),
+  };
+  state.payoutAccounts.set(shopId, next);
+  persist();
+  return next;
+}
+
+/** Account updates arrive by account id (webhook), not by shop. */
+export function shopForPayoutAccount(accountId: string): string | null {
+  for (const [shopId, a] of state.payoutAccounts) if (a.accountId === accountId) return shopId;
+  return null;
+}
+
+/** Commission percent for a charge made on `iso` (YYYY-MM-DD): 0 inside the free year. */
+export function commissionPctOn(shopId: string, iso: string): number {
+  return iso < commissionFreeUntil(shopId) ? 0 : PLATFORM_COMMISSION_PCT;
+}
+
+/** The platform's cut of an online charge, in cents. */
+export function applicationFeeCents(shopId: string, amountCents: number, at = Date.now()): number {
+  const iso = new Date(at).toISOString().slice(0, 10);
+  return Math.round((Math.max(0, amountCents) * commissionPctOn(shopId, iso)) / 100);
+}
+
+// ---- company portal ---------------------------------------------------------
+
+export interface CompanyStatementCard {
+  code: string;
+  initialCents: number;
+  balanceCents: number;
+  usedCents: number;
+  lastUsedAt: number | null;
+}
+
+export interface CompanyStatement {
+  batches: Array<CorporateBatch & { shopName: string; cards: CompanyStatementCard[] }>;
+  totals: { orders: number; cards: number; paidCents: number; faceCents: number; usedCents: number; openCents: number; unusedCards: number };
+}
+
+/** Everything a company bought, with each code's live balance — derived, never stored. */
+export function companyStatement(deviceId: string): CompanyStatement {
+  const batches = myCorporateBatches(deviceId).map((b) => {
+    const cards = b.codes.map((code) => {
+      const c = state.giftCards.get(code);
+      const initial = c?.initialCents ?? b.amountCents;
+      const balance = c?.balanceCents ?? 0;
+      const last = c?.redemptions.length ? Math.max(...c.redemptions.map((r) => r.at)) : null;
+      return { code, initialCents: initial, balanceCents: balance, usedCents: initial - balance, lastUsedAt: last };
+    });
+    return { ...b, shopName: shopById(b.shopId)?.name ?? b.shopId, cards };
+  });
+  const all = batches.flatMap((b) => b.cards);
+  return {
+    batches,
+    totals: {
+      orders: batches.length,
+      cards: all.length,
+      paidCents: batches.reduce((n, b) => n + b.paidCents, 0),
+      faceCents: all.reduce((n, c) => n + c.initialCents, 0),
+      usedCents: all.reduce((n, c) => n + c.usedCents, 0),
+      openCents: all.reduce((n, c) => n + c.balanceCents, 0),
+      unusedCards: all.filter((c) => c.usedCents === 0).length,
+    },
   };
 }

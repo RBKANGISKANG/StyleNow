@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n';
 import { useFavourites } from '@/lib/favs';
 import { allShops } from '@/core/store';
 import { Heart } from '@/components/Heart';
+import { shopHref } from '@/lib/shop-href';
 
 export default function FavouritesPage() {
   const { t, lang } = useI18n();
@@ -37,7 +38,7 @@ export default function FavouritesPage() {
               <strong>{s.name}</strong>
               <span className="fav-sub">📍 {s.district} · {s.tagline[lang]}</span>
             </span>
-            <Link className="btn btn-primary sm" href={`/shops/${s.slug}`}>
+            <Link className="btn btn-primary sm" href={shopHref(s.slug)}>
               {t('book')}
             </Link>
             <button className="fav-btn-inline" aria-label="unfavourite" onClick={() => toggleFav(s.id)}>

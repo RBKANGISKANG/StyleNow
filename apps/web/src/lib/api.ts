@@ -3334,3 +3334,44 @@ export async function apiAdminSetPaused(shopId: string, paused: boolean): Promis
   await localWrite();
   store.setShopPaused(shopId, paused);
 }
+
+// ---- automatic payouts (Stripe Connect) -------------------------------------
+
+export interface PayoutStatus {
+  configured: boolean;
+  connected: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  commissionPct: number;
+  freeUntil: string;
+}
+
+/** null when there is no server (static/local) — payouts need a secret key. */
+export async function apiPayoutStatus(shopId: string, ownerKey: string): Promise<PayoutStatus | null> {
+  if (backendMode() !== 'server') return null;
+  const res = await fetch(`/api/stripe/connect?shopId=${encodeURIComponent(shopId)}&ownerKey=${encodeURIComponent(ownerKey)}`);
+  return res.ok ? await res.json() : null;
+}
+
+export async function apiPayoutOnboarding(shopId: string, ownerKey: string): Promise<{ url?: string; error?: string }> {
+  if (backendMode() !== 'server') return { error: 'stripe_not_configured' };
+  const res = await fetch('/api/stripe/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ shopId, ownerKey }),
+  });
+  return res.json().catch(() => ({ error: 'network' }));
+}
+
+// ---- company portal -----------------------------------------------------------
+
+export async function apiCompanyStatement(): Promise<store.CompanyStatement> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/me/corporate?deviceId=${encodeURIComponent(deviceId())}&statement=1`);
+    if (res.ok) return (await res.json()).statement;
+    return store.companyStatement('');
+  }
+  await readyForRead();
+  return store.companyStatement(deviceId());
+}

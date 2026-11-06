@@ -32,6 +32,7 @@ import { deviceId } from '@/lib/device';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays, dayStart } from '@/core/time';
 import { useAuth } from '@/lib/auth';
+import { shopHref } from '@/lib/shop-href';
 
 interface Svc {
   id: string;
@@ -807,7 +808,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
         <h1>
           {shop.emoji} {shop.name}
         </h1>
-        <Link href={`/shops/${shop.slug}`} className="btn btn-ghost sm">
+        <Link href={shopHref(shop.slug)} className="btn btn-ghost sm">
           ← {t('back')}
         </Link>
       </div>
@@ -1178,7 +1179,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
                     {nearby.map((n) => (
                       <Link
                         key={n.shopId}
-                        href={`/shops/${n.slug}/book?service=${n.serviceId}&date=${date}&at=${n.start}`}
+                        href={shopHref(n.slug, 'book', `service=${n.serviceId}&date=${date}&at=${n.start}`)}
                         className="nb-card"
                       >
                         <span className="nb-emoji">{n.emoji}</span>

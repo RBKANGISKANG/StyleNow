@@ -30,6 +30,7 @@ import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { money, distance } from '@/lib/format';
 import { Icon } from '@/components/Icon';
+import { shopHref } from '@/lib/shop-href';
 
 /** Swap this for a paid or self-hosted `{z}/{x}/{y}.png` endpoint at launch. */
 const TILE_HOST = 'https://tile.openstreetmap.org';
@@ -291,7 +292,7 @@ export function FeedMap({ pins }: { pins: MapPin[] }) {
       </div>
 
       {chosen ? (
-        <Link href={`/shops/${chosen.slug}`} className="fm-peek">
+        <Link href={shopHref(chosen.slug)} className="fm-peek">
           <span className="fm-peek-ico">
             {chosen.coverUrl || chosen.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element

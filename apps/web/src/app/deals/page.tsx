@@ -12,6 +12,7 @@ import { money, timeOf } from '@/lib/format';
 import { apiLastMinuteDeals } from '@/lib/api';
 import type { Deal } from '@/core/store';
 import { todayIso } from '@/core/time';
+import { shopHref } from '@/lib/shop-href';
 
 export default function DealsPage() {
   const { t, lang } = useI18n();
@@ -39,7 +40,7 @@ export default function DealsPage() {
           <Link
             key={`${d.shopId}-${d.start}`}
             className="nb-card"
-            href={`/shops/${d.slug}/book?service=${d.serviceId}&date=${d.iso}&at=${d.start}`}
+            href={shopHref(d.slug, 'book', `service=${d.serviceId}&date=${d.iso}&at=${d.start}`)}
           >
             <span className="nb-emoji">{d.emoji}</span>
             <span className="nb-main">
