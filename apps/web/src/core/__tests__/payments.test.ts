@@ -47,7 +47,7 @@ import {
   exportShopConfig as exportCfg, applyShopConfig as applyCfg,
   payAtSalonOf, setPayAtSalon, claimShop, releaseShop, isShopOwner, shopsForOwner,
   submitShopApplication, approveApplication, rejectApplication, setRequireApproval, platformSettings,
-  setShopPaused, platformOverview, shopBySlug, shopById, feed, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
+  setShopPaused, platformOverview, shopBySlug, shopById, dueOnlineCents, recordStripeCharge, stripeRefundableCents, markStripeRefunded,
 } from '../store';
 import { toCsv, eurDe } from '../../lib/csv';
 import { todayIso, addDays, isoDow, dayStart, isoDateOf, atMinute } from '../time';
@@ -2423,7 +2423,10 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   b.endsAt = Date.now() - 36e5;
   setBookingStatus(shop.id, held, 'completed');
   const row = platformOverview(addDays(todayIso(), -1), todayIso()).rows.find((r) => r.shopId === shop.id)!;
-  assert.equal(row.commissionCents, Math.round(b.quote.totalCents * 0.12), '12 % commission on a completed online booking');
+  assert.equal(row.onlineCompletedCents, b.quote.totalCents, 'the completed online booking is counted');
+  assert.equal(row.commissionCents, 0, 'but a new salon pays no commission in its first year');
+  assert.equal(row.liveSince, todayIso());
+  assert.equal(row.freeUntil, `${Number(todayIso().slice(0, 4)) + 1}${todayIso().slice(4)}`.replace(/-02-29$/, '-02-28'));
 
   // Pausing hides it and stops new bookings.
   setShopPaused(shop.id, true);

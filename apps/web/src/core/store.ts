@@ -483,6 +483,7 @@ interface State {
   shopMembers: Map<string, string[]>; // demo shops: further owner keys that joined without displacing the owner
   registeredShops: Map<string, SeedShop>; // salons that signed up through the partner form
   pausedShops: Set<string>; // taken off search and booking by the platform
+  shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
   customServices: Map<string, SeedService[]>; // shopId → services the shop added
   archivedServices: Set<string>; // services are archived, never dropped (old receipts must render)
@@ -575,6 +576,7 @@ const state: State =
     shopMembers: new Map(),
     registeredShops: new Map(),
     pausedShops: new Set(),
+    shopLiveSince: new Map(),
     platform: { requireApproval: false },
     customServices: new Map(),
     archivedServices: new Set(),
@@ -672,6 +674,7 @@ function persist(): boolean {
         shopMembers: [...state.shopMembers.entries()],
         registeredShops: [...state.registeredShops.entries()],
         pausedShops: [...state.pausedShops],
+        shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
         customServices: [...state.customServices.entries()],
         archivedServices: [...state.archivedServices],
@@ -746,6 +749,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
         shopMembers?: Array<[string, string[]]>;
         registeredShops?: Array<[string, SeedShop]>;
         pausedShops?: string[];
+        shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
         customServices?: Array<[string, SeedService[]]>;
         archivedServices?: string[];
@@ -807,6 +811,7 @@ if (IS_BROWSER && state.bookings.size === 0) {
       state.shopMembers = new Map(d.shopMembers ?? []);
       state.registeredShops = new Map(d.registeredShops ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
+      state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
       state.customServices = new Map(d.customServices ?? []);
       state.archivedServices = new Set(d.archivedServices ?? []);
@@ -6556,6 +6561,7 @@ export function approveApplication(id: string): ShopApplication {
   if (app.status === 'approved') return app;
   const shop = shopFromApplication(app);
   state.registeredShops.set(shop.id, shop);
+  if (!state.shopLiveSince.has(shop.id)) state.shopLiveSince.set(shop.id, todayIso());
   const ownerKey = typeof app.data.ownerKey === 'string' && app.data.ownerKey ? app.data.ownerKey : app.deviceId;
   if (!state.shopOwners.has(shop.id)) state.shopOwners.set(shop.id, ownerKey);
   app.status = 'approved';
@@ -6578,6 +6584,24 @@ export function rejectApplication(id: string, reason: string): ShopApplication {
 }
 
 export const PLATFORM_COMMISSION_PCT = 12;
+/** Salons pay nothing for their first year on the platform. */
+export const COMMISSION_FREE_MONTHS = 12;
+/** The seeded launch salons count as live from the platform's launch. */
+const LAUNCH_DATE = '2026-03-01';
+
+export function shopLiveSince(shopId: string): string {
+  return state.shopLiveSince.get(shopId) ?? LAUNCH_DATE;
+}
+
+/** First day commission is charged: the live date plus the free months. */
+export function commissionFreeUntil(shopId: string): string {
+  const [y, m, d] = shopLiveSince(shopId).split('-').map(Number);
+  const months = m - 1 + COMMISSION_FREE_MONTHS;
+  const ny = y + Math.floor(months / 12);
+  const nm = (months % 12) + 1;
+  const last = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+}
 
 export interface PlatformShopRow {
   shopId: string;
@@ -6591,22 +6615,27 @@ export interface PlatformShopRow {
   commissionCents: number;
   noShowPct: number | null;
   ratingAvg: number;
+  /** ISO date the salon went live, and the first day commission applies. */
+  liveSince: string;
+  freeUntil: string;
 }
 
 /**
  * The platform's view of every salon over a window: bookings made, money
  * booked, and the commission owed — the partner terms charge it only on
- * completed bookings paid online, so pay-at-salon visits carry none.
+ * completed bookings paid online, so pay-at-salon visits carry none, and
+ * nothing at all during a salon's first year on the platform.
  */
-export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg'> } {
+export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg' | 'liveSince' | 'freeUntil'> } {
   const from = dayStart(fromIso);
   const to = dayStart(addDays(toIso, 1));
-  const rows = new Map<string, PlatformShopRow & { noShows: number; settled: number }>();
+  const rows = new Map<string, PlatformShopRow & { noShows: number; settled: number; chargeable: number }>();
   for (const s of allShops()) {
     rows.set(s.id, {
       shopId: s.id, name: s.name, district: s.district, registered: state.registeredShops.has(s.id),
       paused: state.pausedShops.has(s.id), bookings: 0, volumeCents: 0, onlineCompletedCents: 0,
       commissionCents: 0, noShowPct: null, ratingAvg: s.ratingAvg, noShows: 0, settled: 0,
+      liveSince: shopLiveSince(s.id), freeUntil: commissionFreeUntil(s.id), chargeable: 0,
     });
   }
   for (const b of state.bookings.values()) {
@@ -6619,14 +6648,16 @@ export function platformOverview(fromIso: string, toIso: string): { rows: Platfo
     if (b.status === 'no_show') r.noShows += 1;
     if (b.status === 'completed' && b.payment && b.payment.method !== 'at_salon') {
       r.onlineCompletedCents += b.quote.totalCents;
+      // the first year on the platform is commission-free
+      if (b.startsAt >= dayStart(r.freeUntil)) r.chargeable += b.quote.totalCents;
     }
   }
   const out: PlatformShopRow[] = [];
   const totals = { bookings: 0, volumeCents: 0, onlineCompletedCents: 0, commissionCents: 0 };
   for (const r of rows.values()) {
-    r.commissionCents = Math.round((r.onlineCompletedCents * PLATFORM_COMMISSION_PCT) / 100);
+    r.commissionCents = Math.round((r.chargeable * PLATFORM_COMMISSION_PCT) / 100);
     r.noShowPct = r.settled ? Math.round((r.noShows / r.settled) * 100) : null;
-    const { noShows: _n, settled: _s, ...row } = r;
+    const { noShows: _n, settled: _s, chargeable: _c, ...row } = r;
     out.push(row);
     totals.bookings += r.bookings;
     totals.volumeCents += r.volumeCents;
