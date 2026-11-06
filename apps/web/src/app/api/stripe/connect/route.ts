@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isShopOwner, payoutAccount, shopById, commissionFreeUntil, PLATFORM_COMMISSION_PCT } from '@/core/store';
-import { originFor, releaseWaitingPayouts, stripe, stripeConfigured, syncPayoutAccount } from '@/lib/stripe-server';
+import { isShopOwner, payoutAccount, shopById, commissionFreeUntil, PLATFORM_COMMISSION_PCT, waitingPayouts } from '@/core/store';
+import { stripeConfigured } from '@/lib/stripe-server';
+import { accountNeeds, createCustomAccount, ibanOk, updateAccount, uploadIdentityDocument, type DueGroup, type PersonDetails, type SignupDetails } from '@/lib/stripe-connect';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Automatic payouts for one salon (Stripe Connect, Express accounts).
+ * Salon payouts, all inside StyleNow (Stripe Connect Custom accounts — the
+ * salon never visits Stripe).
  *
- * GET  ?shopId&ownerKey → the salon's payout status (refreshed from Stripe).
- * POST { shopId, ownerKey } → a one-time Stripe onboarding link. Stripe hosts
- * the identity and bank-account form; the salon never gives us its IBAN.
+ * GET  ?shopId&ownerKey            → status + which details are still needed
+ * POST json { shopId, ownerKey, company?, person?, iban?, accountHolder? }
+ *                                   → create the account or fill in details
+ * POST multipart (shopId, ownerKey, document) → upload an ID photo
  */
 function guard(shopId: string, ownerKey: string): NextResponse | null {
   if (!shopById(shopId)) return NextResponse.json({ error: 'shop_not_found' }, { status: 404 });
@@ -17,14 +20,29 @@ function guard(shopId: string, ownerKey: string): NextResponse | null {
   return null;
 }
 
-function view(shopId: string) {
+const clientIp = (req: NextRequest) => (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.ip || '';
+
+async function view(shopId: string) {
   const a = payoutAccount(shopId);
+  let needs: { groups: DueGroup[]; raw: string[]; deadline: number | null; disabledReason: string | null } = { groups: [], raw: [], deadline: null, disabledReason: null };
+  if (stripeConfigured()) {
+    try {
+      needs = await accountNeeds(shopId);
+    } catch {
+      /* keep the last known status */
+    }
+  }
+  const fresh = payoutAccount(shopId) ?? a;
   return {
     configured: stripeConfigured(),
-    connected: Boolean(a),
-    chargesEnabled: a?.chargesEnabled ?? false,
-    payoutsEnabled: a?.payoutsEnabled ?? false,
-    detailsSubmitted: a?.detailsSubmitted ?? false,
+    connected: Boolean(fresh),
+    payoutsEnabled: fresh?.payoutsEnabled ?? false,
+    chargesEnabled: fresh?.chargesEnabled ?? false,
+    detailsSubmitted: fresh?.detailsSubmitted ?? false,
+    needs: needs.groups,
+    deadline: needs.deadline,
+    disabledReason: needs.disabledReason,
+    waitingCents: waitingPayouts(shopId).reduce((n, b) => n + (b.payout?.cents ?? 0), 0),
     commissionPct: PLATFORM_COMMISSION_PCT,
     freeUntil: commissionFreeUntil(shopId),
   };
@@ -32,54 +50,51 @@ function view(shopId: string) {
 
 export async function GET(req: NextRequest) {
   const shopId = req.nextUrl.searchParams.get('shopId') ?? '';
-  const ownerKey = req.nextUrl.searchParams.get('ownerKey') ?? '';
-  const refused = guard(shopId, ownerKey);
+  const refused = guard(shopId, req.nextUrl.searchParams.get('ownerKey') ?? '');
   if (refused) return refused;
-  const a = payoutAccount(shopId);
-  if (a && stripeConfigured()) {
-    try {
-      if (syncPayoutAccount(shopId, await stripe().accounts.retrieve(a.accountId)).payoutsEnabled) await releaseWaitingPayouts(shopId);
-    } catch {
-      /* keep the last known status */
-    }
-  }
-  return NextResponse.json(view(shopId));
+  return NextResponse.json(await view(shopId));
 }
+
+const str = (v: unknown, max = 120) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
 
 export async function POST(req: NextRequest) {
   if (!stripeConfigured()) return NextResponse.json({ error: 'stripe_not_configured' }, { status: 501 });
-  const body = (await req.json().catch(() => ({}))) as { shopId?: unknown; ownerKey?: unknown };
-  const shopId = typeof body.shopId === 'string' ? body.shopId : '';
-  const ownerKey = typeof body.ownerKey === 'string' ? body.ownerKey : '';
-  const refused = guard(shopId, ownerKey);
-  if (refused) return refused;
   try {
-    let a = payoutAccount(shopId);
-    if (!a) {
-      const shop = shopById(shopId)!;
-      const acct = await stripe().accounts.create(
-        {
-          type: 'express',
-          country: 'DE',
-          business_type: 'company',
-          business_profile: { name: shop.name, mcc: '7230' },
-          capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
-          settings: { payouts: { schedule: { interval: 'weekly', weekly_anchor: 'monday' } } },
-          metadata: { shopId },
-        },
-        { idempotencyKey: `connect-${shopId}` },
-      );
-      a = syncPayoutAccount(shopId, acct);
+    if ((req.headers.get('content-type') ?? '').startsWith('multipart/form-data')) {
+      const form = await req.formData();
+      const shopId = String(form.get('shopId') ?? '');
+      const refused = guard(shopId, String(form.get('ownerKey') ?? ''));
+      if (refused) return refused;
+      const file = form.get('document');
+      if (!(file instanceof File)) return NextResponse.json({ error: 'missing_document' }, { status: 400 });
+      await updateAccount(shopId, { documentFileId: await uploadIdentityDocument(file) });
+      return NextResponse.json(await view(shopId));
     }
-    const back = `${originFor(req)}/dashboard/shop?payouts=1`;
-    const link = await stripe().accountLinks.create({
-      account: a.accountId,
-      type: 'account_onboarding',
-      refresh_url: back,
-      return_url: back,
-    });
-    return NextResponse.json({ url: link.url });
+
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const shopId = str(body.shopId) ?? '';
+    const refused = guard(shopId, str(body.ownerKey) ?? '');
+    if (refused) return refused;
+    const iban = str(body.iban, 42);
+    if (iban && !ibanOk(iban)) return NextResponse.json({ error: 'bad_iban' }, { status: 400 });
+    const c = (body.company ?? null) as Record<string, unknown> | null;
+    const company: SignupDetails | undefined = c
+      ? { legalName: str(c.legalName), phone: str(c.phone, 30), vatId: str(c.vatId, 20), street: str(c.street), zip: str(c.zip, 12), city: str(c.city, 60), email: str(c.email), website: str(c.website), smallBusiness: Boolean(c.smallBusiness) }
+      : undefined;
+    const p = (body.person ?? null) as Record<string, unknown> | null;
+    const person: PersonDetails | undefined = p
+      ? { firstName: str(p.firstName, 60), lastName: str(p.lastName, 60), dob: str(p.dob, 10), email: str(p.email), phone: str(p.phone, 30), street: str(p.street), zip: str(p.zip, 12), city: str(p.city, 60), title: str(p.title, 40) }
+      : undefined;
+
+    if (!payoutAccount(shopId)) {
+      await createCustomAccount(shopId, { ...(company ?? {}), displayName: shopById(shopId)!.name, iban, accountHolder: str(body.accountHolder) }, clientIp(req));
+      if (person) await updateAccount(shopId, { person });
+    } else {
+      await updateAccount(shopId, { company, person, iban, accountHolder: str(body.accountHolder) });
+    }
+    return NextResponse.json(await view(shopId));
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 502 });
+    const msg = (e as Error).message;
+    return NextResponse.json({ error: msg }, { status: msg === 'bad_iban' || msg.startsWith('bad_') || msg === 'file_too_large' ? 400 : 502 });
   }
 }

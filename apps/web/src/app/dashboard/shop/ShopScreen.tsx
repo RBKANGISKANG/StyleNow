@@ -10,8 +10,10 @@ import { useI18n } from '@/lib/i18n';
 import {
   apiSetShopLogo,
   apiPayoutStatus,
-  apiPayoutOnboarding,
+  apiSavePayoutDetails,
+  apiUploadPayoutDocument,
   type PayoutStatus,
+  type PayoutDetailsInput,
   apiAddLocation,
   apiPatchLocation,
   apiDeleteLocation,
@@ -1379,6 +1381,8 @@ function PayoutsPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKe
   const { t, lang } = useI18n();
   const [st, setSt] = useState<PayoutStatus | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  const [f, setF] = useState<Record<string, string>>({});
+  const [file, setFile] = useState<File | null>(null);
   useEffect(() => {
     let live = true;
     setSt(undefined);
@@ -1389,8 +1393,40 @@ function PayoutsPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKe
   }, [shopId, ownerKey]);
   if (st === undefined) return <p className="muted">…</p>;
   if (!st || !st.configured) return <p className="muted">{t('po_demo')}</p>;
-  const ready = st.chargesEnabled && st.payoutsEnabled;
-  const date = new Date(`${st.freeUntil}T12:00:00Z`).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const ready = st.payoutsEnabled && st.needs.length === 0;
+  const locale = lang === 'de' ? 'de-DE' : 'en-GB';
+  const date = new Date(`${st.freeUntil}T12:00:00Z`).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+  const needs = new Set(st.connected ? st.needs : ['company', 'bank', 'person']);
+  const inp = (k: string, label: string, type = 'text') => (
+    <label className="stack" style={{ gap: 4 }}>
+      <span className="muted" style={{ fontSize: '0.8rem' }}>{label}</span>
+      <input className="input" type={type} value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+    </label>
+  );
+  const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 } as const;
+  const after = (r: PayoutStatus | { error: string }) => {
+    if ('error' in r) onChanged('⚠️ ' + (r.error === 'bad_iban' ? t('po_iban') + ' ✗' : r.error));
+    else {
+      setSt(r);
+      setF({});
+      setFile(null);
+      onChanged('✓ ' + t('po_saved'));
+    }
+  };
+  const save = async () => {
+    setBusy(true);
+    const input: PayoutDetailsInput = {};
+    if (needs.has('bank') && f.iban) {
+      input.iban = f.iban;
+      input.accountHolder = f.holder;
+    }
+    if (needs.has('company')) input.company = { legalName: f.legal, vatId: f.vat, street: f.cstreet, zip: f.czip, city: f.ccity, phone: f.cphone };
+    if (needs.has('person')) input.person = { firstName: f.first, lastName: f.last, dob: f.dob, email: f.email, phone: f.phone, street: f.street, zip: f.zip, city: f.city };
+    const r = await apiSavePayoutDetails(shopId, ownerKey, input);
+    if (file && !('error' in r)) after(await apiUploadPayoutDocument(shopId, ownerKey, file));
+    else after(r);
+    setBusy(false);
+  };
   return (
     <div className="stack">
       <p>
@@ -1398,20 +1434,61 @@ function PayoutsPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKe
         {ready ? t('po_ready') : st.connected ? t('po_pending') : t('po_none')}
       </p>
       <p className="muted">{t('po_free', { date, pct: st.commissionPct })}</p>
+      {st.waitingCents > 0 && !ready && <p><b>{t('po_waiting', { amount: money(st.waitingCents, lang) })}</b></p>}
+      {st.deadline && !ready && <p className="muted">{t('po_deadline', { date: new Date(st.deadline).toLocaleDateString(locale) })}</p>}
       {!ready && (
-        <button
-          className="btn btn-primary"
-          disabled={busy || !ownerKey}
-          onClick={async () => {
-            setBusy(true);
-            const r = await apiPayoutOnboarding(shopId, ownerKey);
-            setBusy(false);
-            if (r.url) window.location.assign(r.url);
-            else onChanged('⚠️ ' + (r.error ?? 'error'));
-          }}
-        >
-          {st.connected ? t('po_continue') : t('po_connect')}
-        </button>
+        <>
+          {needs.has('company') && (
+            <fieldset className="stack" style={{ border: 0, padding: 0 }}>
+              <b>{t('po_need_company')}</b>
+              <div style={grid}>
+                {inp('legal', t('po_legal'))}
+                {inp('vat', t('po_vat'))}
+                {inp('cstreet', t('po_street'))}
+                {inp('czip', t('po_zip'))}
+                {inp('ccity', t('po_city'))}
+                {inp('cphone', t('po_phone'), 'tel')}
+              </div>
+            </fieldset>
+          )}
+          {needs.has('bank') && (
+            <fieldset className="stack" style={{ border: 0, padding: 0 }}>
+              <b>{t('po_need_bank')}</b>
+              <div style={grid}>
+                {inp('holder', t('po_holder'))}
+                {inp('iban', t('po_iban'))}
+              </div>
+            </fieldset>
+          )}
+          {needs.has('person') && (
+            <fieldset className="stack" style={{ border: 0, padding: 0 }}>
+              <b>{t('po_need_person')}</b>
+              <div style={grid}>
+                {inp('first', t('po_first'))}
+                {inp('last', t('po_last'))}
+                {inp('dob', t('po_dob'), 'date')}
+                {inp('email', t('po_email'), 'email')}
+                {inp('phone', t('po_phone'), 'tel')}
+                {inp('street', t('po_street'))}
+                {inp('zip', t('po_zip'))}
+                {inp('city', t('po_city'))}
+              </div>
+            </fieldset>
+          )}
+          {needs.has('document') && (
+            <label className="stack" style={{ gap: 4 }}>
+              <b>{t('po_need_document')}</b>
+              <input type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            </label>
+          )}
+          {needs.has('other') && <p className="muted">{t('po_need_other')}</p>}
+          <p className="muted" style={{ fontSize: '0.78rem' }}>🔒 {t('po_secure')}</p>
+          <div>
+            <button className="btn btn-primary" disabled={busy || !ownerKey} onClick={() => void save()}>
+              {st.connected ? t('po_save') : t('po_connect')}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

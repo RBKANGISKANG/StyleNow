@@ -605,13 +605,14 @@ export async function apiMyWaitlist(): Promise<WaitlistView[]> {
 /** A submitted application; `shop` is set when it went live at once (auto-approval). */
 export type PartnerApplyResult = ShopApplication & { shop?: { id: string; slug: string } | null };
 
-export async function apiPartnerApply(data: Record<string, unknown>): Promise<PartnerApplyResult | null> {
+export async function apiPartnerApply(data: Record<string, unknown>, payout?: { iban: string }): Promise<PartnerApplyResult | null> {
   const mode = backendMode();
   if (mode === 'server') {
     const res = await fetch('/api/partner/apply', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId: deviceId(), data }),
+      // the full IBAN goes to the server only to be handed to Stripe — never stored
+      body: JSON.stringify({ deviceId: deviceId(), data, payout }),
     });
     if (!res.ok) return null;
     const body = await res.json();
@@ -3338,12 +3339,18 @@ export async function apiAdminSetPaused(shopId: string, paused: boolean): Promis
 
 // ---- automatic payouts (Stripe Connect) -------------------------------------
 
+export type PayoutNeed = 'bank' | 'person' | 'company' | 'document' | 'other';
+
 export interface PayoutStatus {
   configured: boolean;
   connected: boolean;
-  chargesEnabled: boolean;
   payoutsEnabled: boolean;
+  chargesEnabled: boolean;
   detailsSubmitted: boolean;
+  needs: PayoutNeed[];
+  deadline: number | null;
+  disabledReason: string | null;
+  waitingCents: number;
   commissionPct: number;
   freeUntil: string;
 }
@@ -3355,13 +3362,30 @@ export async function apiPayoutStatus(shopId: string, ownerKey: string): Promise
   return res.ok ? await res.json() : null;
 }
 
-export async function apiPayoutOnboarding(shopId: string, ownerKey: string): Promise<{ url?: string; error?: string }> {
+export interface PayoutDetailsInput {
+  company?: { legalName?: string; phone?: string; vatId?: string; street?: string; zip?: string; city?: string; email?: string; smallBusiness?: boolean };
+  person?: { firstName?: string; lastName?: string; dob?: string; email?: string; phone?: string; street?: string; zip?: string; city?: string };
+  iban?: string;
+  accountHolder?: string;
+}
+
+export async function apiSavePayoutDetails(shopId: string, ownerKey: string, input: PayoutDetailsInput): Promise<PayoutStatus | { error: string }> {
   if (backendMode() !== 'server') return { error: 'stripe_not_configured' };
   const res = await fetch('/api/stripe/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ shopId, ownerKey }),
+    body: JSON.stringify({ shopId, ownerKey, ...input }),
   });
+  return res.json().catch(() => ({ error: 'network' }));
+}
+
+export async function apiUploadPayoutDocument(shopId: string, ownerKey: string, file: File): Promise<PayoutStatus | { error: string }> {
+  if (backendMode() !== 'server') return { error: 'stripe_not_configured' };
+  const form = new FormData();
+  form.set('shopId', shopId);
+  form.set('ownerKey', ownerKey);
+  form.set('document', file);
+  const res = await fetch('/api/stripe/connect', { method: 'POST', body: form });
   return res.json().catch(() => ({ error: 'network' }));
 }
 

@@ -6674,7 +6674,7 @@ export function platformOverview(fromIso: string, toIso: string): { rows: Platfo
       liveSince: shopLiveSince(s.id), freeUntil: commissionFreeUntil(s.id), chargeable: 0,
       payouts: (() => {
         const a = state.payoutAccounts.get(s.id);
-        return !a ? 'none' : a.chargesEnabled && a.payoutsEnabled ? 'ready' : 'pending';
+        return !a ? 'none' : a.payoutsEnabled ? 'ready' : 'pending';
       })(),
     });
   }

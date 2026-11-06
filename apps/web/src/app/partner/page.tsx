@@ -161,7 +161,7 @@ export default function PartnerPage() {
       locale: lang,
       // the key the dashboard scopes by, so the new salon shows up there
       ownerKey: user?.email ?? deviceId(),
-    });
+    }, { iban: iban.replace(/\s/g, '').toUpperCase() });
     setBusy(false);
     if (app) {
       setLiveSlug(app.status === 'approved' && app.shop ? app.shop.slug : null);
