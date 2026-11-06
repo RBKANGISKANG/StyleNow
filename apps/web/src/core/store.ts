@@ -8959,8 +8959,8 @@ export function companyStatement(deviceId: string): CompanyStatement {
 // ---- the money rules: who gets what, and when ------------------------------
 //
 // Online money (card payments and online-bought vouchers) waits on the
-// platform's Stripe balance. Only when the visit happened — completed, or a
-// no-show whose fee was kept — does the salon's share move. Cancelled before
+// platform's Stripe balance. Only when the visit happened (completed) does
+// the salon's share move; a kept no-show fee stays with the platform. Cancelled before
 // that, the guest is refunded from the platform and the salon never had it.
 //
 //   normal price  → salon gets it, minus the commission (0 % in the free year)
@@ -9015,7 +9015,8 @@ export function computeSalonPayout(b: Booking): Omit<SalonPayout, 'status' | 'at
 export function preparePayout(bookingId: string): SalonPayout | null {
   const b = state.bookings.get(bookingId);
   if (!b) throw new Error('not_found');
-  if (b.status !== 'completed' && b.status !== 'no_show') return null;
+  // A no-show fee is kept by the platform — only a visit that happened pays the salon.
+  if (b.status !== 'completed') return null;
   if (b.payout && b.payout.status !== 'failed' && b.payout.status !== 'held') return b.payout;
   const split = computeSalonPayout(b);
   if (split.receivedCents <= 0) return null;
