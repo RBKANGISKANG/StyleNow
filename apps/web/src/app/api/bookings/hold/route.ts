@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createHold, SlotTaken } from '@/core/store';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(req: NextRequest) {
+  const idempotencyKey = req.headers.get('idempotency-key');
+  if (!idempotencyKey) {
+    return NextResponse.json({ error: 'idempotency_key_required' }, { status: 400 });
+  }
+  const body = await req.json().catch(() => null);
+  if (!body?.shopId || !body?.serviceIds?.length || !body?.startsAt || !body?.deviceId) {
+    return NextResponse.json({ error: 'missing_params' }, { status: 400 });
+  }
+  try {
+    const result = createHold({
+      shopId: body.shopId,
+      serviceIds: body.serviceIds,
+      staffId: body.staffId ?? null,
+      startsAt: body.startsAt,
+      deviceId: body.deviceId,
+      guestName: body.guestName ?? 'Guest',
+      guestPhone: body.guestPhone || undefined,
+      guestNote: body.guestNote || undefined,
+      voucherCode: body.voucherCode || undefined,
+      pointsToSpend: typeof body.pointsToSpend === 'number' ? body.pointsToSpend : undefined,
+      useStampReward: Boolean(body.useStampReward),
+      prime: body.prime === true,
+      forPersonId: typeof body.forPersonId === 'string' ? body.forPersonId : undefined,
+      forMinor: body.forMinor === true,
+      guardianName: typeof body.guardianName === 'string' ? body.guardianName : undefined,
+      usePackageId: typeof body.usePackageId === 'string' ? body.usePackageId : undefined,
+      occasion: typeof body.occasion === 'string' ? (body.occasion as never) : undefined,
+      consentName: typeof body.consentName === 'string' ? body.consentName : undefined,
+      idempotencyKey,
+    });
+    return NextResponse.json(result, { status: 201 });
+  } catch (e) {
+    if (e instanceof SlotTaken) {
+      // Same contract as the real API: the seat is gone, here are six others.
+      return NextResponse.json(
+        { error: 'slot_taken', alternatives: e.alternatives },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: (e as Error).message }, { status: 404 });
+  }
+}
