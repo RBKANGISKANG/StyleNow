@@ -3286,6 +3286,7 @@ export type PlatformRow = RawOverview['rows'][number] & { slug: string; liveSinc
 export interface PlatformOverview {
   rows: PlatformRow[];
   totals: RawOverview['totals'];
+  breakage?: ReturnType<typeof store.voucherBreakage>;
 }
 
 export async function apiAdminApplications(): Promise<ShopApplication[]> {
@@ -3323,7 +3324,7 @@ export async function apiAdminOverview(fromIso: string, toIso: string): Promise<
   }
   await readyForRead();
   const { rows, totals } = store.platformOverview(fromIso, toIso);
-  return { rows: rows.map((r) => ({ ...r, slug: store.shopById(r.shopId)?.slug ?? '' })), totals };
+  return { rows: rows.map((r) => ({ ...r, slug: store.shopById(r.shopId)?.slug ?? '' })), totals, breakage: store.voucherBreakage() };
 }
 
 export async function apiAdminSetPaused(shopId: string, paused: boolean): Promise<void> {

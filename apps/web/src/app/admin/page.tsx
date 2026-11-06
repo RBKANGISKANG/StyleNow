@@ -367,6 +367,7 @@ export default function AdminPage() {
           <div className="stat-tile"><div className="lbl">{t('adm_s_bookings')}</div><div className="val">{overview.totals.bookings}</div></div>
           <div className="stat-tile"><div className="lbl">{t('adm_s_volume')}</div><div className="val">{money(overview.totals.volumeCents, lang)}</div></div>
           <div className="stat-tile"><div className="lbl">{t('adm_s_commission_owed', { pct: PLATFORM_COMMISSION_PCT })}</div><div className="val">{money(overview.totals.commissionCents, lang)}</div></div>
+          {overview.breakage && <div className="stat-tile"><div className="lbl">{t('adm_s_breakage')}</div><div className="val">{money(overview.breakage.cents, lang)}</div></div>}
           <div className="stat-tile"><div className="lbl">{t('adm_s_live')}</div><div className="val">{liveCount}</div></div>
           <div className="stat-tile"><div className="lbl">{t('adm_s_pending')}</div><div className="val">{pending.length}</div></div>
         </div>

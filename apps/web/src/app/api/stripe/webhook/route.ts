@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type Stripe from 'stripe';
-import { settle, stripe, stripeConfigured, syncPayoutAccount } from '@/lib/stripe-server';
+import { releaseWaitingPayouts, settle, stripe, stripeConfigured, syncPayoutAccount } from '@/lib/stripe-server';
 import { shopForPayoutAccount } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (event.type === 'account.updated') {
     const acct = event.data.object as Stripe.Account;
     const shopId = shopForPayoutAccount(acct.id);
-    if (shopId) syncPayoutAccount(shopId, acct);
+    if (shopId && syncPayoutAccount(shopId, acct).payoutsEnabled) await releaseWaitingPayouts(shopId);
   }
 
   return NextResponse.json({ received: true });

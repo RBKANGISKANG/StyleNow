@@ -19,6 +19,10 @@ import {
   markStripeRefunded,
   recordStripeCharge,
   setPayoutAccount,
+  preparePayout,
+  markPayout,
+  waitingPayouts,
+  payoutAccount,
   stripeRefundableCents,
   unmarkStripeRefunded,
   type PaymentMethod,
@@ -229,4 +233,42 @@ export function syncPayoutAccount(shopId: string, acct: Stripe.Account) {
     payoutsEnabled: Boolean(acct.payouts_enabled),
     detailsSubmitted: Boolean(acct.details_submitted),
   });
+}
+
+/**
+ * Send the salon its share of a visit that happened. Never throws: a failed
+ * transfer is marked 'failed' and retried when the salon's account next
+ * updates (or the shop re-completes). Stripe's idempotency key makes a
+ * double call harmless.
+ */
+export async function sendPayout(bookingId: string): Promise<void> {
+  if (!process.env.STRIPE_SECRET_KEY) return;
+  const p = preparePayout(bookingId);
+  if (!p || p.status !== 'pending' || p.cents <= 0) {
+    if (p && p.status === 'pending' && p.cents <= 0) markPayout(bookingId, { status: 'sent' });
+    return;
+  }
+  const b = getBooking(bookingId);
+  const acct = b ? payoutAccount(b.shopId) : null;
+  if (!b || !acct) return markPayout(bookingId, { status: 'held' });
+  try {
+    const t = await stripe().transfers.create(
+      {
+        amount: p.cents,
+        currency: 'eur',
+        destination: acct.accountId,
+        transfer_group: bookingId,
+        metadata: { bookingId, reference: b.reference, platformCents: String(p.platformCents) },
+      },
+      { idempotencyKey: `payout-${bookingId}-${p.cents}` },
+    );
+    markPayout(bookingId, { status: 'sent', transferId: t.id });
+  } catch {
+    markPayout(bookingId, { status: 'failed' });
+  }
+}
+
+/** A salon finished Stripe onboarding: release everything that waited for it. */
+export async function releaseWaitingPayouts(shopId: string): Promise<void> {
+  for (const b of waitingPayouts(shopId)) await sendPayout(b.id);
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setBookingStatus } from '@/core/store';
-import { refundThroughStripe } from '@/lib/stripe-server';
+import { refundThroughStripe, sendPayout } from '@/lib/stripe-server';
 import { errStatus } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
     // A shop calling a visit off owes the money back — send it, don't just
     // write it down. No-ops when the visit was never paid by card.
     const sent = b.status === 'completed' ? 0 : await refundThroughStripe(params.bid);
+    // The visit happened (or its no-show fee was kept): now the salon is paid.
+    if (b.status === 'completed' || b.status === 'no_show') await sendPayout(params.bid);
     return NextResponse.json({
       id: b.id,
       status: b.status,

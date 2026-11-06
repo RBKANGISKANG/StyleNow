@@ -99,8 +99,12 @@ export interface Booking {
     totalCents: number;
     depositCents: number;
     breakdown: BreakdownLine[];
+    /** the Prime premium inside totalCents — split 50/50 with the salon */
+    primeCents?: number;
   };
   paidCents: number;
+  /** The salon's share of the online money, once the visit happened. */
+  payout?: SalonPayout;
   /** money actually returned to the customer after a cancellation */
   refundedCents?: number;
   guestName: string;
@@ -3553,7 +3557,7 @@ export function createHold(input: HoldInput): HoldResult {
     staffRanges: input.prime ? [] : occupancyForBasket(input.startsAt, services, shop.rules),
     status: 'pending_payment',
     holdExpiresAt: now + HOLD_TTL_SECONDS * 1000,
-    quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown },
+    quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown, primeCents: primeCents || undefined },
     paidCents: 0,
     guestName: input.guestName,
     guestPhone: input.guestPhone?.trim() || undefined,
@@ -8950,4 +8954,105 @@ export function companyStatement(deviceId: string): CompanyStatement {
       unusedCards: all.filter((c) => c.usedCents === 0).length,
     },
   };
+}
+
+// ---- the money rules: who gets what, and when ------------------------------
+//
+// Online money (card payments and online-bought vouchers) waits on the
+// platform's Stripe balance. Only when the visit happened — completed, or a
+// no-show whose fee was kept — does the salon's share move. Cancelled before
+// that, the guest is refunded from the platform and the salon never had it.
+//
+//   normal price  → salon gets it, minus the commission (0 % in the free year)
+//   Prime premium → split 50/50 between the salon and StyleNow
+//   vouchers      → paid to the salon only for the part actually used;
+//                   a balance unused a year after purchase is StyleNow income
+//                   (the code still works — if used later, StyleNow pays the salon)
+
+export const PRIME_PLATFORM_SHARE_PCT = 50;
+export const VOUCHER_BREAKAGE_MONTHS = 12;
+const ONLINE_PAY: PaymentMethod[] = ['card', 'paypal', 'apple_pay', 'google_pay', 'sepa'];
+
+export interface SalonPayout {
+  /** what reaches the salon */
+  cents: number;
+  /** what StyleNow keeps (commission + its half of the Prime premium) */
+  platformCents: number;
+  /** online money this visit brought in: card + voucher part */
+  receivedCents: number;
+  status: 'pending' | 'sent' | 'held' | 'failed';
+  transferId?: string;
+  at: number;
+}
+
+/** Was this voucher paid online, i.e. is its money sitting with the platform? */
+function voucherPaidOnline(code?: string): boolean {
+  const c = code ? state.giftCards.get(code) : undefined;
+  return Boolean(c?.payment && ONLINE_PAY.includes(c.payment.method));
+}
+
+/** The split for one booking, from what actually happened. Pure — derived, never guessed. */
+export function computeSalonPayout(b: Booking): Omit<SalonPayout, 'status' | 'at' | 'transferId'> {
+  const card = b.stripe ? Math.max(0, b.stripe.chargedCents - b.stripe.refundedCents) : 0;
+  const voucher = voucherPaidOnline(b.voucherCode) ? b.giftCents ?? 0 : 0;
+  const received = card + voucher;
+  if (received <= 0) return { cents: 0, platformCents: 0, receivedCents: 0 };
+  const total = Math.max(1, b.quote.totalCents);
+  // the Prime premium rides pro rata on whatever was paid online
+  const primePart = Math.min(received, Math.round((received * (b.quote.primeCents ?? 0)) / total));
+  const normal = received - primePart;
+  const iso = new Date(b.startsAt).toISOString().slice(0, 10);
+  const commission = Math.round((normal * commissionPctOn(b.shopId, iso)) / 100);
+  const primeToPlatform = Math.round((primePart * PRIME_PLATFORM_SHARE_PCT) / 100);
+  const platformCents = commission + primeToPlatform;
+  return { cents: received - platformCents, platformCents, receivedCents: received };
+}
+
+/**
+ * Called once the visit happened. Returns the payout to send, or null when
+ * nothing is owed (paid at the salon) or it was already decided.
+ */
+export function preparePayout(bookingId: string): SalonPayout | null {
+  const b = state.bookings.get(bookingId);
+  if (!b) throw new Error('not_found');
+  if (b.status !== 'completed' && b.status !== 'no_show') return null;
+  if (b.payout && b.payout.status !== 'failed' && b.payout.status !== 'held') return b.payout;
+  const split = computeSalonPayout(b);
+  if (split.receivedCents <= 0) return null;
+  const acct = state.payoutAccounts.get(b.shopId);
+  b.payout = { ...split, status: acct?.payoutsEnabled ? 'pending' : 'held', at: Date.now(), transferId: b.payout?.transferId };
+  persist();
+  return b.payout;
+}
+
+export function markPayout(bookingId: string, result: { status: 'sent' | 'failed' | 'held'; transferId?: string }): void {
+  const b = state.bookings.get(bookingId);
+  if (!b?.payout) return;
+  b.payout.status = result.status;
+  if (result.transferId) b.payout.transferId = result.transferId;
+  b.payout.at = Date.now();
+  persist();
+}
+
+/** Payouts waiting for a salon to finish connecting (or a failed transfer to retry). */
+export function waitingPayouts(shopId: string): Booking[] {
+  return [...state.bookings.values()].filter(
+    (b) => b.shopId === shopId && (b.payout?.status === 'held' || b.payout?.status === 'failed'),
+  );
+}
+
+/** Admin view: online-bought vouchers unused a year after purchase → StyleNow income. */
+export function voucherBreakage(now = Date.now()): { cards: number; cents: number; byShop: Array<{ shopId: string; cents: number }> } {
+  const byShop = new Map<string, number>();
+  let cards = 0;
+  for (const c of state.giftCards.values()) {
+    if (!voucherPaidOnline(c.code) || c.balanceCents <= 0) continue;
+    const d = new Date(c.createdAt);
+    d.setUTCMonth(d.getUTCMonth() + VOUCHER_BREAKAGE_MONTHS);
+    if (d.getTime() > now) continue;
+    cards++;
+    byShop.set(c.shopId, (byShop.get(c.shopId) ?? 0) + c.balanceCents);
+  }
+  const list = [...byShop].map(([shopId, cents]) => ({ shopId, cents }));
+  return { cards, cents: list.reduce((n, x) => n + x.cents, 0), byShop: list };
 }

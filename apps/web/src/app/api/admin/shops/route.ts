@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { platformOverview, setShopPaused, isShopPaused, shopById } from '@/core/store';
+import { platformOverview, voucherBreakage, setShopPaused, isShopPaused, shopById } from '@/core/store';
 import { requireAdmin, badRequest, fail, isStr } from '../../_lib/guards';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) return badRequest();
   const { rows, totals } = platformOverview(from, to);
   // the public page link needs the slug, which only the server's store knows for new salons
-  return NextResponse.json({ rows: rows.map((r) => ({ ...r, slug: shopById(r.shopId)?.slug ?? '' })), totals });
+  return NextResponse.json({ rows: rows.map((r) => ({ ...r, slug: shopById(r.shopId)?.slug ?? '' })), totals, breakage: voucherBreakage() });
 }
 
 export async function PATCH(req: NextRequest) {

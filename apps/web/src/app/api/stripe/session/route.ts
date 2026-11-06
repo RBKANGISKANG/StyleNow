@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { originFor, settle, stripe, stripeConfigured } from '@/lib/stripe-server';
-import { allShops, applicationFeeCents, payoutAccount, dueOnlineCents, extendHold, getBooking, HoldExpired, type Booking } from '@/core/store';
+import { allShops, dueOnlineCents, extendHold, getBooking, HoldExpired, type Booking } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,21 +60,9 @@ export async function POST(req: NextRequest) {
   const lineSeats = seats.filter((b) => amounts[b.id] > 0);
   if (!lineSeats.length) return NextResponse.json({ error: 'nothing_due' }, { status: 400 });
 
-  // Automatic payout: when the salon has a ready Stripe account, the charge
-  // is split at the source — the salon's share goes straight to its own
-  // balance, the platform keeps only its commission (0 € in the free year).
-  // Mixed-shop baskets stay on the platform account.
-  const shopId = seats[0].shopId;
-  const acct = payoutAccount(shopId);
-  const total = lineSeats.reduce((n, b) => n + amounts[b.id], 0);
-  const split =
-    acct?.chargesEnabled && seats.every((b) => b.shopId === shopId)
-      ? {
-          transfer_data: { destination: acct.accountId },
-          ...(applicationFeeCents(shopId, total) > 0 ? { application_fee_amount: applicationFeeCents(shopId, total) } : {}),
-        }
-      : {};
-
+  // All online money lands on the platform's balance. The salon's share is
+  // transferred only once the visit happened (see sendPayout), so a
+  // cancellation is refunded from here and never has to be clawed back.
   const origin = originFor(req);
   const expiresAtSec = Math.floor(Date.now() / 1000) + SESSION_MINUTES * 60;
   try {
@@ -110,10 +98,7 @@ export async function POST(req: NextRequest) {
         bookingAmounts: JSON.stringify(amounts),
         shopId: seats[0].shopId,
       },
-      payment_intent_data: {
-        metadata: { bookingIds: ids.join(',') },
-        ...split,
-      },
+      payment_intent_data: { metadata: { bookingIds: ids.join(',') }, transfer_group: ids.join(',') },
       return_url: `${origin}/api/stripe/session?id={CHECKOUT_SESSION_ID}&redirect=1`,
     });
     // The seat hold is 8 minutes; this session can legitimately still be open

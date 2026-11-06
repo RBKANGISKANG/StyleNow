@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import * as storeAll from '../store';
+import type { Booking } from '../store';
 import {
   luhnValid, cardBrand, formatCardNumber, expiryValid, cvcValid,
   ibanValid, maskedCardLabel, maskedIbanLabel,
@@ -2486,6 +2487,42 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.equal(st1.totals.usedCents, 2000);
   assert.equal(st1.totals.unusedCards, 4);
   assert.equal(companyStatement('someone-else').batches.length, 0, 'only your own orders');
+}
+
+// ---- money rules: salon paid after the visit, Prime 50/50, voucher breakage ----
+{
+  const { computeSalonPayout, preparePayout, voucherBreakage, commissionFreeUntil, buyGiftCard, allShops: shops } = storeAll;
+  const shop = shops()[1];
+  const free = commissionFreeUntil(shop.id);
+  const mk = (over: Partial<Booking>): Booking =>
+    ({
+      id: 'x', shopId: shop.id, startsAt: Date.parse(`${free}T10:00:00Z`) + 864e5, status: 'completed',
+      quote: { subtotalCents: 10000, travelFeeCents: 0, discountCents: 0, vatCents: 0, totalCents: 10000, depositCents: 0, breakdown: [] },
+      stripe: { sessionId: 's', paymentIntentId: 'pi', chargedCents: 10000, refundedCents: 0 },
+      ...over,
+    }) as Booking;
+  // After the free year: 12 % of a plain €100 visit.
+  assert.deepEqual(computeSalonPayout(mk({})), { cents: 8800, platformCents: 1200, receivedCents: 10000 });
+  // Inside the free year the salon gets everything.
+  assert.equal(computeSalonPayout(mk({ startsAt: Date.parse(`${free}T10:00:00Z`) - 30 * 864e5 })).cents, 10000);
+  // Prime: €100 service + €30 premium → 12 % of 100, plus half of 30.
+  const prime = computeSalonPayout(mk({ quote: { subtotalCents: 10000, travelFeeCents: 0, discountCents: 0, vatCents: 0, totalCents: 13000, depositCents: 0, breakdown: [], primeCents: 3000 }, stripe: { sessionId: 's', paymentIntentId: 'pi', chargedCents: 13000, refundedCents: 0 } }));
+  assert.deepEqual(prime, { cents: 10000 - 1200 + 1500, platformCents: 1200 + 1500, receivedCents: 13000 });
+  // Paid at the salon: nothing online, nothing to pay out.
+  assert.equal(computeSalonPayout(mk({ stripe: undefined })).receivedCents, 0);
+  // A refunded part never reaches the salon.
+  assert.equal(computeSalonPayout(mk({ stripe: { sessionId: 's', paymentIntentId: 'pi', chargedCents: 10000, refundedCents: 4000 } })).receivedCents, 6000);
+  // Online voucher used on the visit counts; one sold at the counter does not.
+  const online = buyGiftCard(shop.id, 'dev-v1', 5000, {}, { method: 'card', label: 'Visa ····4242' });
+  const counter = buyGiftCard(shop.id, 'dev-v2', 5000, {}, { method: 'at_salon', label: 'Cash' });
+  assert.equal(computeSalonPayout(mk({ stripe: undefined, voucherCode: online.code, giftCents: 5000 })).receivedCents, 5000);
+  assert.equal(computeSalonPayout(mk({ stripe: undefined, voucherCode: counter.code, giftCents: 5000 })).receivedCents, 0);
+  // Not yet a year old → no breakage; a year later the unused balance is platform income.
+  const now = Date.now();
+  assert.equal(voucherBreakage(now).byShop.find((x) => x.shopId === shop.id)?.cents ?? 0, 0);
+  assert.ok((voucherBreakage(now + 366 * 864e5).byShop.find((x) => x.shopId === shop.id)?.cents ?? 0) >= 5000);
+  // A cancelled or still-upcoming visit pays out nothing.
+  assert.throws(() => preparePayout('no-such-booking'), /not_found/);
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

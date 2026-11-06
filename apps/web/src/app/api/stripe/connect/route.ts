@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isShopOwner, payoutAccount, shopById, commissionFreeUntil, PLATFORM_COMMISSION_PCT } from '@/core/store';
-import { originFor, stripe, stripeConfigured, syncPayoutAccount } from '@/lib/stripe-server';
+import { originFor, releaseWaitingPayouts, stripe, stripeConfigured, syncPayoutAccount } from '@/lib/stripe-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   const a = payoutAccount(shopId);
   if (a && stripeConfigured()) {
     try {
-      syncPayoutAccount(shopId, await stripe().accounts.retrieve(a.accountId));
+      if (syncPayoutAccount(shopId, await stripe().accounts.retrieve(a.accountId)).payoutsEnabled) await releaseWaitingPayouts(shopId);
     } catch {
       /* keep the last known status */
     }
