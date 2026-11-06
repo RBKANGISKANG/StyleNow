@@ -7,6 +7,7 @@
  * mirror the admin-review flow from the OpenAPI contract
  * (GET /admin/shops/pending → decision).
  */
+import { apiLeadPrefill } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
@@ -86,6 +87,27 @@ export default function PartnerPage() {
   const [acceptTruth, setAcceptTruth] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // An invite link (/partner?lead=…) opens the form with what we already know.
+  const [prefilledFor, setPrefilledFor] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('lead');
+    if (!id) return;
+    void apiLeadPrefill(id).then((l) => {
+      if (!l) return;
+      setLegalName((v) => v || l.name);
+      setDisplayName((v) => v || l.name);
+      const cat = { hair: 'hair', beauty: 'skincare', massage: 'massage', tattoo: 'tattoo', spa: 'massage' }[l.category] ?? '';
+      if (cat) setCategories((c) => (c.length ? c : [cat]));
+      setContactName((v) => v || l.ownerName);
+      setEmail((v) => v || l.email);
+      setPhone((v) => v || l.phone);
+      setWebsite((v) => v || l.website);
+      setInstagram((v) => v || l.instagram);
+      setLocations((ls) => (ls[0]?.street ? ls : [{ street: l.street, zip: l.postcode, city: l.city || 'Hamburg', district: '' }]));
+      setPrefilledFor(l.name);
+    });
+  }, []);
+
   useEffect(() => {
     void apiMyApplications().then((apps) =>
       setPendingRefs(apps.filter((a) => a.status === 'pending').map((a) => a.id)),
@@ -159,6 +181,7 @@ export default function PartnerPage() {
       },
       consents: { partnerTerms: acceptTerms, accuracy: acceptTruth, submittedAt: new Date().toISOString() },
       locale: lang,
+      leadId: new URLSearchParams(window.location.search).get('lead') ?? undefined,
       // the key the dashboard scopes by, so the new salon shows up there
       ownerKey: user?.email ?? deviceId(),
     }, { iban: iban.replace(/\s/g, '').toUpperCase() });
@@ -212,6 +235,7 @@ export default function PartnerPage() {
       <div className="page-title" style={{ display: 'block' }}>
         <h1>💼 {t('partner_title')}</h1>
         <p style={{ color: 'var(--ink-soft)', fontSize: '0.88rem', marginTop: 4 }}>{t('partner_sub')}</p>
+        {prefilledFor && <div className="alert" style={{ marginTop: 10 }}>✨ {t('ld_prefilled', { name: prefilledFor })}</div>}
       </div>
 
       <div className="pt-perks">

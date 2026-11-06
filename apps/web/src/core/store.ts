@@ -487,6 +487,7 @@ interface State {
   shopMembers: Map<string, string[]>; // demo shops: further owner keys that joined without displacing the owner
   registeredShops: Map<string, SeedShop>; // salons that signed up through the partner form
   payoutAccounts: Map<string, PayoutAccount>; // shopId → the salon's Stripe connected account
+  leads: Map<string, Lead>; // salons we'd like to invite (sales list, never public)
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
@@ -581,6 +582,7 @@ const state: State =
     shopMembers: new Map(),
     registeredShops: new Map(),
     payoutAccounts: new Map(),
+    leads: new Map(),
     pausedShops: new Set(),
     shopLiveSince: new Map(),
     platform: { requireApproval: false },
@@ -698,6 +700,7 @@ function persist(): boolean {
         shopMembers: [...state.shopMembers.entries()],
         registeredShops: [...state.registeredShops.entries()],
         payoutAccounts: [...state.payoutAccounts.entries()],
+        leads: [...state.leads.entries()],
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
@@ -773,6 +776,7 @@ function restoreSnapshot(raw: string | null): void {
         shopMembers?: Array<[string, string[]]>;
         registeredShops?: Array<[string, SeedShop]>;
         payoutAccounts?: Array<[string, PayoutAccount]>;
+        leads?: Array<[string, Lead]>;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
@@ -836,6 +840,7 @@ function restoreSnapshot(raw: string | null): void {
       state.shopMembers = new Map(d.shopMembers ?? []);
       state.registeredShops = new Map(d.registeredShops ?? []);
       state.payoutAccounts = new Map(d.payoutAccounts ?? []);
+      state.leads = new Map(d.leads ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
@@ -6571,6 +6576,13 @@ export function submitShopApplication(deviceId: string, data: Record<string, unk
       // not publishable as sent (no bookable service) — it waits for review
     }
   }
+  // Signed up through an invite link: the sales lead is won.
+  const lead = typeof data.leadId === 'string' ? state.leads.get(data.leadId) : undefined;
+  if (lead) {
+    lead.status = 'signed_up';
+    lead.shopId = app.shopId;
+    lead.updatedAt = Date.now();
+  }
   persist();
   return app;
 }
@@ -9056,4 +9068,122 @@ export function voucherBreakage(now = Date.now()): { cards: number; cents: numbe
   }
   const list = [...byShop].map(([shopId, cents]) => ({ shopId, cents }));
   return { cards, cents: list.reduce((n, x) => n + x.cents, 0), byShop: list };
+}
+
+// ---- sales leads -------------------------------------------------------------
+//
+// Salons we would like on the platform. A lead is a private sales record —
+// it never becomes a public page by itself; the salon signs up through the
+// invite link (/partner?lead=…), which pre-fills the form with these details.
+
+export type LeadStatus = 'new' | 'contacted' | 'interested' | 'invited' | 'signed_up' | 'declined' | 'closed';
+export const LEAD_STATUSES: LeadStatus[] = ['new', 'contacted', 'interested', 'invited', 'signed_up', 'declined', 'closed'];
+
+export interface Lead {
+  id: string;
+  name: string;
+  category: string;
+  street: string;
+  postcode: string;
+  district: string;
+  city: string;
+  phone: string;
+  email: string;
+  website: string;
+  instagram: string;
+  ownerName: string;
+  openingHours: string;
+  lat?: number;
+  lon?: number;
+  source: string;
+  status: LeadStatus;
+  note: string;
+  createdAt: number;
+  updatedAt: number;
+  shopId?: string;
+}
+
+const LEAD_FIELDS = ['name', 'category', 'street', 'postcode', 'district', 'city', 'phone', 'email', 'website', 'instagram', 'ownerName', 'openingHours', 'source', 'note'] as const;
+
+function leadKey(name: string, street: string): string {
+  return `${name}|${street}`.toLowerCase().replace(/[^a-z0-9äöüß|]/g, '');
+}
+
+/**
+ * Import or update leads (CSV/JSON rows). Matched on external id, else on
+ * name + street, so re-importing an enriched list updates instead of duplicating.
+ * A status set by sales is never overwritten by an import.
+ */
+export function importLeads(rows: Array<Record<string, unknown>>): { added: number; updated: number; skipped: number } {
+  let added = 0, updated = 0, skipped = 0;
+  const byKey = new Map([...state.leads.values()].map((l) => [leadKey(l.name, l.street), l]));
+  for (const raw of rows.slice(0, 5000)) {
+    const val = (k: string) => (typeof raw[k] === 'string' ? (raw[k] as string).trim().slice(0, k === 'note' ? 500 : 200) : typeof raw[k] === 'number' ? String(raw[k]) : '');
+    const name = val('name');
+    if (!name) { skipped++; continue; }
+    const extId = val('id') || val('osm');
+    const existing = (extId && state.leads.get(extId)) || byKey.get(leadKey(name, val('street')));
+    const now = Date.now();
+    const patch: Partial<Lead> = {};
+    for (const f of LEAD_FIELDS) {
+      const v = val(f) || (f === 'ownerName' ? val('owner_name') : f === 'openingHours' ? val('opening_hours') : '');
+      if (v) (patch as Record<string, string>)[f] = v;
+    }
+    const lat = Number(raw.lat), lon = Number(raw.lon);
+    if (existing) {
+      Object.assign(existing, patch, { updatedAt: now });
+      if (Number.isFinite(lat) && Number.isFinite(lon)) Object.assign(existing, { lat, lon });
+      if (raw.status === 'closed' && existing.status === 'new') existing.status = 'closed';
+      updated++;
+    } else {
+      const id = extId || `lead-${state.seq++}-${now.toString(36)}`;
+      const lead: Lead = {
+        id, name, category: '', street: '', postcode: '', district: '', city: 'Hamburg', phone: '', email: '', website: '',
+        instagram: '', ownerName: '', openingHours: '', source: 'import', note: '',
+        ...patch,
+        ...(Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : {}),
+        status: raw.status === 'closed' ? 'closed' : 'new',
+        createdAt: now, updatedAt: now,
+      };
+      state.leads.set(id, lead);
+      byKey.set(leadKey(lead.name, lead.street), lead);
+      added++;
+    }
+  }
+  persist();
+  return { added, updated, skipped };
+}
+
+export function allLeads(): Lead[] {
+  return [...state.leads.values()].sort((a, b) => a.district.localeCompare(b.district) || a.name.localeCompare(b.name));
+}
+
+export function leadById(id: string): Lead | null {
+  return state.leads.get(id) ?? null;
+}
+
+export function updateLead(id: string, patch: { status?: LeadStatus; note?: string }): Lead {
+  const l = state.leads.get(id);
+  if (!l) throw new Error('lead_not_found');
+  if (patch.status !== undefined) {
+    if (!LEAD_STATUSES.includes(patch.status)) throw new Error('bad_status');
+    l.status = patch.status;
+  }
+  if (patch.note !== undefined) l.note = String(patch.note).slice(0, 500);
+  l.updatedAt = Date.now();
+  persist();
+  return l;
+}
+
+export function deleteLead(id: string): void {
+  if (!state.leads.delete(id)) throw new Error('lead_not_found');
+  persist();
+}
+
+/** What the invite link may pre-fill — business contact details only. */
+export function leadPrefill(id: string): Pick<Lead, 'name' | 'category' | 'street' | 'postcode' | 'city' | 'phone' | 'email' | 'website' | 'instagram' | 'ownerName'> | null {
+  const l = state.leads.get(id);
+  if (!l || l.status === 'signed_up' || l.status === 'declined') return null;
+  const { name, category, street, postcode, city, phone, email, website, instagram, ownerName } = l;
+  return { name, category, street, postcode, city, phone, email, website, instagram, ownerName };
 }

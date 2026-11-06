@@ -23,7 +23,8 @@
     "test:requests": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/core/__tests__/requests.test.ts",
     "test:payments": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/core/__tests__/payments.test.ts",
     "db:check": "tsx --tsconfig apps/web/tsconfig.json scripts/db-check.ts",
-    "lint": "npm run lint -w @stylenow/web"
+    "lint": "npm run lint -w @stylenow/web",
+    "leads:import": "node scripts/import-leads.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

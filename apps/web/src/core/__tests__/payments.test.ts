@@ -2525,4 +2525,22 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   assert.throws(() => preparePayout('no-such-booking'), /not_found/);
 }
 
+// ---- sales leads: import, re-import updates, status survives, invite sign-up ----
+{
+  const { importLeads, allLeads, updateLead, leadPrefill, submitShopApplication } = storeAll;
+  const r1 = importLeads([{ id: 'node/1', name: 'Salon Test', street: 'Teststraße 1', postcode: '22041', phone: '+49 40 1' }, { name: '' }]);
+  assert.deepEqual(r1, { added: 1, updated: 0, skipped: 1 });
+  updateLead('node/1', { status: 'contacted' });
+  const r2 = importLeads([{ id: 'node/1', name: 'Salon Test', street: 'Teststraße 1', email: 'info@test.de', status: 'closed' }]);
+  assert.equal(r2.updated, 1);
+  const l = allLeads().find((x) => x.id === 'node/1')!;
+  assert.equal(l.email, 'info@test.de');
+  assert.equal(l.status, 'contacted', 'an import never overwrites what sales decided');
+  assert.equal(leadPrefill('node/1')?.name, 'Salon Test');
+  assert.throws(() => updateLead('node/1', { status: 'bogus' as never }), /bad_status/);
+  submitShopApplication('dev-lead', { leadId: 'node/1', business: {} });
+  assert.equal(allLeads().find((x) => x.id === 'node/1')!.status, 'signed_up');
+  assert.equal(leadPrefill('node/1'), null, 'a signed-up lead no longer pre-fills');
+}
+
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

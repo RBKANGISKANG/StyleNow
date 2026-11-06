@@ -3400,3 +3400,35 @@ export async function apiCompanyStatement(): Promise<store.CompanyStatement> {
   await readyForRead();
   return store.companyStatement(deviceId());
 }
+
+// ---- sales leads (admin) --------------------------------------------------------
+
+export async function apiAdminLeads(): Promise<store.Lead[]> {
+  if (backendMode() === 'server') return (await adminFetch('/api/admin/leads')).leads;
+  await readyForRead();
+  return store.allLeads();
+}
+
+export async function apiAdminImportLeads(rows: Array<Record<string, unknown>>): Promise<{ added: number; updated: number; skipped: number }> {
+  if (backendMode() === 'server') return adminFetch('/api/admin/leads', 'POST', { rows });
+  await localWrite();
+  return store.importLeads(rows);
+}
+
+export async function apiAdminUpdateLead(id: string, patch: { status?: store.LeadStatus; note?: string }): Promise<void> {
+  if (backendMode() === 'server') {
+    await adminFetch('/api/admin/leads', 'PATCH', { id, ...patch });
+    return;
+  }
+  await localWrite();
+  store.updateLead(id, patch);
+}
+
+export async function apiLeadPrefill(id: string): Promise<ReturnType<typeof store.leadPrefill>> {
+  if (backendMode() === 'server') {
+    const res = await fetch(`/api/leads/${encodeURIComponent(id)}`);
+    return res.ok ? (await res.json()).lead : null;
+  }
+  await readyForRead();
+  return store.leadPrefill(id);
+}
