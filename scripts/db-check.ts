@@ -20,6 +20,8 @@ import {
   createHold, confirmBooking, cancelBooking, setBookingStatus, buyGiftCard, type Booking,
 } from '../apps/web/src/core/store';
 import { addDays, todayIso } from '../apps/web/src/core/time';
+import { attachServerStore, setRequireApproval } from '../apps/web/src/core/store';
+import { rowsToSnapshot, snapshotToRows } from '../apps/web/src/lib/server-persistence';
 
 const root = path.resolve(__dirname, '..');
 const problems: string[] = [];
@@ -211,7 +213,35 @@ schemaCheck();
 integrityCheck('seeded demo data');
 simulate();
 integrityCheck('after a simulated busy day');
+storageRoundTrip();
 liveCheck();
+
+/**
+ * The server stores every record as its own row. Split the whole engine state
+ * into rows and put it back together: nothing may be lost or changed.
+ */
+function storageRoundTrip(): void {
+  console.log('\nStorage round-trip (one row per record)');
+  let json = '';
+  attachServerStore(null, (j) => (json = j));
+  setRequireApproval(false); // any change makes the engine hand over its snapshot
+  if (!json) return fail('engine produced no snapshot');
+  const rows = snapshotToRows(json);
+  const back = rowsToSnapshot(rows.map((r) => ({ ...r, doc: r.doc })));
+  const a = JSON.parse(json) as Record<string, unknown>;
+  const b = JSON.parse(back) as Record<string, unknown>;
+  const kinds = new Set([...Object.keys(a), ...Object.keys(b)]);
+  let bad = 0;
+  for (const k of kinds) {
+    // an empty list and a missing list restore the same way
+    const av = JSON.stringify(a[k] ?? []), bv = JSON.stringify(b[k] ?? []);
+    if (av !== bv) { bad++; fail(`collection "${k}" changed in the round-trip`); }
+  }
+  if (!bad) ok(`${rows.length} rows across ${kinds.size} collections restore exactly`);
+  const ids = new Set(rows.map((r) => `${r.kind}\0${r.id}`));
+  if (ids.size !== rows.length) fail('two records share a row key');
+  else ok('every record has its own row key');
+}
 
 console.log(problems.length ? `\n${problems.length} problem(s) found.` : '\nDatabase check passed.');
 process.exit(problems.length ? 1 : 0);

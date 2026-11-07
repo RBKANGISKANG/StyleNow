@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   shopPhotos,
@@ -19,6 +20,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const dataUrl = typeof body.dataUrl === 'string' && body.dataUrl.startsWith('data:image/') ? body.dataUrl : null;
   if (!dataUrl) return NextResponse.json({ error: 'bad_image' }, { status: 400 });
@@ -31,6 +34,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const photoId = typeof body.photoId === 'string' ? body.photoId : null;
   if (!photoId) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
@@ -40,6 +45,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const photoId = req.nextUrl.searchParams.get('photoId');
   if (!photoId) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
   removeShopPhoto(params.id, photoId);

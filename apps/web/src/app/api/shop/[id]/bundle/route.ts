@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { bundleDiscountOf, setBundleDiscount } from '@/core/store';
 
@@ -13,6 +14,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   if (typeof body.pct !== 'number') {
     return NextResponse.json({ error: 'bad_percent' }, { status: 400 });

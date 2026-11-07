@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { addRetail, removeRetail } from '@/core/store';
 import { refundThroughStripe } from '@/lib/stripe-server';
@@ -6,6 +7,8 @@ export const dynamic = 'force-dynamic';
 
 /** Sell a shelf product onto a visit — see store.addRetail. */
 export async function POST(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const itemId = typeof body.itemId === 'string' ? body.itemId : '';
   const qty = Number.isInteger(body.qty) ? body.qty : 1;
@@ -20,6 +23,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
 
 /** Undo a sale — see store.removeRetail. ?index=N, the line's position. */
 export async function DELETE(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const index = Number(req.nextUrl.searchParams.get('index'));
   if (!Number.isInteger(index) || index < 0) return NextResponse.json({ error: 'bad_index' }, { status: 400 });
   try {

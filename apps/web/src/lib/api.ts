@@ -85,15 +85,20 @@ export function backendMode(): Mode {
   // "no, run against this deployment's own /api" — and Stripe only works
   // there, because only the server process holds the secret key and the
   // pricing engine at the same time.
+  //
+  // The default is this deployment's own server: real logins, salon-only
+  // routes checked on the server, payments. Static builds (GitHub Pages, the
+  // Android app) say NEXT_PUBLIC_BACKEND=local; Supabase-direct must be asked
+  // for explicitly, because there the browser talks to the database itself.
   const want = process.env.NEXT_PUBLIC_BACKEND;
-  if (want === 'server' || want === 'local' || want === 'supabase') {
-    if (want !== 'supabase' || sb.isConfigured()) return want;
+  if (want === 'local') return 'local';
+  if (want === 'supabase') {
+    if (sb.isConfigured()) return 'supabase';
+    // Supabase dropped out mid-session: every post-ready() fallback has already
+    // written to the browser store, so the rest of the session must read and
+    // confirm there too — /api has never seen those bookings.
+    if (sb.fellBack()) return 'local';
   }
-  if (sb.isConfigured()) return 'supabase';
-  // Supabase dropped out mid-session: every post-ready() fallback has already
-  // written to the browser store, so the rest of the session must read and
-  // confirm there too — /api has never seen those bookings.
-  if (sb.fellBack()) return 'local';
   return 'server';
 }
 

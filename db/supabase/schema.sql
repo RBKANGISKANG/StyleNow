@@ -322,3 +322,26 @@ create table if not exists public.stylenow_state (
   updated_at timestamptz not null default now()
 );
 alter table public.stylenow_state enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- stylenow_records: the server engine's durable state, one row per record
+-- (each booking, salon, account, lead …). Replaces the single-row
+-- stylenow_state, which is read once for migration and then left as is.
+-- stylenow_backups: one full snapshot per day, the last 14 kept.
+-- Server-side only: no anon/authenticated access.
+-- ---------------------------------------------------------------------------
+create table if not exists public.stylenow_records (
+  kind       text        not null,
+  id         text        not null,
+  doc        jsonb       not null,
+  seq        bigserial,
+  updated_at timestamptz not null default now(),
+  primary key (kind, id)
+);
+alter table public.stylenow_records enable row level security;
+
+create table if not exists public.stylenow_backups (
+  taken_at timestamptz primary key default now(),
+  doc      jsonb not null
+);
+alter table public.stylenow_backups enable row level security;

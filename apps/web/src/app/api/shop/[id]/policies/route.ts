@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { consentTextOf, consentRequired, setConsentText, arrivalNoteFor, setArrivalNote, payAtSalonOf, setPayAtSalon } from '@/core/store';
 
@@ -24,6 +25,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   if (typeof body.consentText === 'string') setConsentText(params.id, body.consentText);
   if (typeof body.arrivalNote === 'string') setArrivalNote(params.id, body.arrivalNote);

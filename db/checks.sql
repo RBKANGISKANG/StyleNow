@@ -40,6 +40,14 @@ select 'typed columns disagree with the stored document', count(*) from public.b
 select 'occupancy rows pointing at a missing booking', count(*) from public.staff_occupancy o
   where not exists (select 1 from public.bookings b where b.id = o.booking_id);
 
-select 'server state row missing (server mode never saved)', count(*) from (select 1) x
-  where to_regclass('public.stylenow_state') is not null
-    and not exists (select 1 from public.stylenow_state where id = 'main');
+select 'server state missing (server mode never saved)', count(*) from (select 1) x
+  where to_regclass('public.stylenow_records') is not null
+    and not exists (select 1 from public.stylenow_records);
+
+select 'server records with an empty document', count(*) from public.stylenow_records
+  where to_regclass('public.stylenow_records') is not null and doc = 'null'::jsonb;
+
+select 'no backup in the last 2 days', count(*) from (select 1) x
+  where to_regclass('public.stylenow_backups') is not null
+    and exists (select 1 from public.stylenow_records)
+    and not exists (select 1 from public.stylenow_backups where taken_at > now() - interval '2 days');

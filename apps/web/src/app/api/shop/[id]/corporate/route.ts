@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { buyCorporateBatch, corporateBatchesForShop, CORP_MIN_CARDS, CORP_MAX_CARDS, GIFT_MIN_CENTS, GIFT_MAX_CENTS } from '@/core/store';
 import { cleanPayment, errStatus, stripeGuard } from '@/app/api/_lib/guards';
@@ -5,7 +6,9 @@ import { cleanPayment, errStatus, stripeGuard } from '@/app/api/_lib/guards';
 export const dynamic = 'force-dynamic';
 
 /** The shop's B2B view: orders, revenue, outstanding liability. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   return NextResponse.json(corporateBatchesForShop(params.id));
 }
 

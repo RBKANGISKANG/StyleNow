@@ -1,3 +1,4 @@
+import { sessionAccount } from '@/lib/session';
 import { NextRequest, NextResponse } from 'next/server';
 import { createDuoHold, SlotTaken } from '@/core/store';
 
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
         deviceId: body.deviceId,
         guestName: body.guestName,
         guestPhone: body.guestPhone,
+        guestEmail: typeof body.guestEmail === 'string' && body.guestEmail ? body.guestEmail : sessionAccount(req)?.email,
         guestNote: body.guestNote,
         voucherCode: body.voucherCode,
         pointsToSpend: body.pointsToSpend,

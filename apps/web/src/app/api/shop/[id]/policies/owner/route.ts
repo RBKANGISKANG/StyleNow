@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { arrivalNoteOf, consentTextOf, payAtSalonOf } from '@/core/store';
 
@@ -12,7 +13,9 @@ export const dynamic = 'force-dynamic';
  * write in this app shares that limitation), but at minimum the read should
  * not be reachable from the URL the public booking flow already calls.
  */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   return NextResponse.json({
     arrivalNoteOwn: arrivalNoteOf(params.id),
     consentText: consentTextOf(params.id),

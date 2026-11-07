@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { claimShop, isShopOwner, releaseShop } from '@/core/store';
 import { badRequest, fail, isStr } from '@/app/api/_lib/guards';
+import { provenKey } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,8 +9,11 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   if (!isStr(body.ownerKey) || !body.ownerKey) return badRequest();
+  // You can only claim for yourself: your login or this browser.
+  const key = provenKey(req, body.ownerKey);
+  if (!key) return NextResponse.json({ error: 'login_required' }, { status: 401 });
   try {
-    claimShop(params.id, body.ownerKey);
+    claimShop(params.id, key);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);
@@ -20,6 +24,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const ownerKey = req.nextUrl.searchParams.get('ownerKey') ?? '';
   if (!ownerKey) return badRequest();
+  if (!provenKey(req, ownerKey)) return NextResponse.json({ error: 'login_required' }, { status: 401 });
   if (!isShopOwner(params.id, ownerKey)) return NextResponse.json({ error: 'not_yours' }, { status: 403 });
   releaseShop(params.id, ownerKey);
   return NextResponse.json({ ok: true });

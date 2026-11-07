@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { setBookingStatus } from '@/core/store';
 import { refundThroughStripe, sendPayout } from '@/lib/stripe-server';
@@ -8,6 +9,8 @@ export const dynamic = 'force-dynamic';
 const ALLOWED = ['completed', 'no_show', 'cancelled_by_shop'] as const;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   if (!ALLOWED.includes(body.status)) {
     return NextResponse.json({ error: 'invalid_status' }, { status: 400 });

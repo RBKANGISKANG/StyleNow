@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { shopsForOwner } from '@/core/store';
-import { badRequest } from '@/app/api/_lib/guards';
+import { callerKeys } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
+/** The salons connected to the caller's login and/or this browser. */
 export async function GET(req: NextRequest) {
-  const ownerKey = req.nextUrl.searchParams.get('ownerKey');
-  if (!ownerKey) return badRequest();
-  return NextResponse.json({ shopIds: shopsForOwner(ownerKey) });
+  const ids = new Set(callerKeys(req).flatMap((k) => shopsForOwner(k)));
+  return NextResponse.json({ shopIds: [...ids] });
 }

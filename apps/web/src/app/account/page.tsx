@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
-import { useAuth, emptyProfile, type Profile } from '@/lib/auth';
+import { useAuth, emptyProfile, type Profile, requestPasswordReset, confirmPasswordReset, confirmEmail, usesServerAccounts } from '@/lib/auth';
 import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData, apiCareProfile, apiSetBirthday, apiSetAccessNeeds, apiSetAllergies } from '@/lib/api';
 import { ReferralPanel } from '@/components/ReferralPanel';
 import { useTheme, type ThemePref } from '@/lib/design';
@@ -25,6 +25,7 @@ export default function AccountPage() {
       <div className="page-title">
         <h1>👤 {t('acc_title')}</h1>
       </div>
+      <EmailLinks />
       {user ? <ProfileView /> : <AuthForms />}
       <Preferences />
       {/* Device data exists with or without an account — so do its rights. */}
@@ -41,6 +42,62 @@ export default function AccountPage() {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Links from our emails land here: ?reset=<token> (new password) or ?verify=<token>. */
+function EmailLinks() {
+  const { t } = useI18n();
+  const [reset, setReset] = useState<string | null>(null);
+  const [pw, setPw] = useState('');
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const r = q.get('reset');
+    const v = q.get('verify');
+    if (r) setReset(r);
+    if (v) void confirmEmail(v).then((ok) => setMsg(ok ? { kind: 'ok', text: t('acc_verified') } : { kind: 'err', text: t('acc_bad_token') }));
+    if (r || v) window.history.replaceState(null, '', window.location.pathname);
+  }, [t]);
+  if (!reset && !msg) return null;
+  return (
+    <div className="panel" style={{ marginBottom: 16 }}>
+      {reset && (
+        <>
+          <h3 style={{ marginBottom: 8 }}>🔑 {t('acc_reset_title')}</h3>
+          <input className="input" type="password" placeholder={t('acc_new_password')} value={pw} onChange={(e) => setPw(e.target.value)} />
+          <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 4 }}>{t('acc_pw_rule')}</p>
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: 10 }}
+            disabled={pw.length < 8}
+            onClick={async () => {
+              const r = await confirmPasswordReset(reset, pw);
+              if (r.ok) {
+                setReset(null);
+                setMsg({ kind: 'ok', text: t('acc_reset_done') });
+                setTimeout(() => window.location.reload(), 900);
+              } else setMsg({ kind: 'err', text: r.error === 'weak_password' ? t('acc_pw_rule') : t('acc_bad_token') });
+            }}
+          >
+            {t('acc_reset_submit')}
+          </button>
+        </>
+      )}
+      {msg && <div className="alert" style={{ marginTop: reset ? 12 : 0, ...(msg.kind === 'ok' ? { background: 'var(--teal-soft)', borderColor: 'var(--teal)', color: 'var(--teal)' } : {}) }}>{msg.text}</div>}
+    </div>
+  );
+}
+
+function authError(t: (k: never) => string, code: string): string {
+  const map: Record<string, string> = {
+    email_taken: 'acc_email_taken',
+    bad_credentials: 'acc_bad_credentials',
+    weak_password: 'acc_pw_rule',
+    too_many_attempts: 'acc_too_many',
+    bad_email: 'acc_bad_email',
+    social_not_available: 'acc_social_off',
+  };
+  return map[code] ? t(map[code] as never) : code;
+}
 
 function SocialRow() {
   const { t } = useI18n();
@@ -101,6 +158,8 @@ function AuthForms() {
     profile.name.trim() &&
     /.+@.+\..+/.test(profile.email) &&
     password.length >= 8 &&
+    /[A-Za-z]/.test(password) &&
+    /\d/.test(password) &&
     profile.phone.trim() &&
     profile.consents.terms;
 
@@ -110,7 +169,7 @@ function AuthForms() {
     const r = await register(profile, password);
     setBusy(false);
     if (!r.ok) {
-      setMsg({ kind: 'err', text: r.error === 'email_taken' ? t('acc_email_taken') : r.error });
+      setMsg({ kind: 'err', text: authError(t as never, r.error) });
     } else if (r.needsEmailConfirm) {
       setMsg({ kind: 'ok', text: t('acc_check_inbox') });
     }
@@ -121,7 +180,7 @@ function AuthForms() {
     setMsg(null);
     const r = await login(profile.email, password);
     setBusy(false);
-    if (!r.ok) setMsg({ kind: 'err', text: r.error === 'bad_credentials' ? t('acc_bad_credentials') : r.error });
+    if (!r.ok) setMsg({ kind: 'err', text: authError(t as never, r.error) });
   };
 
   return (
@@ -184,7 +243,22 @@ function AuthForms() {
         {busy ? '…' : tab === 'register' ? t('acc_submit_reg') : t('acc_signin')}
       </button>
 
-      <SocialRow />
+      {tab === 'signin' && (
+        <button
+          className="btn btn-ghost sm"
+          style={{ marginTop: 8 }}
+          onClick={async () => {
+            if (!/.+@.+\..+/.test(profile.email)) return setMsg({ kind: 'err', text: t('acc_bad_email') });
+            await requestPasswordReset(profile.email);
+            setMsg({ kind: 'ok', text: t('acc_forgot_sent') });
+          }}
+        >
+          {t('acc_forgot')}
+        </button>
+      )}
+      {tab === 'register' && <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('acc_pw_rule')}</p>}
+
+      {!usesServerAccounts() && <SocialRow />}
     </div>
   );
 }

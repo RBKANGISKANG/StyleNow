@@ -110,6 +110,10 @@ export interface Booking {
   guestName: string;
   /** how the shop reaches this customer — optional, asked at checkout */
   guestPhone?: string;
+  /** where confirmations and reminders go (optional) */
+  guestEmail?: string;
+  /** set once the day-before reminder went out */
+  remindedAt?: number;
   /** what the customer wants the shop to know (allergies, parking, …) */
   guestNote?: string;
   policySnapshot: { freeUntilHours: number; lateFeePercent: number; noShowFeePercent: number };
@@ -488,6 +492,9 @@ interface State {
   registeredShops: Map<string, SeedShop>; // salons that signed up through the partner form
   payoutAccounts: Map<string, PayoutAccount>; // shopId → the salon's Stripe connected account
   leads: Map<string, Lead>; // salons we'd like to invite (sales list, never public)
+  accounts: Map<string, Account>; // email → login (server mode; password hash only)
+  authTokens: Map<string, AuthToken>; // sha256(token) → password-reset / email-verify token
+  serverSecret: string; // signs session cookies when STYLENOW_SESSION_SECRET is unset
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
@@ -583,6 +590,9 @@ const state: State =
     registeredShops: new Map(),
     payoutAccounts: new Map(),
     leads: new Map(),
+    accounts: new Map(),
+    authTokens: new Map(),
+    serverSecret: '',
     pausedShops: new Set(),
     shopLiveSince: new Map(),
     platform: { requireApproval: false },
@@ -701,6 +711,9 @@ function persist(): boolean {
         registeredShops: [...state.registeredShops.entries()],
         payoutAccounts: [...state.payoutAccounts.entries()],
         leads: [...state.leads.entries()],
+        accounts: [...state.accounts.entries()],
+        authTokens: [...state.authTokens.entries()],
+        serverSecret: state.serverSecret,
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
@@ -777,6 +790,9 @@ function restoreSnapshot(raw: string | null): void {
         registeredShops?: Array<[string, SeedShop]>;
         payoutAccounts?: Array<[string, PayoutAccount]>;
         leads?: Array<[string, Lead]>;
+        accounts?: Array<[string, Account]>;
+        authTokens?: Array<[string, AuthToken]>;
+        serverSecret?: string;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
@@ -841,6 +857,9 @@ function restoreSnapshot(raw: string | null): void {
       state.registeredShops = new Map(d.registeredShops ?? []);
       state.payoutAccounts = new Map(d.payoutAccounts ?? []);
       state.leads = new Map(d.leads ?? []);
+      state.accounts = new Map(d.accounts ?? []);
+      state.authTokens = new Map(d.authTokens ?? []);
+      state.serverSecret = d.serverSecret ?? '';
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
@@ -3278,6 +3297,7 @@ export interface HoldInput {
   deviceId: string;
   guestName: string;
   guestPhone?: string;
+  guestEmail?: string;
   guestNote?: string;
   voucherCode?: string;
   pointsToSpend?: number;
@@ -3566,6 +3586,7 @@ export function createHold(input: HoldInput): HoldResult {
     paidCents: 0,
     guestName: input.guestName,
     guestPhone: input.guestPhone?.trim() || undefined,
+    guestEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.guestEmail?.trim() ?? '') ? input.guestEmail!.trim().slice(0, 120) : undefined,
     guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
     voucherCode: stampFree ? undefined : input.voucherCode || undefined,
@@ -3757,6 +3778,7 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
   redeemGiftCard(b); // the moment the promise is real, the card pays its share
   grantReferralReward(b); // and the friend who sent them gets their thank-you
   persist();
+  emitBookingEvent('confirmed', b);
   return b;
 }
 
@@ -3842,6 +3864,7 @@ export function cancelBooking(
   // first person already waiting for that day, without a human in between.
   if (wasConfirmed) autoOfferFreedSlot(b);
   persist();
+  if (wasConfirmed) emitBookingEvent('cancelled', b);
   return { ...outcome, booking: b };
 }
 
@@ -3988,6 +4011,7 @@ export function rescheduleBooking(
     if (staffId !== prevStaffId) b.reassignedAt = Date.now();
   }
   persist();
+  emitBookingEvent('moved', b);
   return b;
 }
 
@@ -9186,4 +9210,134 @@ export function leadPrefill(id: string): Pick<Lead, 'name' | 'category' | 'stree
   if (!l || l.status === 'signed_up' || l.status === 'declined') return null;
   const { name, category, street, postcode, city, phone, email, website, instagram, ownerName } = l;
   return { name, category, street, postcode, city, phone, email, website, instagram, ownerName };
+}
+
+// ---- accounts (server mode) -------------------------------------------------
+//
+// The engine only stores what the server decided: the password hash is made
+// with scrypt in the auth routes (node:crypto), tokens are stored hashed, and
+// none of this is ever sent to a browser.
+
+export interface Account {
+  id: string;
+  email: string;
+  passHash: string; // scrypt$N$salt$hash
+  /** the device id this account's bookings live under — follows the login to every device */
+  deviceId: string;
+  profile: Record<string, unknown>;
+  emailVerified: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AuthToken {
+  email: string;
+  kind: 'reset' | 'verify';
+  expiresAt: number;
+}
+
+export function accountByEmail(email: string): Account | null {
+  return state.accounts.get(email.trim().toLowerCase()) ?? null;
+}
+
+export function createAccount(email: string, passHash: string, deviceId: string, profile: Record<string, unknown>): Account {
+  const key = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key)) throw new Error('bad_email');
+  if (state.accounts.has(key)) throw new Error('email_taken');
+  const now = Date.now();
+  const acc: Account = { id: `acc-${state.seq++}-${now.toString(36)}`, email: key, passHash, deviceId, profile: { ...profile, email: key }, emailVerified: false, createdAt: now, updatedAt: now };
+  state.accounts.set(key, acc);
+  persist();
+  return acc;
+}
+
+export function updateAccount(email: string, patch: { passHash?: string; profile?: Record<string, unknown>; emailVerified?: boolean }): Account {
+  const acc = accountByEmail(email);
+  if (!acc) throw new Error('account_not_found');
+  if (patch.passHash) acc.passHash = patch.passHash;
+  if (patch.profile) acc.profile = { ...acc.profile, ...patch.profile, email: acc.email };
+  if (patch.emailVerified !== undefined) acc.emailVerified = patch.emailVerified;
+  acc.updatedAt = Date.now();
+  persist();
+  return acc;
+}
+
+export function deleteAccountRecord(email: string): void {
+  state.accounts.delete(email.trim().toLowerCase());
+  for (const [k, t] of state.authTokens) if (t.email === email) state.authTokens.delete(k);
+  persist();
+}
+
+export function storeAuthToken(hash: string, t: AuthToken): void {
+  const now = Date.now();
+  for (const [k, v] of state.authTokens) if (v.expiresAt < now) state.authTokens.delete(k);
+  state.authTokens.set(hash, t);
+  persist();
+}
+
+/** One use only: the token is gone the moment it is read. */
+export function takeAuthToken(hash: string, kind: AuthToken['kind']): AuthToken | null {
+  const t = state.authTokens.get(hash);
+  if (!t || t.kind !== kind) return null;
+  state.authTokens.delete(hash);
+  persist();
+  return t.expiresAt >= Date.now() ? t : null;
+}
+
+/** A random secret created once and kept with the data, unless the env provides one. */
+export function serverSecret(make: () => string): string {
+  if (!state.serverSecret) {
+    state.serverSecret = make();
+    persist();
+  }
+  return state.serverSecret;
+}
+
+// ---- booking events (emails, SMS) ---------------------------------------------
+//
+// The engine announces what happened; the server decides how to tell people.
+// Listeners must never throw into the engine — a failed email cannot undo a
+// booking — so every call is wrapped.
+
+export type BookingEvent = 'confirmed' | 'cancelled' | 'moved';
+type BookingListener = (event: BookingEvent, b: Booking) => void;
+const listenerHolder = globalThis as typeof globalThis & { __stylenowBookingListeners?: BookingListener[] };
+
+export function onBookingEvent(fn: BookingListener): void {
+  (listenerHolder.__stylenowBookingListeners ??= []).push(fn);
+}
+
+function emitBookingEvent(event: BookingEvent, b: Booking): void {
+  for (const fn of listenerHolder.__stylenowBookingListeners ?? []) {
+    try {
+      fn(event, b);
+    } catch {
+      /* never let a notifier break the engine */
+    }
+  }
+}
+
+/** Confirmed visits starting within `withinMs` that have not had their reminder. */
+export function bookingsDueReminder(now = Date.now(), withinMs = 24 * 36e5, minLeadMs = 2 * 36e5): Booking[] {
+  return [...state.bookings.values()].filter(
+    (b) => b.status === 'confirmed' && !b.remindedAt && b.startsAt > now + minLeadMs && b.startsAt <= now + withinMs && (b.guestEmail || b.guestPhone),
+  );
+}
+
+export function markReminded(bookingId: string): void {
+  const b = state.bookings.get(bookingId);
+  if (!b) return;
+  b.remindedAt = Date.now();
+  persist();
+}
+
+/** Where the salon wants booking alerts: its sign-up email, else the owner's login email. */
+export function shopContactEmail(shopId: string): string | null {
+  for (const app of state.applications.values()) {
+    if (app.shopId !== shopId) continue;
+    const email = (app.data.business as Record<string, unknown> | undefined)?.email;
+    if (typeof email === 'string' && email.includes('@')) return email;
+  }
+  const owner = state.shopOwners.get(shopId);
+  return owner && owner.includes('@') ? owner : null;
 }

@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { buyPackage, deletePackageOffer, packageOffers, packagesForShop, savePackageOffer } from '@/core/store';
 import { badRequest, cleanPayment, errStatus, fail, isStr, stripeGuard } from '@/app/api/_lib/guards';
@@ -29,6 +30,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 /** Create or update an offer: { offer: { id?, serviceId, count, priceCents } }. */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const o = body.offer;
   if (!o || typeof o !== 'object' || !isStr(o.serviceId) || typeof o.count !== 'number' || typeof o.priceCents !== 'number') {
@@ -44,6 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const offerId = req.nextUrl.searchParams.get('offerId');
   if (!offerId) return badRequest();
   deletePackageOffer(params.id, offerId);

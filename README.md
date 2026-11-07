@@ -192,3 +192,7 @@ you have enforced nothing.
 ## Licence
 
 Proprietary. © StyleNow.
+
+## Going live
+
+Server setup, environment variables, database, email/SMS and the Stripe test: see [docs/LAUNCH.md](docs/LAUNCH.md).

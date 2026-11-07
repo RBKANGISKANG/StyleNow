@@ -14,7 +14,7 @@ const nextConfig = {
       }
     : {
         // The server keeps its state in Postgres or a file, loaded at start-up.
-        experimental: { instrumentationHook: true, serverComponentsExternalPackages: ['pg'] },
+        experimental: { instrumentationHook: true, serverComponentsExternalPackages: ['pg', 'nodemailer'] },
       }),
   env: {
     // PWA assets (manifest, service worker) need absolute paths that survive

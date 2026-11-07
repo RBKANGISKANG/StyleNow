@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { accessFactsOf, birthdayPerkOf, setAccessFacts, setBirthdayPerk } from '@/core/store';
 import { badRequest, fail } from '@/app/api/_lib/guards';
@@ -10,6 +11,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 /** Set any of { birthdayPerk, accessFacts } — a key that is present is written. */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
   if (has('birthdayPerk') && typeof body.birthdayPerk !== 'number') return badRequest();

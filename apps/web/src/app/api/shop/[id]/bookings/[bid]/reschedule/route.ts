@@ -1,9 +1,12 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { rescheduleBooking, SlotTaken } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => null);
   if (!body?.startsAt) return NextResponse.json({ error: 'missing_params' }, { status: 400 });
   try {

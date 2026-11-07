@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { setStampSettings, stampStatus } from '@/core/store';
 import { badRequest, isDevice } from '@/app/api/_lib/guards';
@@ -13,6 +14,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 /** { enabled, required } — the salon's card settings. */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   if (typeof body.enabled !== 'boolean' || typeof body.required !== 'number' || !Number.isFinite(body.required)) {
     return badRequest();

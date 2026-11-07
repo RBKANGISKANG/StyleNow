@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { noticesForDevice, noticesForShop, shopsForOwner } from '@/core/store';
+import { isShopOwner, noticesForDevice, noticesForShop, shopsForOwner } from '@/core/store';
+import { callerKeys } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +16,8 @@ export async function GET(req: NextRequest) {
       ? shopsForOwner(owner)
       : [];
   const own = deviceId ? noticesForDevice(deviceId) : [];
-  const forShops = shopIds.flatMap((id) => noticesForShop(id));
+  // Only salons the caller can prove it runs.
+  const keys = callerKeys(req);
+  const forShops = shopIds.filter((id) => keys.some((k) => isShopOwner(id, k))).flatMap((id) => noticesForShop(id));
   return NextResponse.json({ notices: [...own, ...forShops].sort((a, b) => b.at - a.at) });
 }

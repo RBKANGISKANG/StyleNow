@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { addStaffPhoto, deleteStaffPhoto, staffPhotos } from '@/core/store';
 import { badRequest, fail, isStr } from '@/app/api/_lib/guards';
@@ -14,6 +15,8 @@ export async function GET(_req: NextRequest, { params }: P) {
 }
 
 export async function POST(req: NextRequest, { params }: P) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   if (!isStr(body.dataUrl) || (body.caption != null && !isStr(body.caption))) return badRequest();
   if (body.dataUrl.length > MAX_BYTES) return NextResponse.json({ error: 'too_large' }, { status: 413 });
@@ -25,6 +28,8 @@ export async function POST(req: NextRequest, { params }: P) {
 }
 
 export async function DELETE(req: NextRequest, { params }: P) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const photoId = req.nextUrl.searchParams.get('photoId');
   if (!photoId) return badRequest();
   try {

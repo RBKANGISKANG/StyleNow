@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { rosterCalendar } from '@/core/store';
 import { todayIso, addDays } from '@/core/time';
@@ -5,6 +6,8 @@ import { todayIso, addDays } from '@/core/time';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const q = req.nextUrl.searchParams;
   const from = q.get('from') ?? todayIso();
   const to = q.get('to') ?? addDays(from, 13);

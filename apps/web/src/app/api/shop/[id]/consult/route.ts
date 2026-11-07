@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { consultDone, ensureConsultService } from '@/core/store';
 import { badRequest, fail, isDevice } from '@/app/api/_lib/guards';
@@ -12,7 +13,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 /** Make sure the free consultation service exists; returns it. */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   try {
     return NextResponse.json({ service: ensureConsultService(params.id) });
   } catch (e) {

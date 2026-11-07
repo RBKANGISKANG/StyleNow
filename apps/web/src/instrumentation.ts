@@ -4,5 +4,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { startPersistence } = await import('./lib/server-persistence');
     await startPersistence();
+    const { startBookingMail } = await import('./lib/booking-mail');
+    startBookingMail();
   }
 }

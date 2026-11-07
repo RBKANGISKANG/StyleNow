@@ -567,9 +567,18 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
 }
 
 // Walk-ins: queue, honest wait, and a real seat through the real contract.
-// On a fresh shop — the suite above has booked today at shop #1 solid.
-{
-  const shop2 = allShops()[1];
+// Needs a salon with a seat left *today* — late at night or on a Sunday there
+// may be none anywhere, and then there is nothing to seat a walk-in into.
+const walkInShop = () =>
+  allShops().slice(1).find((sh) => {
+    try {
+      return availability(sh.id, [sh.services[0].id], todayIso(), 'dev-walkin-probe').slots.length > 0;
+    } catch {
+      return false;
+    }
+  });
+if (walkInShop()) {
+  const shop2 = walkInShop()!;
   const svc2 = shop2.services[0];
   const w = addWalkIn(shop2.id, 'Frau Weber', [svc2.id]);
   assert.equal(walkIns(shop2.id).filter((x) => x.state === 'queued').length, 1);
@@ -753,8 +762,8 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
 }
 
 // Walk-in: a double tap on "seat now" books once, not twice.
-{
-  const shop2 = allShops()[1];
+if (walkInShop()) {
+  const shop2 = walkInShop()!;
   const w2 = addWalkIn(shop2.id, 'Doppel', [shop2.services[0].id]);
   convertWalkIn(shop2.id, w2.id);
   assert.throws(() => convertWalkIn(shop2.id, w2.id), /already_seated/);
@@ -2541,6 +2550,48 @@ assert.ok(threadOf(shop.id, `d:${rhythmDev}`).every((m) => m.from !== 'customer'
   submitShopApplication('dev-lead', { leadId: 'node/1', business: {} });
   assert.equal(allLeads().find((x) => x.id === 'node/1')!.status, 'signed_up');
   assert.equal(leadPrefill('node/1'), null, 'a signed-up lead no longer pre-fills');
+}
+
+// ---- launch blockers: accounts, one-time tokens, reminders, booking events ----
+{
+  const { createAccount, accountByEmail, updateAccount, storeAuthToken, takeAuthToken, deleteAccountRecord, onBookingEvent, bookingsDueReminder, markReminded } = storeAll;
+  const acc = createAccount('Kim@Test.de', 'scrypt$1$a$b', 'dev-kim-12345678', { name: 'Kim' });
+  assert.equal(acc.email, 'kim@test.de', 'emails are case-insensitive');
+  assert.throws(() => createAccount('kim@test.de', 'x', 'dev-x', {}), /email_taken/);
+  assert.throws(() => createAccount('not-an-email', 'x', 'dev-x', {}), /bad_email/);
+  updateAccount('kim@test.de', { profile: { email: 'evil@x.de', name: 'Kim K' } });
+  assert.equal(accountByEmail('KIM@test.de')!.profile.email, 'kim@test.de', 'a profile edit cannot change the login email');
+  storeAuthToken('h1', { email: 'kim@test.de', kind: 'reset', expiresAt: Date.now() + 60e3 });
+  assert.equal(takeAuthToken('h1', 'verify'), null, 'a reset token is not a verify token');
+  storeAuthToken('h2', { email: 'kim@test.de', kind: 'reset', expiresAt: Date.now() + 60e3 });
+  assert.equal(takeAuthToken('h2', 'reset')?.email, 'kim@test.de');
+  assert.equal(takeAuthToken('h2', 'reset'), null, 'tokens work once');
+  storeAuthToken('h3', { email: 'kim@test.de', kind: 'reset', expiresAt: Date.now() - 1 });
+  assert.equal(takeAuthToken('h3', 'reset'), null, 'expired tokens are refused');
+  deleteAccountRecord('kim@test.de');
+  assert.equal(accountByEmail('kim@test.de'), null);
+
+  // events + reminders
+  const seen: string[] = [];
+  onBookingEvent((e, b) => seen.push(`${e}:${b.id}`));
+  onBookingEvent(() => { throw new Error('a broken notifier'); });
+  const shop = allShops()[2];
+  const svc = effectiveServices(shop.id)[0];
+  let slot: { start: number } | undefined;
+  for (let d = 1; d <= 21 && !slot; d++) slot = availability(shop.id, [svc.id], addDays(todayIso(), d), 'dev-ev').slots[0];
+  const h = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: slot!.start, deviceId: 'dev-ev', guestName: 'Eve', guestEmail: 'eve@test.de', idempotencyKey: 'ev-1' });
+  const b = confirmBooking(h.bookingId, { method: 'card', label: 'Visa ····4242' });
+  assert.equal(b.guestEmail, 'eve@test.de');
+  assert.ok(seen.includes(`confirmed:${b.id}`), 'confirmation announced (and a throwing listener did not break it)');
+  const due = bookingsDueReminder(b.startsAt - 20 * 36e5, 24 * 36e5);
+  assert.ok(due.some((x) => x.id === b.id), 'due for a reminder 20 h before');
+  assert.ok(!bookingsDueReminder(b.startsAt - 30 * 36e5, 24 * 36e5).some((x) => x.id === b.id), 'not 30 h before');
+  markReminded(b.id);
+  assert.ok(!bookingsDueReminder(b.startsAt - 20 * 36e5, 24 * 36e5).some((x) => x.id === b.id), 'never reminded twice');
+  cancelBooking(b.id, { preview: false, by: 'customer' });
+  assert.ok(seen.includes(`cancelled:${b.id}`), 'cancellation announced');
+  const h2 = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: slot!.start, deviceId: 'dev-ev', guestName: 'Eve', guestEmail: 'not an email', idempotencyKey: 'ev-2' });
+  assert.equal(storeAll.getBooking(h2.bookingId)!.guestEmail, undefined, 'a malformed email is dropped');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

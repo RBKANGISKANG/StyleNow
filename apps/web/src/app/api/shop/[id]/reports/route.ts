@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   bookingLedger,
@@ -33,6 +34,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const to = q.get('to') ?? '';
   const range = () => ISO.test(from) && ISO.test(to);
   try {
+    // Shop-private views (money, staff pay, utilisation) need the owner.
+    if (['ledger', 'staff-earnings', 'utilization', 'colour-week', 'gaps'].includes(q.get('view') ?? '')) {
+      const denied = requireShopAccess(req, id);
+      if (denied) return denied;
+    }
     switch (q.get('view')) {
       case 'forecast':
         return NextResponse.json({ data: dayLoadForecast(id) });

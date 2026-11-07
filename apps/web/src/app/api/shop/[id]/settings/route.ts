@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   membershipOffer,
@@ -31,6 +32,8 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 /** Set any of the GET keys — a key that is present is written. */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
   if (has('goal') && !isNum(body.goal)) return badRequest();

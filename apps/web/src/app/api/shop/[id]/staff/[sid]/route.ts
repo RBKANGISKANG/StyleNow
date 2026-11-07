@@ -1,9 +1,12 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { patchStaff, archiveStaff } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   try {
     patchStaff(params.id, params.sid, body);
@@ -13,7 +16,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   try {
     archiveStaff(params.id, params.sid);
     return NextResponse.json({ ok: true });

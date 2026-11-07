@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exportShopConfig, isShopOwner, restoreShopConfig } from '@/core/store';
-import { badRequest, fail } from '@/app/api/_lib/guards';
+import { exportShopConfig, restoreShopConfig } from '@/core/store';
+import { badRequest, fail, requireShopAccess } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
-const notYours = () => NextResponse.json({ error: 'not_yours' }, { status: 403 });
 
 /**
  * The shop's whole configuration, for whoever runs it. The owner key is not
@@ -12,7 +11,8 @@ const notYours = () => NextResponse.json({ error: 'not_yours' }, { status: 403 }
  * people email around.
  */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!isShopOwner(params.id, req.nextUrl.searchParams.get('ownerKey') ?? '')) return notYours();
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   try {
     const { owner: _owner, ...doc } = exportShopConfig(params.id);
     return NextResponse.json({ doc });
@@ -25,7 +25,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   if (!body.doc || typeof body.doc !== 'object' || Array.isArray(body.doc)) return badRequest();
-  if (!isShopOwner(params.id, typeof body.ownerKey === 'string' ? body.ownerKey : '')) return notYours();
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   try {
     const current = exportShopConfig(params.id).owner;
     restoreShopConfig(params.id, { ...body.doc, owner: current });

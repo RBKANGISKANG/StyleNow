@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isShopOwner, payoutAccount, shopById, commissionFreeUntil, PLATFORM_COMMISSION_PCT, waitingPayouts } from '@/core/store';
+import { requireShopAccess } from '@/app/api/_lib/guards';
+import { payoutAccount, shopById, commissionFreeUntil, PLATFORM_COMMISSION_PCT, waitingPayouts } from '@/core/store';
 import { stripeConfigured } from '@/lib/stripe-server';
 import { accountNeeds, createCustomAccount, ibanOk, updateAccount, uploadIdentityDocument, type DueGroup, type PersonDetails, type SignupDetails } from '@/lib/stripe-connect';
 
@@ -14,10 +15,9 @@ export const dynamic = 'force-dynamic';
  *                                   → create the account or fill in details
  * POST multipart (shopId, ownerKey, document) → upload an ID photo
  */
-function guard(shopId: string, ownerKey: string): NextResponse | null {
+function guard(req: NextRequest, shopId: string): NextResponse | null {
   if (!shopById(shopId)) return NextResponse.json({ error: 'shop_not_found' }, { status: 404 });
-  if (!isShopOwner(shopId, ownerKey)) return NextResponse.json({ error: 'not_yours' }, { status: 403 });
-  return null;
+  return requireShopAccess(req, shopId);
 }
 
 const clientIp = (req: NextRequest) => (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.ip || '';
@@ -50,7 +50,7 @@ async function view(shopId: string) {
 
 export async function GET(req: NextRequest) {
   const shopId = req.nextUrl.searchParams.get('shopId') ?? '';
-  const refused = guard(shopId, req.nextUrl.searchParams.get('ownerKey') ?? '');
+  const refused = guard(req, shopId);
   if (refused) return refused;
   return NextResponse.json(await view(shopId));
 }
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     if ((req.headers.get('content-type') ?? '').startsWith('multipart/form-data')) {
       const form = await req.formData();
       const shopId = String(form.get('shopId') ?? '');
-      const refused = guard(shopId, String(form.get('ownerKey') ?? ''));
+      const refused = guard(req, shopId);
       if (refused) return refused;
       const file = form.get('document');
       if (!(file instanceof File)) return NextResponse.json({ error: 'missing_document' }, { status: 400 });
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const shopId = str(body.shopId) ?? '';
-    const refused = guard(shopId, str(body.ownerKey) ?? '');
+    const refused = guard(req, shopId);
     if (refused) return refused;
     const iban = str(body.iban, 42);
     if (iban && !ibanOk(iban)) return NextResponse.json({ error: 'bad_iban' }, { status: 400 });
@@ -86,11 +86,13 @@ export async function POST(req: NextRequest) {
       ? { firstName: str(p.firstName, 60), lastName: str(p.lastName, 60), dob: str(p.dob, 10), email: str(p.email), phone: str(p.phone, 30), street: str(p.street), zip: str(p.zip, 12), city: str(p.city, 60), title: str(p.title, 40) }
       : undefined;
 
+    // Stripe's ready-made test document ids (test mode only) can be passed directly.
+    const testDoc = typeof body.documentFileId === 'string' && /^file_identity_document_/.test(body.documentFileId) && (process.env.STRIPE_SECRET_KEY ?? '').startsWith('sk_test_') ? body.documentFileId : undefined;
     if (!payoutAccount(shopId)) {
       await createCustomAccount(shopId, { ...(company ?? {}), displayName: shopById(shopId)!.name, iban, accountHolder: str(body.accountHolder) }, clientIp(req));
-      if (person) await updateAccount(shopId, { person });
+      if (person || testDoc) await updateAccount(shopId, { person, documentFileId: testDoc });
     } else {
-      await updateAccount(shopId, { company, person, iban, accountHolder: str(body.accountHolder) });
+      await updateAccount(shopId, { company, person, iban, accountHolder: str(body.accountHolder), documentFileId: testDoc });
     }
     return NextResponse.json(await view(shopId));
   } catch (e) {

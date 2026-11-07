@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getBooking, type Booking, type PaymentMethod } from '@/core/store';
+import { getBooking, isShopOwner, type Booking, type PaymentMethod } from '@/core/store';
+import { callerKeys } from '@/lib/session';
 import { stripeConfigured } from '@/lib/stripe-server';
 
 export const METHODS: PaymentMethod[] = ['card', 'paypal', 'apple_pay', 'google_pay', 'sepa', 'at_salon'];
@@ -70,4 +71,18 @@ export function requireAdmin(req: NextRequest | Request): NextResponse | null {
   if (a.length === b.length) ok = timingSafeEqual(a, b);
   else timingSafeEqual(b, b);
   return ok ? null : NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+}
+
+/**
+ * Salon-only routes: the caller must be the salon's owner (or a member), proved
+ * by the login cookie or by the owner's own browser — or the platform admin.
+ * Returns the refusal to send, or null to go on.
+ */
+export function requireShopAccess(req: NextRequest, shopId: string): NextResponse | null {
+  const admin = process.env.STYLENOW_ADMIN_KEY;
+  const given = req.headers.get('x-admin-key') ?? '';
+  if (admin && given.length === admin.length && timingSafeEqual(Buffer.from(given), Buffer.from(admin))) return null;
+  const keys = callerKeys(req);
+  if (keys.some((k) => isShopOwner(shopId, k))) return null;
+  return NextResponse.json({ error: keys.length ? 'not_yours' : 'login_required' }, { status: keys.length ? 403 : 401 });
 }

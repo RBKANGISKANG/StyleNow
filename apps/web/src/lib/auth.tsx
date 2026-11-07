@@ -20,7 +20,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import * as sb from '@/lib/supabase-backend';
 import * as store from '@/core/store';
-import { deviceId } from '@/lib/device';
+import { adoptDeviceId, deviceId } from '@/lib/device';
+import { backendMode } from '@/lib/api';
 
 export interface Profile {
   name: string;
@@ -60,6 +61,42 @@ interface AuthCtx {
 const Ctx = createContext<AuthCtx | null>(null);
 
 const ACCOUNTS_KEY = 'sn-accounts';
+
+/** Server mode (the app's own /api): real accounts on our own server, session cookie. Supabase mode keeps Supabase auth. */
+const serverAuth = () => backendMode() === 'server';
+
+async function authCall(path: string, method: string, body?: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  try {
+    const res = await fetch(`/api/auth/${path}`, {
+      method,
+      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { ok: res.ok, data: await res.json().catch(() => ({})) };
+  } catch {
+    return { ok: false, data: { error: 'network' } };
+  }
+}
+
+function fromServer(u: Record<string, unknown>): SessionUser {
+  const p = emptyProfile(u.preferredLanguage === 'en' ? 'en' : 'de');
+  const user = { ...p, ...u, consents: { ...p.consents, ...((u.consents as object) ?? {}) }, provider: 'email', demo: false } as SessionUser;
+  if (typeof u.deviceId === 'string') adoptDeviceId(u.deviceId);
+  return user;
+}
+
+/** Ask for a reset link; the answer never says whether the email has an account. */
+export async function requestPasswordReset(email: string): Promise<boolean> {
+  return (await authCall('forgot', 'POST', { email })).ok;
+}
+export async function confirmPasswordReset(token: string, password: string): Promise<AuthResult> {
+  const r = await authCall('reset', 'POST', { token, password });
+  return r.ok ? { ok: true } : { ok: false, error: String(r.data.error ?? 'error') };
+}
+export async function confirmEmail(token: string): Promise<boolean> {
+  return (await authCall('verify', 'POST', { token })).ok;
+}
+export const usesServerAccounts = () => serverAuth();
 const SESSION_KEY = 'sn-session';
 
 interface StoredAccount extends Profile {
@@ -115,6 +152,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // restore session
   useEffect(() => {
     void (async () => {
+      if (serverAuth()) {
+        const r = await authCall('me', 'GET');
+        if (r.ok && r.data.user) setUser(fromServer(r.data.user as Record<string, unknown>));
+        setLoading(false);
+        return;
+      }
       if (sb.isConfigured()) {
         try {
           const client = await sb.authClient();
@@ -147,6 +190,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (profile: Profile, password: string): Promise<AuthResult> => {
     const email = profile.email.trim().toLowerCase();
+    if (serverAuth()) {
+      const r = await authCall('register', 'POST', { email, password, profile, deviceId: deviceId() });
+      if (!r.ok) return { ok: false, error: String(r.data.error ?? 'error') };
+      setUser(fromServer(r.data.user as Record<string, unknown>));
+      return { ok: true };
+    }
     if (sb.isConfigured()) {
       try {
         const client = await sb.authClient();
@@ -188,6 +237,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (emailRaw: string, password: string): Promise<AuthResult> => {
     const email = emailRaw.trim().toLowerCase();
+    if (serverAuth()) {
+      const r = await authCall('login', 'POST', { email, password });
+      if (!r.ok) return { ok: false, error: String(r.data.error ?? 'error') };
+      setUser(fromServer(r.data.user as Record<string, unknown>));
+      return { ok: true };
+    }
     if (sb.isConfigured()) {
       try {
         const client = await sb.authClient();
@@ -214,6 +269,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginSocial = useCallback(async (provider: 'google' | 'apple' | 'facebook'): Promise<AuthResult> => {
+    if (serverAuth()) return { ok: false, error: 'social_not_available' };
     if (sb.isConfigured()) {
       try {
         const client = await sb.authClient();
@@ -259,6 +315,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!user) return;
       const next = { ...user, ...patch, consents: { ...user.consents, ...(patch.consents ?? {}) } };
       setUser(next);
+      if (serverAuth()) {
+        await authCall('me', 'PATCH', { profile: next });
+        return;
+      }
       if (!user.demo && sb.isConfigured()) {
         try {
           await sb.saveProfile(user.id, next);
@@ -275,6 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const exportData = useCallback((): string => {
+    if (serverAuth()) return '/api/auth/export';
     // GDPR Art. 20 — what this browser knows about THE PERSON, and only the
     // person. The old version dumped the whole engine snapshot, which is the
     // opposite of a personal export: it carried every other guest's bookings
@@ -294,6 +355,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const deleteAccount = useCallback(async () => {
     if (!user) return;
+    if (serverAuth()) {
+      await authCall('me', 'DELETE');
+      localStorage.removeItem('sn-device');
+      setUser(null);
+      return;
+    }
     if (!user.demo && sb.isConfigured()) {
       try {
         await sb.deleteProfile(user.id);
@@ -309,6 +376,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const logout = useCallback(async () => {
+    if (serverAuth()) {
+      await authCall('logout', 'POST');
+      // A fresh anonymous id: the next person on this browser must not see this account's bookings.
+      localStorage.removeItem('sn-device');
+      setUser(null);
+      return;
+    }
     if (user && !user.demo && sb.isConfigured()) {
       try {
         const client = await sb.authClient();

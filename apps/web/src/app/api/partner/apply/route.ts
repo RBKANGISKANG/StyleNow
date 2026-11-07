@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { submitShopApplication, applicationsForDevice, shopById } from '@/core/store';
 import { stripeConfigured } from '@/lib/stripe-server';
+import { callerKeys, provenKey } from '@/lib/session';
 import { createCustomAccount, detailsFromApplication } from '@/lib/stripe-connect';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,10 @@ export async function POST(req: NextRequest) {
   if (!body?.deviceId || !body?.data) {
     return NextResponse.json({ error: 'missing_params' }, { status: 400 });
   }
-  const application = submitShopApplication(body.deviceId, body.data);
+  // The salon is connected to whoever proves it: the login, else this browser.
+  const proven = provenKey(req, body.data?.ownerKey) ?? callerKeys(req)[0];
+  if (!proven) return NextResponse.json({ error: 'login_required' }, { status: 401 });
+  const application = submitShopApplication(body.deviceId, { ...body.data, ownerKey: proven });
   const live = application.shopId ? shopById(application.shopId) : undefined;
   // Payouts without ever visiting Stripe: the IBAN rides along once, goes
   // straight to Stripe and is never stored here. A failure never blocks the

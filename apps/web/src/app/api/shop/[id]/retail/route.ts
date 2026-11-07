@@ -1,3 +1,4 @@
+import { requireShopAccess } from '@/app/api/_lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 import { retailItems, saveRetailItem } from '@/core/store';
 
@@ -10,11 +11,15 @@ export const dynamic = 'force-dynamic';
  * that actually prices a sale (addRetail runs against this same server-side
  * list), and a second tablet could never see it either.
  */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   return NextResponse.json({ items: retailItems(params.id) });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = requireShopAccess(req, params.id);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   try {
     const item = saveRetailItem(params.id, {
