@@ -2673,7 +2673,7 @@ if (walkInShop()) {
   const before = commissionFreeUntil(hostId);
   const guest = submitShopApplication('dev-guest', { business: { displayName: 'Guest Salon', categories: ['hair'] }, locations: [{ street: 'B 2', zip: '22041', city: 'Hamburg' }], offer, ownerKey: 'guest@test.de', salonRef: code });
   assert.equal(salonReferralStats(hostId).invited, 1);
-  assert.equal(salonReferralStats(hostId).bonusMonths, 3, 'the inviter earns 3 free months');
+  assert.equal(salonReferralStats(hostId).bonusMonths, 1, 'the inviter earns 1 free month');
   assert.ok(commissionFreeUntil(hostId) > before, 'and the free period really moves');
   assert.equal(salonReferralStats(guest.shopId!).bonusMonths, 1, 'the newcomer earns 1');
   // the same owner opening another salon earns nothing
@@ -2684,7 +2684,7 @@ if (walkInShop()) {
   for (let i = 0; i < 6; i++) {
     submitShopApplication(`dev-g${i}`, { business: { displayName: `G${i}`, categories: ['hair'] }, locations: [{ street: `D ${i}`, zip: '22041', city: 'Hamburg' }], offer, ownerKey: `g${i}@test.de`, salonRef: code });
   }
-  assert.equal(salonReferralStats(hostId).bonusMonths, 21, 'no limit: 7 salons × 3 months');
+  assert.equal(salonReferralStats(hostId).bonusMonths, 7, 'no limit: 7 salons × 1 month');
   assert.equal(salonReferralStats(hostId).invited, 7, 'every invite still counts');
   void claimShop;
 }
@@ -2703,6 +2703,10 @@ if (walkInShop()) {
   const lv = customerLevel('dev-friend');
   assert.equal(lv.points, lv.visits + 3 * lv.referrals, 'points = visits + 3 × friends');
   assert.ok(lv.visits >= 1, 'the friend’s completed visit counts for the friend as well');
+  // inactivity: a year later the same visits and friends no longer count
+  const later = Date.now() + 400 * 864e5;
+  assert.equal(customerLevel('dev-referrer', later).id, 'member', 'no visits for a year → the level comes down');
+  assert.equal(storeAll.referralCount('dev-referrer', later, true), 1, 'the history itself is kept');
   storeAll.setBookingStatus(fb.shopId, fb.id, 'completed');
   assert.equal(referralCount('dev-referrer'), 1, 'a friend counts once');
   // Diamond pays half the Prime extra; the salon still keeps half of the FULL price

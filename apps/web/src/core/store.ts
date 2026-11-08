@@ -9465,11 +9465,11 @@ export function shopCountry(shopId: string): string {
 // ---- salon invites salon ------------------------------------------------------
 //
 // A salon shares its invite link (/partner?salon_ref=SAL-XXXXXX). When the
-// invited salon goes live, the inviter earns 3 more commission-free months
+// invited salon goes live, the inviter earns 1 more commission-free month
 // (no limit) and the newcomer 1 extra month. Free months cost nothing
 // today and salons recruiting salons is the cheapest growth there is.
 
-export const SALON_REF_BONUS_MONTHS = 3;
+export const SALON_REF_BONUS_MONTHS = 1;
 export const SALON_REF_WELCOME_MONTHS = 1;
 
 export interface SalonReferral {
@@ -9533,7 +9533,8 @@ export function salonReferrerName(code: string): string | null {
 /**
  * Levels are earned with points: 1 per completed visit at any salon or
  * business on StyleNow, 3 per friend whose first visit was completed.
- * Derived from bookings every time — nothing to drift, no limit.
+ * Only the last 12 months count, so a customer who stops visiting slides
+ * down. Derived from bookings every time — nothing to drift.
  */
 export type LevelId = 'member' | 'silver' | 'gold' | 'platinum' | 'diamond';
 export const POINTS_PER_VISIT = 1;
@@ -9546,20 +9547,30 @@ export const CUSTOMER_LEVELS: Array<{ id: LevelId; minPoints: number; rank: numb
   { id: 'diamond', minPoints: 50, rank: 4, primeDiscountPct: 50, emoji: '💎' },
 ];
 
-/** Completed visits by this person, at any salon or business. */
-export function completedVisits(deviceId: string): number {
+/** Points only count for this long: stop visiting and the level slides down. */
+export const POINTS_WINDOW_DAYS = 365;
+
+/** Completed visits by this person in the last 12 months, at any salon or business. */
+export function completedVisits(deviceId: string, now = Date.now()): number {
+  const since = now - POINTS_WINDOW_DAYS * 864e5;
   let n = 0;
-  for (const b of state.bookings.values()) if (b.deviceId === deviceId && b.status === 'completed') n++;
+  for (const b of state.bookings.values()) {
+    if (b.deviceId !== deviceId || b.status !== 'completed') continue;
+    const at = b.completedAt ?? b.startsAt; // when the visit was marked done
+    if (at >= since && at <= now) n++;
+  }
   return n;
 }
 
-export function referralCount(deviceId: string): number {
-  return state.referralWins.filter((w) => w.referrer === deviceId).length;
+/** Friends brought in during the last 12 months (all-time when `allTime`). */
+export function referralCount(deviceId: string, now = Date.now(), allTime = false): number {
+  const since = now - POINTS_WINDOW_DAYS * 864e5;
+  return state.referralWins.filter((w) => w.referrer === deviceId && (allTime || w.at >= since)).length;
 }
 
-export function customerLevel(deviceId: string): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null } {
-  const referrals = referralCount(deviceId);
-  const visits = completedVisits(deviceId);
+export function customerLevel(deviceId: string, now = Date.now()): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null } {
+  const referrals = referralCount(deviceId, now);
+  const visits = completedVisits(deviceId, now);
   const points = visits * POINTS_PER_VISIT + referrals * POINTS_PER_FRIEND;
   let lvl = CUSTOMER_LEVELS[0];
   for (const l of CUSTOMER_LEVELS) if (points >= l.minPoints) lvl = l;

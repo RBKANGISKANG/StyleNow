@@ -1,8 +1,8 @@
 'use client';
 /**
  * Rise in level with visits and friends. No money: 1 point per completed
- * visit anywhere on StyleNow, 3 per friend whose first visit is completed, and
- * the points lift you from Member to Silver, Gold, Platinum
+ * visit anywhere on StyleNow, 3 per friend whose first visit is completed —
+ * counted over the last 12 months — and the points lift you from Member to Silver, Gold, Platinum
  * and Diamond — with perks that cost the salons nothing (waitlist priority,
  * a cheaper Prime extra paid from StyleNow's own share).
  */
