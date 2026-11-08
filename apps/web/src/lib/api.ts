@@ -3437,3 +3437,10 @@ export async function apiLeadPrefill(id: string): Promise<ReturnType<typeof stor
   await readyForRead();
   return store.leadPrefill(id);
 }
+
+/** A salon's public slug (its booking link), wherever the salon lives. */
+export async function apiShopSlug(shopId: string): Promise<string | null> {
+  if (backendMode() === 'server') return (await getJson(`/api/shop/${shopId}/public`))?.slug ?? null;
+  await readyForRead();
+  return store.shopById(shopId)?.slug ?? null;
+}

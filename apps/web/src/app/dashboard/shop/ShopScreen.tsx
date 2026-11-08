@@ -7,9 +7,11 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { shopHref } from '@/lib/shop-href';
 import {
   apiSetShopLogo,
   apiPayoutStatus,
+  apiShopSlug,
   apiSavePayoutDetails,
   apiUploadPayoutDocument,
   type PayoutStatus,
@@ -271,6 +273,11 @@ function ShopTab({
       <section className="section">
         <h2>📣 {t('an_title')}</h2>
         <AnnouncementPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>📣 {t('gr_title')}</h2>
+        <BookingLinkPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1490,6 +1497,67 @@ function PayoutsPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKe
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The salon's own booking link + QR code: the free way to bring its existing
+ * customers onto StyleNow — Google Business Profile "booking link", Instagram
+ * bio, WhatsApp status, and a QR sign at the counter.
+ */
+function BookingLinkPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [link, setLink] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void apiShopSlug(shopId).then(async (slug) => {
+      if (!live || !slug) return;
+      const base = `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}`;
+      const url = `${base}${shopHref(slug, 'book', 'utm_source=salon&utm_medium=link')}`;
+      setLink(url);
+      const QR = await import('qrcode');
+      const data = await QR.toDataURL(url.replace('utm_medium=link', 'utm_medium=qr'), { width: 512, margin: 2, color: { dark: '#1f1a24', light: '#ffffff' } });
+      if (live) setQr(data);
+    });
+    return () => {
+      live = false;
+    };
+  }, [shopId]);
+  if (!link) return <p className="muted">…</p>;
+  return (
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      {qr && (
+        <div style={{ textAlign: 'center' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr} alt={t('gr_qr_alt')} width={160} height={160} style={{ borderRadius: 12, background: '#fff' }} />
+          <div>
+            <a className="btn btn-soft sm" href={qr} download="stylenow-booking-qr.png" style={{ marginTop: 6 }}>⬇ {t('gr_qr_download')}</a>
+          </div>
+        </div>
+      )}
+      <div className="stack" style={{ flex: 1, minWidth: 220 }}>
+        <p className="muted">{t('gr_sub')}</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input" readOnly value={link} onFocus={(e) => e.target.select()} />
+          <button
+            className="btn btn-primary sm"
+            onClick={() => {
+              void navigator.clipboard?.writeText(link);
+              onChanged('✓ ' + t('gr_copied'));
+            }}
+          >
+            {t('gr_copy')}
+          </button>
+        </div>
+        <ol style={{ margin: '6px 0 0 18px', fontSize: '0.85rem', lineHeight: 1.6 }}>
+          <li>{t('gr_step_google')}</li>
+          <li>{t('gr_step_insta')}</li>
+          <li>{t('gr_step_counter')}</li>
+          <li>{t('gr_step_whatsapp')}</li>
+        </ol>
+      </div>
     </div>
   );
 }

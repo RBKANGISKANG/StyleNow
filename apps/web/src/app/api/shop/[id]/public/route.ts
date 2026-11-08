@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { estimatedWaitMin, membersOfShop, publicQueue } from '@/core/store';
+import { estimatedWaitMin, membersOfShop, publicQueue, shopById } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,5 +9,6 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     queue: publicQueue(params.id),
     waitMin: estimatedWaitMin(params.id),
     members: membersOfShop(params.id),
+    slug: shopById(params.id)?.slug ?? null,
   });
 }
