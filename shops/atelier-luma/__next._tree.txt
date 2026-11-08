@@ -1,0 +1,6 @@
+:HL["/StyleNow/_next/static/css/77c5266f48eeea48.css","style"]
+:HL["https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Inter:wght@400;500;600;700;800&display=swap","style"]
+3:[["children",{"s":"__PAGE__","h":160}]]
+2:[["children",{"s":{"n":"slug","t":"d","k":"atelier-luma","s":["view"]},"h":96,"c":"$Q3"}]]
+1:[["children",{"s":"shops","h":96,"c":"$Q2"}]]
+0:{"b":"jt0torszMPbn6mSjYCZY4","t":{"t":{"s":"","h":80,"c":"$Q1"}}}

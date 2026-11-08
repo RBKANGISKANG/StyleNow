@@ -1,0 +1,42 @@
+1:"$Sreact.fragment"
+2:"static/chunks/5587-bf231f55b3fd3ee7.js"
+3:"static/chunks/2829-9063afca296c1106.js"
+4:"static/chunks/8276-f18ef8e27402dd89.js"
+5:"static/chunks/3599-25f7e21ce79d706e.js"
+6:"static/chunks/app/layout-27091d4d33b82843.js"
+7:I[5515,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"THEME_BOOT"]
+8:I[2829,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"I18nProvider"]
+9:I[3675,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"AuthProvider"]
+a:I[5515,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"DesignProvider"]
+b:I[5219,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"Header"]
+c:I[9630,[],""]
+d:I[1380,[],""]
+e:I[1857,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"Footer"]
+f:I[5219,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"BottomNav"]
+10:I[6427,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"ServiceWorker"]
+11:I[3035,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"RefCapture"]
+12:I[247,["5587","$2","2829","$3","8276","$4","3599","$5","7177","$6"],"NativePushTaps"]
+17:I[671,[],"ClientPageRoot"]
+18:"static/chunks/app/admin/growth/page-ff1521e4f4d1665d.js"
+19:I[670,["5587","$2","2829","$3","8276","$4","3599","$5","6960","$18"],"default"]
+1c:I[887,[],"OutletBoundary"]
+1d:"$Sreact.suspense"
+1f:"ViewportBoundary"
+20:I[887,[],"$1f"]
+22:"MetadataBoundary"
+23:I[887,[],"$22"]
+25:I[5718,[],"default",1]
+:HL["/StyleNow/_next/static/css/77c5266f48eeea48.css","style"]
+:HL["https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Inter:wght@400;500;600;700;800&display=swap","style"]
+15:X
+16:[["children",{"s":"__PAGE__","h":512,"d":{"r":["$","$1","c",{"children":[["$","$L17",null,{"Component":"$19","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@1a","$@1b"]}}],null,["$","$L1c",null,{"children":["$","$1d",null,{"name":"Next.MetadataOutlet","children":"$@1e"}]}]]}],"p":false,"v":null}}]]
+14:[["children",{"s":"growth","h":512,"d":{"r":["$","$1","c",{"children":[null,["$","$Lc",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$Ld",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],"p":false,"v":"$15"},"c":"$Q16"}]]
+13:[["children",{"s":"admin","h":512,"d":{"r":["$","$1","c",{"children":[null,["$","$Lc",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$Ld",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],"p":false,"v":null},"c":"$Q14"}]]
+0:{"P":null,"c":["","admin","growth",""],"q":"","i":false,"t":{"t":{"s":"","h":528,"d":{"r":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/StyleNow/_next/static/css/77c5266f48eeea48.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]],["$","html",null,{"lang":"en","data-design":"studio","suppressHydrationWarning":true,"children":[["$","head",null,{"children":[["$","link",null,{"rel":"preconnect","href":"https://fonts.googleapis.com"}],["$","link",null,{"rel":"preconnect","href":"https://fonts.gstatic.com","crossOrigin":"anonymous"}],["$","link",null,{"href":"https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Inter:wght@400;500;600;700;800&display=swap","rel":"stylesheet"}]]}],["$","body",null,{"children":[["$","script",null,{"dangerouslySetInnerHTML":{"__html":"$7"}}],["$","$L8",null,{"children":["$","$L9",null,{"children":["$","$La",null,{"children":[["$","$Lb",null,{}],["$","main",null,{"className":"shell","children":["$","$Lc",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$Ld",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]],"forbidden":"$undefined","unauthorized":"$undefined"}]}],["$","$Le",null,{}],["$","$Lf",null,{}],["$","$L10",null,{}],["$","$L11",null,{}],["$","$L12",null,{}]]}]}]}]]}]]}]]}],"p":false,"v":null},"c":"$Q13"},"h":{"r":["$","$1","h",{"children":[null,["$","$L20",null,{"children":"$L21"}],["$","$L23",null,{"children":[["$","div",null,{"hidden":true,"children":["$","$1d",null,{"name":"Next.Metadata","children":"$L24"}]}],null]}],null]}],"p":false,"v":null}},"m":"$undefined","G":["$25",[]],"S":true,"r":"$undefined","s":"$undefined","a":"$undefined","l":"$undefined","p":"$undefined","d":"$undefined","b":"jt0torszMPbn6mSjYCZY4"}
+15:C
+1a:{}
+1b:"$16:0:1:d:r:props:children:0:props:serverProvidedParams:params"
+21:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}],["$","meta","2",{"name":"theme-color","content":"#f0566e"}]]
+26:I[214,[],"IconMark"]
+1e:null
+24:[["$","title","0",{"children":"StyleNow — platform admin"}],["$","meta","1",{"name":"description","content":"Salons, barbers, nails & brows near you. Live availability, fair prices, instant booking."}],["$","link","2",{"rel":"manifest","href":"/StyleNow/manifest.webmanifest","crossOrigin":"$undefined"}],["$","meta","3",{"name":"robots","content":"noindex, nofollow"}],["$","meta","4",{"name":"mobile-web-app-capable","content":"yes"}],["$","meta","5",{"name":"apple-mobile-web-app-title","content":"StyleNow"}],["$","meta","6",{"name":"apple-mobile-web-app-status-bar-style","content":"default"}],["$","link","7",{"rel":"icon","href":"/StyleNow/icons/icon-192.png"}],["$","link","8",{"rel":"apple-touch-icon","href":"/StyleNow/icons/icon-180.png"}],["$","$L26","9",{}]]
