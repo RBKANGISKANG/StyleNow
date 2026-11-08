@@ -2781,4 +2781,19 @@ if (walkInShop()) {
   removePushSub('fcm-token-123');
 }
 
+// ---- owner dashboard: growth numbers and the 3-year value model ----
+{
+  const g = storeAll.growthMetrics();
+  assert.ok(g.liveBusinesses > 0 && g.months.length === 6, 'six months of history over the live businesses');
+  assert.equal(g.distribution.under10 + g.distribution.from10to20 + g.distribution.over20, g.liveBusinesses, 'every business sits in one band');
+  assert.ok(g.retention.pct >= 0 && g.retention.pct <= 100);
+  assert.ok(g.viral.invitesConverted <= g.viral.newCustomers + g.viral.newBusinesses, 'invites cannot exceed newcomers');
+  const m = storeAll.valuationModel({ businesses: [400, 2500, 7000], bookingsPerBusiness: 20, avgPriceCents: 4500, commissionPct: 12, extrasPct: 10, costsPerYearCents: [0, 0, 0], multiple: 5 });
+  assert.equal(m.perBusinessYearCents, 142560, '20 × 12 × 45 € × 12 % × 1.1 = 1,425.60 € a year per paying business');
+  assert.equal(m.years[0].paying, 0, 'year 1: everyone is in the free year');
+  assert.equal(m.years[1].paying, 400, 'year 2: last year’s businesses pay');
+  assert.equal(m.runRateCents, 2500 * 142560 + 4500 * 12960, 'run-rate: year-2 base pays commission, newcomers only extras');
+  assert.equal(m.valueCents, m.runRateCents * 5);
+}
+
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

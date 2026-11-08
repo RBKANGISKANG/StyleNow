@@ -219,6 +219,7 @@ export default function AdminPage() {
             ))}
           </div>
           <Link className="btn btn-soft sm" href="/admin/leads">📇 {t('adm_leads')}</Link>
+          <Link className="btn btn-soft sm" href="/admin/growth">📈 {t('og_title')}</Link>
           {needsKey && (
             <button type="button" className="btn btn-ghost sm" onClick={() => (setAdminKey(''), setHasKey(false))}>
               {t('adm_sign_out')}

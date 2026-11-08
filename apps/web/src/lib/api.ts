@@ -3335,6 +3335,12 @@ export async function apiAdminOverview(fromIso: string, toIso: string): Promise<
   return { rows: rows.map((r) => ({ ...r, slug: store.shopById(r.shopId)?.slug ?? '' })), totals, breakage: store.voucherBreakage() };
 }
 
+export async function apiAdminGrowth(): Promise<store.GrowthMetrics> {
+  if (backendMode() === 'server') return adminFetch('/api/admin/growth');
+  await readyForRead();
+  return store.growthMetrics();
+}
+
 export async function apiAdminSetPaused(shopId: string, paused: boolean): Promise<void> {
   if (backendMode() === 'server') {
     await adminFetch('/api/admin/shops', 'PATCH', { shopId, paused });

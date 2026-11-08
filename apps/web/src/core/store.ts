@@ -9818,3 +9818,156 @@ export function setPushVapidKeys(k: { publicKey: string; privateKey: string }): 
   state.pushVapid = k;
   persist();
 }
+
+// ---- platform growth: the three numbers that decide whether StyleNow works ---------
+
+export interface GrowthMetrics {
+  liveBusinesses: number;
+  /** StyleNow-brought bookings (not the business's own link) per business, last 30 days. */
+  marketplacePerBusiness: number;
+  /** How many businesses fall under / around / over the 15–20 target. */
+  distribution: { under10: number; from10to20: number; over20: number };
+  /** Businesses live ≥ 90 days that had at least one booking in the last 30 days. */
+  retention: { eligible: number; active: number; pct: number };
+  /** Last 90 days: what came in through invites. */
+  viral: {
+    activeUsers: number; // customers who booked + live businesses
+    invitesConverted: number; // friends who booked via an invite + businesses brought by salons or customers
+    perUser: number; // ≈ k-factor per quarter
+    newCustomers: number;
+    newCustomersInvited: number;
+    newBusinesses: number;
+    newBusinessesInvited: number;
+  };
+  avgPriceCents: number;
+  months: Array<{ month: string; marketplace: number; ownLink: number; newBusinesses: number; newCustomers: number }>;
+}
+
+export function growthMetrics(now = Date.now()): GrowthMetrics {
+  const DAY = 864e5;
+  const shops = allShops().filter((s) => !state.pausedShops.has(s.id));
+  const liveIds = new Set(shops.map((s) => s.id));
+  const counted = (b: Booking) => (b.status === 'confirmed' || b.status === 'completed') && !b.deviceId.startsWith('shop:');
+  const since30 = now - 30 * DAY;
+  const since90 = now - 90 * DAY;
+
+  const perShop = new Map<string, number>();
+  const activeShop = new Set<string>();
+  const firstBooking = new Map<string, Booking>(); // device → its first booking ever
+  let priceSum = 0;
+  let priceN = 0;
+  const months = new Map<string, { marketplace: number; ownLink: number; newBusinesses: number; newCustomers: number }>();
+  const monthKey = (t: number) => new Date(t).toISOString().slice(0, 7);
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now);
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() - i);
+    months.set(monthKey(d.getTime()), { marketplace: 0, ownLink: 0, newBusinesses: 0, newCustomers: 0 });
+  }
+
+  for (const b of state.bookings.values()) {
+    if (!counted(b) || !liveIds.has(b.shopId)) continue;
+    const prev = firstBooking.get(b.deviceId);
+    if (!prev || b.startsAt < prev.startsAt) firstBooking.set(b.deviceId, b);
+    if (b.startsAt > now) continue;
+    if (b.startsAt >= since30) {
+      activeShop.add(b.shopId);
+      if (b.source !== 'salon_link') perShop.set(b.shopId, (perShop.get(b.shopId) ?? 0) + 1);
+    }
+    if (b.startsAt >= since90) {
+      priceSum += b.quote.subtotalCents;
+      priceN++;
+    }
+    const m = months.get(monthKey(b.startsAt));
+    if (m && b.source === 'salon_link') m.ownLink++;
+    else if (m) m.marketplace++;
+  }
+
+  const counts = shops.map((s) => perShop.get(s.id) ?? 0);
+  const distribution = { under10: counts.filter((n) => n < 10).length, from10to20: counts.filter((n) => n >= 10 && n <= 20).length, over20: counts.filter((n) => n > 20).length };
+
+  const liveSince = (id: string) => {
+    const iso = state.shopLiveSince.get(id);
+    return iso ? Date.parse(`${iso}T00:00:00Z`) : 0; // seeded demo businesses: live from the start
+  };
+  const eligible = shops.filter((s) => liveSince(s.id) <= now - 90 * DAY);
+  const active = eligible.filter((s) => activeShop.has(s.id)).length;
+
+  // Customers: active = booked in the last 90 days; new = first booking in the last 90 days.
+  const activeCustomers = new Set<string>();
+  for (const b of state.bookings.values()) if (counted(b) && b.startsAt >= since90 && b.startsAt <= now) activeCustomers.add(b.deviceId);
+  let newCustomers = 0;
+  let newCustomersInvited = 0;
+  for (const b of firstBooking.values()) {
+    if (b.startsAt < since90 || b.startsAt > now) continue;
+    newCustomers++;
+    if (b.referredBy) newCustomersInvited++;
+    const m = months.get(monthKey(b.startsAt));
+    if (m) m.newCustomers++;
+  }
+  const newShops = shops.filter((s) => liveSince(s.id) >= since90);
+  for (const s of shops) {
+    const t = liveSince(s.id);
+    const m = t ? months.get(monthKey(t)) : undefined;
+    if (m) m.newBusinesses++;
+  }
+  const invitedShopIds = new Set([
+    ...state.salonReferrals.filter((r) => r.at >= since90).map((r) => r.newShopId),
+    ...state.bizInviteWins.filter((w) => w.at >= since90).map((w) => w.shopId),
+  ]);
+  const newBusinessesInvited = newShops.filter((s) => invitedShopIds.has(s.id)).length;
+  const activeUsers = activeCustomers.size + shops.length;
+  const invitesConverted = newCustomersInvited + newBusinessesInvited;
+
+  const r1 = (x: number) => Math.round(x * 10) / 10;
+  return {
+    liveBusinesses: shops.length,
+    marketplacePerBusiness: shops.length ? r1(counts.reduce((a, b) => a + b, 0) / shops.length) : 0,
+    distribution,
+    retention: { eligible: eligible.length, active, pct: eligible.length ? Math.round((active / eligible.length) * 100) : 0 },
+    viral: {
+      activeUsers,
+      invitesConverted,
+      perUser: activeUsers ? Math.round((invitesConverted / activeUsers) * 100) / 100 : 0,
+      newCustomers,
+      newCustomersInvited,
+      newBusinesses: newShops.length,
+      newBusinessesInvited,
+    },
+    avgPriceCents: priceN ? Math.round(priceSum / priceN) : 0,
+    months: [...months.entries()].map(([month, v]) => ({ month, ...v })),
+  };
+}
+
+/**
+ * What StyleNow could be worth in 3 years — a planning model, not a valuation.
+ * New businesses pay no commission in their first 12 months, so a year's
+ * paying base is roughly the businesses that were live at the end of the
+ * previous year.
+ */
+export interface ValuationInput {
+  businesses: [number, number, number]; // live at the end of year 1, 2, 3
+  bookingsPerBusiness: number; // StyleNow-brought bookings per business per month
+  avgPriceCents: number;
+  commissionPct: number;
+  extrasPct: number; // Prime share, no-show fees, unused vouchers — on top of commission
+  costsPerYearCents: [number, number, number];
+  multiple: number; // revenue multiple a buyer or investor might pay
+}
+
+export function valuationModel(i: ValuationInput) {
+  const perBizYear = i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (1 + i.extrasPct / 100);
+  const years = [0, 1, 2].map((y) => {
+    const start = y === 0 ? 0 : i.businesses[y - 1];
+    const end = i.businesses[y];
+    // paying on average: last year's base all year; the free-year rule keeps this year's newcomers out
+    const paying = start;
+    const extrasOnly = (end + start) / 2 - paying; // newcomers still earn Prime/no-show/voucher income
+    const revenue = Math.round(paying * perBizYear + Math.max(0, extrasOnly) * i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (i.extrasPct / 100));
+    const costs = i.costsPerYearCents[y];
+    return { year: y + 1, businessesEnd: end, paying, revenueCents: revenue, costsCents: costs, profitCents: revenue - costs };
+  });
+  // run-rate at the end of year 3: everyone live a year earlier now pays
+  const runRateCents = Math.round(i.businesses[1] * perBizYear + (i.businesses[2] - i.businesses[1]) * i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (i.extrasPct / 100));
+  return { years, runRateCents, valueCents: Math.round(runRateCents * i.multiple), perBusinessYearCents: Math.round(perBizYear) };
+}
