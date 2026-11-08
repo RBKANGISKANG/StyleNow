@@ -9965,7 +9965,9 @@ export function valuationModel(i: ValuationInput) {
     const extrasOnly = (end + start) / 2 - paying; // newcomers still earn Prime/no-show/voucher income
     const revenue = Math.round(paying * perBizYear + Math.max(0, extrasOnly) * i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (i.extrasPct / 100));
     const costs = i.costsPerYearCents[y];
-    return { year: y + 1, businessesEnd: end, paying, revenueCents: revenue, costsCents: costs, profitCents: revenue - costs };
+    // everything customers pay through StyleNow that year — most of it is paid out to the businesses
+    const gmv = Math.round(((start + end) / 2) * i.bookingsPerBusiness * 12 * i.avgPriceCents);
+    return { year: y + 1, businessesEnd: end, paying, gmvCents: gmv, revenueCents: revenue, costsCents: costs, profitCents: revenue - costs };
   });
   // run-rate at the end of year 3: everyone live a year earlier now pays
   const runRateCents = Math.round(i.businesses[1] * perBizYear + (i.businesses[2] - i.businesses[1]) * i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (i.extrasPct / 100));

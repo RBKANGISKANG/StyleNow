@@ -192,6 +192,7 @@ export default function GrowthPage() {
                 <th style={{ textAlign: 'left' }}>{t('og_col_year')}</th>
                 <th>{t('og_col_biz')}</th>
                 <th>{t('og_col_paying')}</th>
+                <th>{t('og_col_gmv')}</th>
                 <th>{t('og_col_rev')}</th>
                 <th>{t('og_col_costs')}</th>
                 <th>{t('og_col_profit')}</th>
@@ -203,6 +204,7 @@ export default function GrowthPage() {
                   <td style={{ textAlign: 'left', padding: '6px 0' }}>{t('og_year_n', { y: y.year })}</td>
                   <td>{y.businessesEnd.toLocaleString()}</td>
                   <td>{y.paying.toLocaleString()}</td>
+                  <td style={{ color: 'var(--ink-soft)' }}>{big(y.gmvCents)}</td>
                   <td>{big(y.revenueCents)}</td>
                   <td>{big(y.costsCents)}</td>
                   <td style={{ color: y.profitCents < 0 ? 'var(--rose, #c2416b)' : 'inherit', fontWeight: 600 }}>{big(y.profitCents)}</td>
