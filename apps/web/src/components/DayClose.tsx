@@ -11,6 +11,7 @@
  * because they are computed from it on open.
  */
 import { useEffect, useState } from 'react';
+import { FiscalNote } from '@/components/FiscalNote';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, dateOf, timeOf } from '@/lib/format';
 import { apiDayClose, type DayCloseReport } from '@/lib/api';
@@ -67,6 +68,7 @@ export function DayClose({ shopId, iso, onClose }: { shopId: string; iso: string
                 <span>{t('zb_generated')}: {timeOf(report.generatedAt, lang)}</span>
               </div>
             </header>
+            <FiscalNote variant="summary" />
 
             <div className="rc-meta">
               <div>

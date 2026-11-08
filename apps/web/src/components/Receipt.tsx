@@ -25,6 +25,7 @@
  * nothing itself, and pretending otherwise would be a form that goes nowhere.
  */
 import { useEffect, useState } from 'react';
+import { FiscalNote } from '@/components/FiscalNote';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, dateOf, fullDateOf } from '@/lib/format';
 import { apiBillingProfile, type BillingProfile } from '@/lib/api';
@@ -131,6 +132,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
             {billing && <span>{t('rc_taxid')}: {billing.taxId}</span>}
           </div>
         </header>
+        <FiscalNote variant="receipt" />
 
         <div className="rc-meta">
           <div>

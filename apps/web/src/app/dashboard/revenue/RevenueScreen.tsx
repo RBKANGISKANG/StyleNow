@@ -16,6 +16,7 @@ type CashKind = CashEntry['kind'];
 import { toCsv, eurDe } from '@/lib/csv';
 import { RevenueChart } from '@/components/RevenueChart';
 import { DayClose } from '@/components/DayClose';
+import { FiscalNote } from '@/components/FiscalNote';
 import { OperatorShell } from '../shell';
 import type { ShopRef } from '@/lib/owned-shops';
 import { todayIso, addDays } from '@/core/time';
@@ -464,6 +465,7 @@ function CashPanel({ shopId }: { shopId: string }) {
   return (
     <section className="section">
       <h2>💶 {t('cb_title')}</h2>
+      <FiscalNote variant="drawer" />
       <div className="panel">
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <input type="date" className="input" style={{ width: 'auto' }} value={iso} max={todayIso()} onChange={(e) => setIso(e.target.value)} />
