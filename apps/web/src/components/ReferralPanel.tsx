@@ -1,7 +1,8 @@
 'use client';
 /**
- * Invite friends, rise in level. No money: each friend's first COMPLETED visit
- * counts, and enough of them lift you from Member to Silver, Gold, Platinum
+ * Rise in level with visits and friends. No money: 1 point per completed
+ * visit anywhere on StyleNow, 3 per friend whose first visit is completed, and
+ * the points lift you from Member to Silver, Gold, Platinum
  * and Diamond — with perks that cost the salons nothing (waitlist priority,
  * a cheaper Prime extra paid from StyleNow's own share).
  */
@@ -27,7 +28,7 @@ export function ReferralPanel() {
 
   if (!code || !level) return null;
   const link = `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/?ref=${code}`;
-  const pct = level.next ? Math.round((level.referrals / level.next.minReferrals) * 100) : 100;
+  const pct = level.next ? Math.round((level.points / level.next.minPoints) * 100) : 100;
   return (
     <div className="panel" style={{ marginTop: 14 }}>
       <h3>🤝 {t('ref_title')}</h3>
@@ -40,8 +41,8 @@ export function ReferralPanel() {
           </div>
           <span style={{ fontSize: '0.75rem', color: 'var(--ink-soft)' }}>
             {level.next
-              ? t('lvl_progress', { n: level.referrals, need: level.next.minReferrals - level.referrals, next: t(`lvl_${level.next.id}` as MsgKey) })
-              : t('lvl_top', { n: level.referrals })}
+              ? t('lvl_progress', { n: level.points, need: level.next.minPoints - level.points, next: t(`lvl_${level.next.id}` as MsgKey), visits: level.visits, friends: level.referrals })
+              : t('lvl_top', { n: level.points })}
           </span>
         </div>
       </div>
@@ -69,7 +70,7 @@ export function ReferralPanel() {
       <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', fontSize: '0.78rem', lineHeight: 1.7 }}>
         {CUSTOMER_LEVELS.filter((l) => l.id !== 'member').map((l) => (
           <li key={l.id} style={{ opacity: level.rank >= l.rank ? 1 : 0.6 }}>
-            {l.emoji} <b>{t(`lvl_${l.id}` as MsgKey)}</b> · {t('lvl_needs', { n: l.minReferrals })} — {t(`lvl_${l.id}_perk` as MsgKey)}
+            {l.emoji} <b>{t(`lvl_${l.id}` as MsgKey)}</b> · {t('lvl_needs', { n: l.minPoints })} — {t(`lvl_${l.id}_perk` as MsgKey)}
           </li>
         ))}
       </ul>

@@ -9466,18 +9466,16 @@ export function shopCountry(shopId: string): string {
 //
 // A salon shares its invite link (/partner?salon_ref=SAL-XXXXXX). When the
 // invited salon goes live, the inviter earns 3 more commission-free months
-// (up to 12 extra) and the newcomer 1 extra month. Free months cost nothing
+// (no limit) and the newcomer 1 extra month. Free months cost nothing
 // today and salons recruiting salons is the cheapest growth there is.
 
 export const SALON_REF_BONUS_MONTHS = 3;
 export const SALON_REF_WELCOME_MONTHS = 1;
-export const SALON_REF_MAX_BONUS_MONTHS = 12;
 
 export interface SalonReferral {
   referrerShopId: string;
   newShopId: string;
   at: number;
-  /** false when the cap was reached — the referral still counts, no more months */
   credited: boolean;
 }
 
@@ -9508,19 +9506,18 @@ function creditSalonReferral(app: ShopApplication, newShopId: string, newOwnerKe
   if (isShopOwner(referrer, newOwnerKey)) return;
   if (state.salonReferrals.some((r) => r.newShopId === newShopId)) return;
   const had = state.bonusFreeMonths.get(referrer) ?? 0;
-  const add = Math.max(0, Math.min(SALON_REF_BONUS_MONTHS, SALON_REF_MAX_BONUS_MONTHS - had));
-  if (add > 0) state.bonusFreeMonths.set(referrer, had + add);
+  const add = SALON_REF_BONUS_MONTHS; // no limit: every salon brought in earns its months
+  state.bonusFreeMonths.set(referrer, had + add);
   state.bonusFreeMonths.set(newShopId, (state.bonusFreeMonths.get(newShopId) ?? 0) + SALON_REF_WELCOME_MONTHS);
   state.salonReferrals.push({ referrerShopId: referrer, newShopId, at: Date.now(), credited: add > 0 });
 }
 
 /** The salon's invite stats for its dashboard. */
-export function salonReferralStats(shopId: string): { code: string; invited: number; bonusMonths: number; maxBonusMonths: number; freeUntil: string } {
+export function salonReferralStats(shopId: string): { code: string; invited: number; bonusMonths: number; freeUntil: string } {
   return {
     code: salonReferralCode(shopId),
     invited: state.salonReferrals.filter((r) => r.referrerShopId === shopId).length,
     bonusMonths: state.bonusFreeMonths.get(shopId) ?? 0,
-    maxBonusMonths: SALON_REF_MAX_BONUS_MONTHS + SALON_REF_WELCOME_MONTHS,
     freeUntil: commissionFreeUntil(shopId),
   };
 }
@@ -9533,25 +9530,41 @@ export function salonReferrerName(code: string): string | null {
 
 // ---- customer levels -------------------------------------------------------------
 
+/**
+ * Levels are earned with points: 1 per completed visit at any salon or
+ * business on StyleNow, 3 per friend whose first visit was completed.
+ * Derived from bookings every time — nothing to drift, no limit.
+ */
 export type LevelId = 'member' | 'silver' | 'gold' | 'platinum' | 'diamond';
-export const CUSTOMER_LEVELS: Array<{ id: LevelId; minReferrals: number; rank: number; primeDiscountPct: number; emoji: string }> = [
-  { id: 'member', minReferrals: 0, rank: 0, primeDiscountPct: 0, emoji: '' },
-  { id: 'silver', minReferrals: 1, rank: 1, primeDiscountPct: 0, emoji: '🥈' },
-  { id: 'gold', minReferrals: 3, rank: 2, primeDiscountPct: 0, emoji: '🥇' },
-  { id: 'platinum', minReferrals: 6, rank: 3, primeDiscountPct: 25, emoji: '💠' },
-  { id: 'diamond', minReferrals: 10, rank: 4, primeDiscountPct: 50, emoji: '💎' },
+export const POINTS_PER_VISIT = 1;
+export const POINTS_PER_FRIEND = 3;
+export const CUSTOMER_LEVELS: Array<{ id: LevelId; minPoints: number; rank: number; primeDiscountPct: number; emoji: string }> = [
+  { id: 'member', minPoints: 0, rank: 0, primeDiscountPct: 0, emoji: '' },
+  { id: 'silver', minPoints: 3, rank: 1, primeDiscountPct: 0, emoji: '🥈' },
+  { id: 'gold', minPoints: 10, rank: 2, primeDiscountPct: 0, emoji: '🥇' },
+  { id: 'platinum', minPoints: 25, rank: 3, primeDiscountPct: 25, emoji: '💠' },
+  { id: 'diamond', minPoints: 50, rank: 4, primeDiscountPct: 50, emoji: '💎' },
 ];
+
+/** Completed visits by this person, at any salon or business. */
+export function completedVisits(deviceId: string): number {
+  let n = 0;
+  for (const b of state.bookings.values()) if (b.deviceId === deviceId && b.status === 'completed') n++;
+  return n;
+}
 
 export function referralCount(deviceId: string): number {
   return state.referralWins.filter((w) => w.referrer === deviceId).length;
 }
 
-export function customerLevel(deviceId: string): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; next: (typeof CUSTOMER_LEVELS)[number] | null } {
-  const n = referralCount(deviceId);
+export function customerLevel(deviceId: string): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null } {
+  const referrals = referralCount(deviceId);
+  const visits = completedVisits(deviceId);
+  const points = visits * POINTS_PER_VISIT + referrals * POINTS_PER_FRIEND;
   let lvl = CUSTOMER_LEVELS[0];
-  for (const l of CUSTOMER_LEVELS) if (n >= l.minReferrals) lvl = l;
-  const next = CUSTOMER_LEVELS.find((l) => l.minReferrals > n) ?? null;
-  return { ...lvl, referrals: n, next };
+  for (const l of CUSTOMER_LEVELS) if (points >= l.minPoints) lvl = l;
+  const next = CUSTOMER_LEVELS.find((l) => l.minPoints > points) ?? null;
+  return { ...lvl, referrals, visits, points, next };
 }
 
 /** At completion: the friend's FIRST completed visit counts for whoever invited them. */

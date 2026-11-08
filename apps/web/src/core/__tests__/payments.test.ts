@@ -2680,11 +2680,11 @@ if (walkInShop()) {
   const self = submitShopApplication('dev-host', { business: { displayName: 'Host Two', categories: ['hair'] }, locations: [{ street: 'C 3', zip: '22041', city: 'Hamburg' }], offer, ownerKey: 'host@test.de', salonRef: code });
   assert.ok(self.shopId);
   assert.equal(salonReferralStats(hostId).invited, 1, 'no self-invites');
-  // the cap: at most 12 extra months
+  // no limit on salon referrals
   for (let i = 0; i < 6; i++) {
     submitShopApplication(`dev-g${i}`, { business: { displayName: `G${i}`, categories: ['hair'] }, locations: [{ street: `D ${i}`, zip: '22041', city: 'Hamburg' }], offer, ownerKey: `g${i}@test.de`, salonRef: code });
   }
-  assert.equal(salonReferralStats(hostId).bonusMonths, 12, 'capped at 12 extra months');
+  assert.equal(salonReferralStats(hostId).bonusMonths, 21, 'no limit: 7 salons × 3 months');
   assert.equal(salonReferralStats(hostId).invited, 7, 'every invite still counts');
   void claimShop;
 }
@@ -2699,6 +2699,10 @@ if (walkInShop()) {
   assert.equal(referralCount('dev-referrer'), 1);
   assert.equal(customerLevel('dev-referrer').id, 'silver');
   assert.equal(customerLevel('dev-referrer').next?.id, 'gold');
+  // visits count too: 1 point per completed visit anywhere
+  const lv = customerLevel('dev-friend');
+  assert.equal(lv.points, lv.visits + 3 * lv.referrals, 'points = visits + 3 × friends');
+  assert.ok(lv.visits >= 1, 'the friend’s completed visit counts for the friend as well');
   storeAll.setBookingStatus(fb.shopId, fb.id, 'completed');
   assert.equal(referralCount('dev-referrer'), 1, 'a friend counts once');
   // Diamond pays half the Prime extra; the salon still keeps half of the FULL price
