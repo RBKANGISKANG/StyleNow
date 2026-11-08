@@ -20,6 +20,15 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'automatic',
   },
+  // Push needs the live server (it sends the notifications and stores who
+  // wants them). Set STYLENOW_APP_URL=https://your-domain before `cap sync`
+  // and the app opens the server version instead of the bundled demo.
+  ...(process.env.STYLENOW_APP_URL ? { server: { url: process.env.STYLENOW_APP_URL, cleartext: false } } : {}),
+  plugins: {
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
+  },
 };
 
 export default config;

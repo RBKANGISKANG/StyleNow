@@ -73,3 +73,40 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+/* Push notifications: the server sends { title, body, url, tag }. */
+self.addEventListener('push', (event) => {
+  let m = {};
+  try {
+    m = event.data ? event.data.json() : {};
+  } catch {
+    m = { body: event.data ? event.data.text() : '' };
+  }
+  const base = self.registration.scope.replace(/\/$/, '');
+  event.waitUntil(
+    self.registration.showNotification(m.title || 'StyleNow', {
+      body: m.body || '',
+      tag: m.tag || undefined,
+      renotify: Boolean(m.tag),
+      icon: `${base}/icons/icon-192.png`,
+      badge: `${base}/icons/icon-192.png`,
+      data: { url: `${base}${m.url || '/'}` },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || self.registration.scope;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if (w.url.startsWith(self.registration.scope) && 'focus' in w) {
+          w.navigate(url).catch(() => {});
+          return w.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});

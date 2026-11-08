@@ -6,6 +6,7 @@
  * tab getting in the way.
  */
 import { shareImage, stickerPng, storyPng } from '@/lib/share-images';
+import { PushSettings } from '@/components/PushSettings';
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { shopHref } from '@/lib/shop-href';
@@ -271,6 +272,10 @@ function ShopTab({
       <section className="section">
         <h2>🧽 {t('cl_title')}</h2>
         <ChecklistEditor shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <PushSettings forBusiness />
       </section>
 
       <section className="section">

@@ -49,6 +49,7 @@ import { isoDateOf as isoDay } from '@/core/time';
 import { MoveBooking } from '@/components/MoveBooking';
 import { Receipt, type ReceiptData } from '@/components/Receipt';
 import { ReferralPanel } from '@/components/ReferralPanel';
+import { PushSettings } from '@/components/PushSettings';
 import { shopHref } from '@/lib/shop-href';
 
 interface Bk {
@@ -796,6 +797,7 @@ export default function BookingsPage() {
       </section>
 
       <ReferralPanel />
+      <PushSettings />
       {receiptFor && <Receipt data={receiptFor} onClose={() => setReceiptFor(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

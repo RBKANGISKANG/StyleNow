@@ -2751,4 +2751,34 @@ if (walkInShop()) {
   assert.equal(shopBadges('no-such-shop').length, 0);
 }
 
+// ---- push notifications: who may register, change and receive ----
+{
+  const { savePushSub, pushTargets, setPushPrefs, pushSubFor, removePushSub, shopNotifyKeys, customerDevicesForKey, hasPushFor } = storeAll;
+  const web = { id: 'https://push.example/abc', kind: 'web' as const, keys: { p256dh: 'BPk', auth: 'au' } };
+  assert.throws(() => savePushSub({ ...web, id: 'http://insecure/x', owners: ['dev-p1'] }), /bad_subscription/, 'web endpoints must be https');
+  assert.throws(() => savePushSub({ ...web, keys: undefined, owners: ['dev-p1'] }), /bad_subscription/, 'web needs encryption keys');
+  const s1 = savePushSub({ ...web, owners: ['dev-p1'], lang: 'en' });
+  assert.deepEqual(s1.prefs, { bookings: true, reminders: true, messages: true, news: false }, 'service kinds on, marketing off by default (GDPR)');
+  assert.equal(pushTargets(['dev-p1'], 'bookings').length, 1);
+  assert.equal(pushTargets(['dev-p1'], 'news').length, 0);
+  assert.equal(pushTargets(['dev-other'], 'bookings').length, 0, 'nobody else receives');
+  savePushSub({ ...web, owners: ['me@p1.test'], prefs: undefined });
+  assert.deepEqual(pushSubFor(web.id, ['me@p1.test'])!.owners.sort(), ['dev-p1', 'me@p1.test'], 'logging in adds the account, keeps the device');
+  assert.equal(pushSubFor(web.id, ['dev-stranger']), null, 'a stranger cannot read it');
+  assert.throws(() => setPushPrefs(web.id, ['dev-stranger'], { bookings: false }), /not_found/);
+  setPushPrefs(web.id, ['dev-p1'], { reminders: false, evil: true });
+  assert.equal(pushTargets(['dev-p1'], 'reminders').length, 0, 'switched off');
+  assert.equal(pushTargets(['dev-p1'], 'bookings').length, 1, 'others stay on');
+  removePushSub(web.id, ['dev-stranger']);
+  assert.ok(hasPushFor(['dev-p1']), 'a stranger cannot remove it');
+  removePushSub(web.id, ['dev-p1']);
+  assert.ok(!hasPushFor(['dev-p1']));
+  const native = savePushSub({ id: 'fcm-token-123', kind: 'fcm', owners: ['owner@nails.test'] });
+  assert.equal(native.keys, undefined);
+  const lumi = allShops().find((x) => storeAll.isShopOwner(x.id, 'owner@nails.test'));
+  if (lumi) assert.ok(shopNotifyKeys(lumi.id).includes('owner@nails.test'), 'the owner hears about their business');
+  assert.deepEqual(customerDevicesForKey('any', 'd:dev-x'), ['dev-x']);
+  removePushSub('fcm-token-123');
+}
+
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

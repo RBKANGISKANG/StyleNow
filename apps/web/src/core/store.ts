@@ -512,6 +512,8 @@ interface State {
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
+  pushSubs: PushSub[]; // phones and browsers that asked for notifications
+  pushVapid: { publicKey: string; privateKey: string } | null; // web-push server keys, made once
   customServices: Map<string, SeedService[]>; // shopId → services the shop added
   archivedServices: Set<string>; // services are archived, never dropped (old receipts must render)
   customRules: Map<string, PricingRule[]>; // shopId → rules the shop authored
@@ -616,6 +618,8 @@ const state: State =
     pausedShops: new Set(),
     shopLiveSince: new Map(),
     platform: { requireApproval: false },
+    pushSubs: [],
+    pushVapid: null,
     customServices: new Map(),
     archivedServices: new Set(),
     customRules: new Map(),
@@ -743,6 +747,8 @@ function persist(): boolean {
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
+        pushSubs: state.pushSubs,
+        pushVapid: state.pushVapid,
         customServices: [...state.customServices.entries()],
         archivedServices: [...state.archivedServices],
         customRules: [...state.customRules.entries()],
@@ -828,6 +834,8 @@ function restoreSnapshot(raw: string | null): void {
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
+        pushSubs?: PushSub[];
+        pushVapid?: { publicKey: string; privateKey: string } | null;
         customServices?: Array<[string, SeedService[]]>;
         archivedServices?: string[];
         customRules?: Array<[string, PricingRule[]]>;
@@ -901,6 +909,8 @@ function restoreSnapshot(raw: string | null): void {
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
+      state.pushSubs = Array.isArray(d.pushSubs) ? d.pushSubs : [];
+      state.pushVapid = d.pushVapid ?? null;
       state.customServices = new Map(d.customServices ?? []);
       state.archivedServices = new Set(d.archivedServices ?? []);
       state.customRules = new Map(d.customRules ?? []);
@@ -5236,6 +5246,7 @@ export function sendMessage(
 
   state.messages.set(key, thread);
   persist();
+  emitMessageEvent(shopId, customerKey, msg);
   return msg;
 }
 
@@ -9379,10 +9390,27 @@ function emitBookingEvent(event: BookingEvent, b: Booking): void {
   }
 }
 
+type MessageListener = (shopId: string, customerKey: string, msg: Message) => void;
+const msgHolder = globalThis as typeof globalThis & { __stylenowMessageListeners?: MessageListener[] };
+
+export function onMessageEvent(fn: MessageListener): void {
+  (msgHolder.__stylenowMessageListeners ??= []).push(fn);
+}
+
+function emitMessageEvent(shopId: string, customerKey: string, msg: Message): void {
+  for (const fn of msgHolder.__stylenowMessageListeners ?? []) {
+    try {
+      fn(shopId, customerKey, msg);
+    } catch {
+      /* never let a notifier break the engine */
+    }
+  }
+}
+
 /** Confirmed visits starting within `withinMs` that have not had their reminder. */
 export function bookingsDueReminder(now = Date.now(), withinMs = 24 * 36e5, minLeadMs = 2 * 36e5): Booking[] {
   return [...state.bookings.values()].filter(
-    (b) => b.status === 'confirmed' && !b.remindedAt && b.startsAt > now + minLeadMs && b.startsAt <= now + withinMs && (b.guestEmail || b.guestPhone),
+    (b) => b.status === 'confirmed' && !b.remindedAt && b.startsAt > now + minLeadMs && b.startsAt <= now + withinMs && (b.guestEmail || b.guestPhone || hasPushFor([b.deviceId])),
   );
 }
 
@@ -9688,4 +9716,105 @@ export function shopBadges(shopId: string, now = Date.now()): BadgeId[] {
   if ((shop.languagesSpoken ?? []).length >= 3) out.push('multilingual');
   if (state.salonReferrals.filter((r) => r.referrerShopId === shopId).length >= 3) out.push('community');
   return out;
+}
+
+// ---- push notifications (web push + native apps) -------------------------------
+
+export type PushCategory = 'bookings' | 'reminders' | 'messages' | 'news';
+export const PUSH_CATEGORIES: PushCategory[] = ['bookings', 'reminders', 'messages', 'news'];
+export interface PushSub {
+  id: string; // the web endpoint, or the native device token
+  kind: 'web' | 'fcm' | 'apns';
+  owners: string[]; // account email / device ids that may receive on this device
+  keys?: { p256dh: string; auth: string }; // web only
+  prefs: Record<PushCategory, boolean>;
+  lang: string;
+  createdAt: number;
+}
+
+/** "news" (offers, level-ups from campaigns) is opt-in; the service ones are on. */
+export const DEFAULT_PUSH_PREFS: Record<PushCategory, boolean> = { bookings: true, reminders: true, messages: true, news: false };
+
+function cleanPrefs(p: unknown): Record<PushCategory, boolean> {
+  const src = (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_PUSH_PREFS };
+  for (const c of PUSH_CATEGORIES) if (typeof src[c] === 'boolean') out[c] = src[c] as boolean;
+  return out;
+}
+
+/** Register (or refresh) a device. Owners merge, so logging in later adds the account. */
+export function savePushSub(input: { id: string; kind: PushSub['kind']; owners: string[]; keys?: PushSub['keys']; prefs?: unknown; lang?: string }): PushSub {
+  const id = String(input.id ?? '').slice(0, 1000);
+  if (!id) throw new Error('bad_subscription');
+  if (input.kind === 'web' && (!/^https:\/\//.test(id) || !input.keys?.p256dh || !input.keys?.auth)) throw new Error('bad_subscription');
+  if (!input.owners.length) throw new Error('no_owner');
+  const old = state.pushSubs.find((x) => x.id === id);
+  const sub: PushSub = {
+    id,
+    kind: input.kind,
+    owners: [...new Set([...(old?.owners ?? []), ...input.owners])].slice(0, 6),
+    keys: input.kind === 'web' ? { p256dh: String(input.keys!.p256dh).slice(0, 200), auth: String(input.keys!.auth).slice(0, 100) } : undefined,
+    prefs: input.prefs === undefined && old ? old.prefs : cleanPrefs(input.prefs),
+    lang: (input.lang ?? old?.lang ?? 'de').slice(0, 5),
+    createdAt: old?.createdAt ?? Date.now(),
+  };
+  state.pushSubs = [...state.pushSubs.filter((x) => x.id !== id), sub];
+  persist();
+  return sub;
+}
+
+/** Only an owner may read, change or remove a device's settings. */
+export function pushSubFor(id: string, callerKeys: string[]): PushSub | null {
+  const sub = state.pushSubs.find((x) => x.id === id);
+  return sub && sub.owners.some((o) => callerKeys.includes(o)) ? sub : null;
+}
+
+export function setPushPrefs(id: string, callerKeys: string[], prefs: unknown): PushSub {
+  const sub = pushSubFor(id, callerKeys);
+  if (!sub) throw new Error('not_found');
+  sub.prefs = cleanPrefs({ ...sub.prefs, ...(prefs as object) });
+  persist();
+  return sub;
+}
+
+export function removePushSub(id: string, callerKeys?: string[]): void {
+  if (callerKeys && !pushSubFor(id, callerKeys)) return;
+  state.pushSubs = state.pushSubs.filter((x) => x.id !== id);
+  persist();
+}
+
+/** Devices to notify for these people, in this category. */
+export function pushTargets(owners: string[], category: PushCategory): PushSub[] {
+  const want = new Set(owners.filter(Boolean));
+  return state.pushSubs.filter((x) => x.prefs[category] && x.owners.some((o) => want.has(o)));
+}
+
+export function hasPushFor(owners: string[]): boolean {
+  return state.pushSubs.some((x) => x.owners.some((o) => owners.includes(o)));
+}
+
+/** Everyone who runs this business: the owner and the further owner keys. */
+export function shopNotifyKeys(shopId: string): string[] {
+  const o = state.shopOwners.get(shopId);
+  return [...(o ? [o] : []), ...(state.shopMembers.get(shopId) ?? [])];
+}
+
+/** The devices behind a message thread's customer key (d:device, p:phone, n:name). */
+export function customerDevicesForKey(shopId: string, customerKey: string): string[] {
+  if (customerKey.startsWith('d:')) return [customerKey.slice(2)];
+  const out = new Set<string>();
+  for (const b of state.bookings.values()) {
+    if (b.shopId === shopId && !b.deviceId.startsWith('shop:') && customerKeyOf(b) === customerKey) out.add(b.deviceId);
+  }
+  return [...out];
+}
+
+export function pushVapidKeys(): { publicKey: string; privateKey: string } | null {
+  return state.pushVapid;
+}
+
+export function setPushVapidKeys(k: { publicKey: string; privateKey: string }): void {
+  if (state.pushVapid) return; // made once; changing them would orphan every browser
+  state.pushVapid = k;
+  persist();
 }

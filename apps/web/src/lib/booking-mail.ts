@@ -14,6 +14,7 @@ import {
   type BookingEvent,
 } from '@/core/store';
 import { sendEmail, sendSms, siteOrigin } from './notify';
+import { pushBookingEvent } from './push-events';
 
 const REMINDER_EVERY_MS = Number(process.env.STYLENOW_REMINDER_TICK_MS) || 5 * 60e3;
 /** How long before the visit the reminder goes out (default 24 h). */
@@ -120,6 +121,7 @@ export function startBookingMail(): void {
   const tick = async () => {
     for (const b of bookingsDueReminder(Date.now(), REMINDER_HOURS * 36e5)) {
       markReminded(b.id); // first, so a slow mail server can never cause a second reminder
+      pushBookingEvent('reminder', b);
       await tellGuest('reminder', b);
     }
   };

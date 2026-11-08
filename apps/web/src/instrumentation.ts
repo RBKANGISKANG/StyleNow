@@ -6,5 +6,7 @@ export async function register() {
     await startPersistence();
     const { startBookingMail } = await import('./lib/booking-mail');
     startBookingMail();
+    const { startPushEvents } = await import('./lib/push-events');
+    startPushEvents();
   }
 }

@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
 import { useAuth, emptyProfile, type Profile, requestPasswordReset, confirmPasswordReset, confirmEmail, usesServerAccounts, serverProviders } from '@/lib/auth';
 import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData, apiCareProfile, apiSetBirthday, apiSetAccessNeeds, apiSetAllergies } from '@/lib/api';
 import { ReferralPanel } from '@/components/ReferralPanel';
+import { PushSettings } from '@/components/PushSettings';
 import { useTheme, type ThemePref } from '@/lib/design';
 import { UI_LANGUAGES } from '@/lib/languages';
 import { useConfirm } from '@/components/ConfirmDialog';
@@ -405,6 +406,7 @@ function ProfileView() {
       {/* Invite a friend: they save €5 on a first booking over €25; when it
           confirms, a €5 gift card lands on your account automatically. */}
       <ReferralPanel />
+      <PushSettings />
 
       <div className="panel" style={{ marginTop: 14 }}>
         <h3 style={{ marginBottom: 4 }}>{t('pv_title')}</h3>
