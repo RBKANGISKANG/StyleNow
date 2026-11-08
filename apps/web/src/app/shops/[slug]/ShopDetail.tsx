@@ -7,7 +7,8 @@ import { ShopGallery } from '@/components/ShopGallery';
 import { HoursTable, OpenBadge, useShopHours } from '@/components/ShopHours';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, weekdayShort } from '@/lib/format';
-import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta, apiRequestQuote, apiFollowedStaff, apiToggleFollow } from '@/lib/api';
+import { apiShopReviews, apiShopLogo, apiShopPhotos, apiShopServices, apiShopAnnouncement, apiShopTrust, apiDayForecast, apiStampStatus, apiPublicQueue, apiPackageOffers, apiBuyPackage, apiMembershipOffer, apiMyMembership, apiJoinMembership, apiLeaveMembership, apiAccessFacts, apiStaffPhotos, apiShopStaffMeta, apiRequestQuote, apiFollowedStaff, apiToggleFollow, apiShopBadges } from '@/lib/api';
+import { SALON_BADGES, type BadgeId } from '@/core/store';
 import { Heart } from '@/components/Heart';
 import { Glyph, Icon } from '@/components/Icon';
 import { ShopMap } from '@/components/ShopMap';
@@ -111,6 +112,7 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
               {shop.name}
             </h1>
             <p className="sub">{shop.tagline[lang]}</p>
+            <SalonBadges shopId={shop.id} />
             <div className="meta-row">
               <span>
                 <Glyph name="star" emoji="★" size={14} /> {shop.ratingAvg.toFixed(1)} ({shop.ratingCount})
@@ -662,6 +664,28 @@ function TeamCard({
       >
         {following ? `★ ${t('fl_following')}` : `☆ ${t('fl_follow')}`}
       </button>
+    </div>
+  );
+}
+/** Earned badges, derived from the salon's real record (never set by hand). */
+function SalonBadges({ shopId }: { shopId: string }) {
+  const { t } = useI18n();
+  const [badges, setBadges] = useState<BadgeId[]>([]);
+  useEffect(() => {
+    let live = true;
+    void apiShopBadges(shopId).then((b) => live && setBadges(b));
+    return () => {
+      live = false;
+    };
+  }, [shopId]);
+  if (!badges.length) return null;
+  return (
+    <div className="salon-badges" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
+      {badges.map((b) => (
+        <span key={b} className="chip" title={t(`bdg_${b}_d` as MsgKey)} style={{ fontSize: '0.78rem' }}>
+          {SALON_BADGES[b]} {t(`bdg_${b}` as MsgKey)}
+        </span>
+      ))}
     </div>
   );
 }

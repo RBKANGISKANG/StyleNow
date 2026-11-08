@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
         guestPhone: body.guestPhone,
         guestEmail: typeof body.guestEmail === 'string' && body.guestEmail ? body.guestEmail : sessionAccount(req)?.email,
         source: body.source === 'salon_link' ? 'salon_link' : 'marketplace',
+        referralCode: typeof body.referralCode === 'string' ? body.referralCode.slice(0, 12) : undefined,
         guestNote: body.guestNote,
         voucherCode: body.voucherCode,
         pointsToSpend: body.pointsToSpend,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { customerRecap, eraseMyData, exportMyData, lastMinuteDeals, myReferralCode, rebookCadence } from '@/core/store';
+import { customerLevel, customerRecap, eraseMyData, exportMyData, lastMinuteDeals, myReferralCode, rebookCadence } from '@/core/store';
 import { badRequest, fail, isDevice } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   if (!isDevice(body.deviceId)) return badRequest();
-  return NextResponse.json({ code: myReferralCode(body.deviceId) });
+  return NextResponse.json({ code: myReferralCode(body.deviceId), level: customerLevel(body.deviceId) });
 }
 
 /** Erase this device's personal data from the server's engine. */

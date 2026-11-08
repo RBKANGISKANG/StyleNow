@@ -32,6 +32,7 @@ import { deviceId } from '@/lib/device';
 import { LOYALTY_POINTS_PER_EURO_REDEEMED } from '@/core/seed';
 import { todayIso, addDays, dayStart } from '@/core/time';
 import { useAuth } from '@/lib/auth';
+import { backendMode } from '@/lib/api';
 import { shopHref } from '@/lib/shop-href';
 
 interface Svc {
@@ -207,6 +208,16 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   // and a note is where "I'm allergic to bleach" belongs, not a phone call.
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  // A friend's invite (from their link or typed at checkout) — no discount, it raises their level.
+  const [referralCode, setReferralCode] = useState('');
+  useEffect(() => {
+    try {
+      const r = window.localStorage.getItem('sn-ref');
+      if (r) setReferralCode(r);
+    } catch {
+      // storage blocked
+    }
+  }, []);
   const [note, setNote] = useState('');
   const [occasion, setOccasion] = useState<'birthday' | 'wedding' | 'event' | 'interview' | null>(null);
   // the shop's combo discount, for the nudge on the service list
@@ -442,12 +453,18 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
 
   const applyVoucher = () => {
     if (!slot) return;
-    const r = validateVoucher(voucherInput, slot.priceCents);
-    if (r.ok && voucherInput.trim().toUpperCase().startsWith('REF-') && !referralUsable(voucherInput, deviceId())) {
+    // A friend's invite code is not a discount: it credits the friend once this visit happens.
+    if (voucherInput.trim().toUpperCase().startsWith('REF-')) {
       setVoucher(null);
-      setVoucherError(t('ref_not_usable'));
+      if (backendMode() !== 'server' && !referralUsable(voucherInput, deviceId())) {
+        setVoucherError(t('ref_not_usable'));
+        return;
+      }
+      setReferralCode(voucherInput.trim().toUpperCase());
+      setVoucherError(t('ref_thanks'));
       return;
     }
+    const r = validateVoucher(voucherInput, slot.priceCents);
     if (r.ok) {
       setVoucher({ code: r.voucher.code, discountCents: r.discountCents });
       setVoucherError(null);
@@ -639,6 +656,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       guestPhone: phone.trim() || undefined,
       guestEmail: email.trim() || user?.email || undefined,
       source,
+      referralCode: referralCode || undefined,
       guestNote: note.trim() || undefined,
       voucherCode: useStamp || usePackage ? undefined : voucher?.code,
       pointsToSpend: useStamp || usePackage || !usePoints ? undefined : points,

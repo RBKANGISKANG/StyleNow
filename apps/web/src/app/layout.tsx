@@ -6,6 +6,7 @@ import { DesignProvider, THEME_BOOT } from '@/lib/design';
 import { Header, BottomNav } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { ServiceWorker } from '@/components/ServiceWorker';
+import { RefCapture } from '@/components/RefCapture';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -48,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Footer />
               <BottomNav />
               <ServiceWorker />
+              <RefCapture />
             </DesignProvider>
           </AuthProvider>
         </I18nProvider>

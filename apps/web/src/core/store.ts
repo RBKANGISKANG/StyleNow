@@ -101,10 +101,14 @@ export interface Booking {
     breakdown: BreakdownLine[];
     /** the Prime premium inside totalCents — split 50/50 with the salon */
     primeCents?: number;
+    /** the Prime premium before a level discount (the salon's half is taken from this) */
+    primeListCents?: number;
   };
   paidCents: number;
   /** The salon's share of the online money, once the visit happened. */
   payout?: SalonPayout;
+  /** The customer who invited this guest (device id) — counts once the visit is completed. */
+  referredBy?: string;
   /** Where the guest came from: the salon's own link/QR (no commission) or StyleNow's marketplace. */
   source?: 'salon_link' | 'marketplace';
   /** Set once at completion: what StyleNow earns on this visit and how it is collected. */
@@ -502,6 +506,7 @@ interface State {
   staffLogins: Map<string, StaffLogin[]>; // shopId → team members who may sign in to My day
   commissionOwed: Map<string, number>; // shopId → commission on pay-at-salon visits, netted from the next payout
   salonReferrals: SalonReferral[]; // salon-invites-salon: who brought whom
+  referralWins: Array<{ referrer: string; friend: string; at: number }>; // a friend's first completed visit
   bonusFreeMonths: Map<string, number>; // shopId → extra commission-free months earned
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
@@ -604,6 +609,7 @@ const state: State =
     staffLogins: new Map(),
     commissionOwed: new Map(),
     salonReferrals: [],
+    referralWins: [],
     bonusFreeMonths: new Map(),
     pausedShops: new Set(),
     shopLiveSince: new Map(),
@@ -729,6 +735,7 @@ function persist(): boolean {
         staffLogins: [...state.staffLogins.entries()],
         commissionOwed: [...state.commissionOwed.entries()],
         salonReferrals: state.salonReferrals,
+        referralWins: state.referralWins,
         bonusFreeMonths: [...state.bonusFreeMonths.entries()],
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
@@ -812,6 +819,7 @@ function restoreSnapshot(raw: string | null): void {
         staffLogins?: Array<[string, StaffLogin[]]>;
         commissionOwed?: Array<[string, number]>;
         salonReferrals?: SalonReferral[];
+        referralWins?: Array<{ referrer: string; friend: string; at: number }>;
         bonusFreeMonths?: Array<[string, number]>;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
@@ -883,6 +891,7 @@ function restoreSnapshot(raw: string | null): void {
       state.staffLogins = new Map(d.staffLogins ?? []);
       state.commissionOwed = new Map(d.commissionOwed ?? []);
       state.salonReferrals = d.salonReferrals ?? [];
+      state.referralWins = d.referralWins ?? [];
       state.bonusFreeMonths = new Map(d.bonusFreeMonths ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
@@ -3323,6 +3332,8 @@ export interface HoldInput {
   guestPhone?: string;
   guestEmail?: string;
   guestNote?: string;
+  /** A friend's invite code (REF-…): no money, it raises the friend's level */
+  referralCode?: string;
   /** 'salon_link' when the guest arrived through the salon's own link or QR code */
   source?: 'salon_link' | 'marketplace';
   voucherCode?: string;
@@ -3458,7 +3469,9 @@ export function createHold(input: HoldInput): HoldResult {
   const tier = effectiveStaff(input.shopId).find((s) => s.id === staffId)?.tier ?? 'stylist';
   const q = priceBasket(shop, services, input.startsAt, now, input.deviceId, tier);
   const travelFeeCents = shop.isMobile ? 1500 : 0;
-  const primeCents = input.prime ? primeSurcharge(q.subtotalCents) : 0;
+  const primeListCents = input.prime ? primeSurcharge(q.subtotalCents) : 0;
+  // Platinum/Diamond pay less for Prime — out of StyleNow's half, never the salon's.
+  const primeCents = Math.round(primeListCents * (1 - customerLevel(input.deviceId).primeDiscountPct / 100));
 
   // Discounts: voucher first, then loyalty points on the remainder.
   let discountCents = 0;
@@ -3527,6 +3540,11 @@ export function createHold(input: HoldInput): HoldResult {
     if (perkPct > 0 && birthdayWindow(input.deviceId, input.startsAt)) {
       birthdayApplied = applyPercentPerk(perkPct, `🎂 Birthday −${perkPct}%`, 'ln_birthday') > 0;
     }
+  }
+  // A friend's code is not money: typed into the voucher field, it is taken
+  // as the invite it is.
+  if (input.voucherCode?.trim().toUpperCase().startsWith('REF-')) {
+    input = { ...input, referralCode: input.referralCode ?? input.voucherCode, voucherCode: undefined };
   }
   if (!stampFree && !packageUsed && input.voucherCode) {
     const v = validateVoucher(input.voucherCode, q.subtotalCents);
@@ -3608,11 +3626,12 @@ export function createHold(input: HoldInput): HoldResult {
     staffRanges: input.prime ? [] : occupancyForBasket(input.startsAt, services, shop.rules),
     status: 'pending_payment',
     holdExpiresAt: now + HOLD_TTL_SECONDS * 1000,
-    quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown, primeCents: primeCents || undefined },
+    quote: { subtotalCents: q.subtotalCents, travelFeeCents, discountCents, vatCents, totalCents, depositCents, breakdown, primeCents: primeCents || undefined, primeListCents: primeListCents !== primeCents ? primeListCents : undefined },
     paidCents: 0,
     guestName: input.guestName,
     guestPhone: input.guestPhone?.trim() || undefined,
     source: input.source === 'salon_link' ? 'salon_link' : 'marketplace',
+    referredBy: input.referralCode && referralUsable(input.referralCode, input.deviceId) ? state.referralCodes.get(input.referralCode.trim().toUpperCase()) : undefined,
     guestEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.guestEmail?.trim() ?? '') ? input.guestEmail!.trim().slice(0, 120) : undefined,
     guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
@@ -3803,7 +3822,6 @@ export function confirmBooking(id: string, payment?: { method: PaymentMethod; la
   b.paidCents = atSalon ? 0 : b.quote.depositCents > 0 ? b.quote.depositCents : b.quote.totalCents;
   if (payment) b.payment = payment;
   redeemGiftCard(b); // the moment the promise is real, the card pays its share
-  grantReferralReward(b); // and the friend who sent them gets their thank-you
   persist();
   emitBookingEvent('confirmed', b);
   return b;
@@ -3905,7 +3923,8 @@ function autoOfferFreedSlot(b: Booking): void {
   const iso = isoDateOf(b.startsAt);
   const candidates = [...state.waitlist.values()]
     .filter((w) => w.shopId === b.shopId && w.isoDate === iso && !liveOffer(w) && w.deviceId !== b.deviceId)
-    .sort((a, c) => a.createdAt - c.createdAt);
+    // Higher levels are offered a freed seat first; within a level, first come first served.
+    .sort((a, c) => customerLevel(c.deviceId).rank - customerLevel(a.deviceId).rank || a.createdAt - c.createdAt);
   for (const w of candidates) {
     try {
       offerWaitlistSlot(b.shopId, w.id, b.startsAt);
@@ -4416,6 +4435,7 @@ export function setBookingStatus(
     b.paidCents = b.quote.totalCents;
     if (settledBy) b.settledBy = settledBy;
     accrueCommission(b);
+    creditReferral(b);
     persist();
     return b;
   }
@@ -4783,24 +4803,9 @@ export type VoucherResult =
   | { ok: false; reason: 'unknown_code' | 'min_subtotal' | 'empty_card'; minSubtotalCents?: number };
 
 export function validateVoucher(code: string, subtotalCents: number): VoucherResult {
-  // Referral codes: a friend's first booking gets a fixed amount off.
-  const refOwner = state.referralCodes.get(code.trim().toUpperCase());
-  if (refOwner) {
-    if (subtotalCents < REFERRAL_MIN_SUBTOTAL_CENTS) {
-      return { ok: false, reason: 'min_subtotal', minSubtotalCents: REFERRAL_MIN_SUBTOTAL_CENTS };
-    }
-    return {
-      ok: true,
-      voucher: {
-        code: code.trim().toUpperCase(),
-        label: { en: 'Friend referral', de: 'Freundschaftswerbung' },
-        kind: 'fixed_cents',
-        value: REFERRAL_FRIEND_CENTS,
-        minSubtotalCents: REFERRAL_MIN_SUBTOTAL_CENTS,
-      },
-      discountCents: Math.min(REFERRAL_FRIEND_CENTS, subtotalCents),
-    };
-  }
+  // Referral codes are invites, not money (they raise the inviter's level);
+  // createHold takes one typed here as the invite it is.
+  if (state.referralCodes.has(code.trim().toUpperCase())) return { ok: false, reason: 'unknown_code' };
   // Gift cards share the voucher field — one box at checkout, not two.
   const card = state.giftCards.get(code.trim().toUpperCase());
   if (card) {
@@ -6249,11 +6254,11 @@ export function quietWindows(
     .sort((a, b) => a.count - b.count);
 }
 
-// --- referrals: a friend saves, the referrer earns --------------------------
-
-export const REFERRAL_FRIEND_CENTS = 500;
-export const REFERRAL_MIN_SUBTOTAL_CENTS = 2500;
-export const REFERRAL_REWARD_CENTS = 500;
+// --- referrals: invite friends, rise in level ---------------------------------
+//
+// No money changes hands. A friend's first COMPLETED visit counts for the
+// inviter, and enough of them raise the inviter's level — Silver, Gold,
+// Platinum, Diamond — with perks that cost the salons nothing.
 
 /** Deterministic per device, registered on first ask so checkout can find it. */
 export function myReferralCode(deviceId: string): string {
@@ -6271,7 +6276,7 @@ export function myReferralCode(deviceId: string): string {
 function deviceUsedReferral(deviceId: string): boolean {
   const now = Date.now();
   for (const b of state.bookings.values()) {
-    if (b.deviceId !== deviceId || !b.voucherCode?.startsWith('REF-')) continue;
+    if (b.deviceId !== deviceId || !(b.referredBy || b.voucherCode?.startsWith('REF-'))) continue;
     if (['confirmed', 'completed'].includes(b.status)) return true;
     if (b.status === 'pending_payment' && (b.holdExpiresAt ?? 0) >= now) return true;
   }
@@ -6283,31 +6288,6 @@ export function referralUsable(code: string, deviceId: string): boolean {
   const owner = state.referralCodes.get(code.trim().toUpperCase());
   if (!owner) return false;
   return owner !== deviceId && !deviceUsedReferral(deviceId);
-}
-
-/** The referrer's thank-you: a small gift card, granted when the friend's
- *  booking actually confirms — never for holds that die. */
-function grantReferralReward(b: Booking): void {
-  if (!b.voucherCode?.startsWith('REF-')) return;
-  const referrer = state.referralCodes.get(b.voucherCode);
-  if (!referrer || referrer === b.deviceId) return;
-  let code = '';
-  do {
-    const part = () =>
-      Array.from({ length: 4 }, () => GIFT_ALPHABET[Math.floor(Math.random() * GIFT_ALPHABET.length)]).join('');
-    code = `GC-${part()}-${part()}`;
-  } while (state.giftCards.has(code));
-  state.giftCards.set(code, {
-    code,
-    shopId: b.shopId,
-    initialCents: REFERRAL_REWARD_CENTS,
-    balanceCents: REFERRAL_REWARD_CENTS,
-    buyerDeviceId: referrer,
-    fromName: 'StyleNow',
-    message: 'Referral reward — thank you!',
-    createdAt: Date.now(),
-    redemptions: [],
-  });
 }
 
 // --- shop announcements ------------------------------------------------------
@@ -9071,7 +9051,11 @@ export function platformShareCents(b: Booking): number {
   const normal = b.quote.totalCents - prime;
   const iso = new Date(b.startsAt).toISOString().slice(0, 10);
   const pct = b.source === 'salon_link' ? 0 : commissionPctOn(b.shopId, iso);
-  return Math.round((normal * pct) / 100) + Math.round((prime * PRIME_PLATFORM_SHARE_PCT) / 100);
+  // The salon always keeps half of the full Prime price; a level discount
+  // comes out of StyleNow's half only.
+  const list = b.quote.primeListCents ?? prime;
+  const salonHalf = Math.round((list * (100 - PRIME_PLATFORM_SHARE_PCT)) / 100);
+  return Math.round((normal * pct) / 100) + Math.max(0, prime - salonHalf);
 }
 
 /** The split of the online money for one booking. Pure — derived, never guessed. */
@@ -9545,4 +9529,71 @@ export function salonReferralStats(shopId: string): { code: string; invited: num
 export function salonReferrerName(code: string): string | null {
   const id = shopForSalonReferralCode(code);
   return id ? shopById(id)?.name ?? null : null;
+}
+
+// ---- customer levels -------------------------------------------------------------
+
+export type LevelId = 'member' | 'silver' | 'gold' | 'platinum' | 'diamond';
+export const CUSTOMER_LEVELS: Array<{ id: LevelId; minReferrals: number; rank: number; primeDiscountPct: number; emoji: string }> = [
+  { id: 'member', minReferrals: 0, rank: 0, primeDiscountPct: 0, emoji: '' },
+  { id: 'silver', minReferrals: 1, rank: 1, primeDiscountPct: 0, emoji: '🥈' },
+  { id: 'gold', minReferrals: 3, rank: 2, primeDiscountPct: 0, emoji: '🥇' },
+  { id: 'platinum', minReferrals: 6, rank: 3, primeDiscountPct: 25, emoji: '💠' },
+  { id: 'diamond', minReferrals: 10, rank: 4, primeDiscountPct: 50, emoji: '💎' },
+];
+
+export function referralCount(deviceId: string): number {
+  return state.referralWins.filter((w) => w.referrer === deviceId).length;
+}
+
+export function customerLevel(deviceId: string): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; next: (typeof CUSTOMER_LEVELS)[number] | null } {
+  const n = referralCount(deviceId);
+  let lvl = CUSTOMER_LEVELS[0];
+  for (const l of CUSTOMER_LEVELS) if (n >= l.minReferrals) lvl = l;
+  const next = CUSTOMER_LEVELS.find((l) => l.minReferrals > n) ?? null;
+  return { ...lvl, referrals: n, next };
+}
+
+/** At completion: the friend's FIRST completed visit counts for whoever invited them. */
+function creditReferral(b: Booking): void {
+  const referrer = b.referredBy;
+  if (!referrer || referrer === b.deviceId) return;
+  if (state.referralWins.some((w) => w.friend === b.deviceId)) return;
+  state.referralWins.push({ referrer, friend: b.deviceId, at: Date.now() });
+}
+
+// ---- salon badges (derived, never set by hand) --------------------------------------
+
+export type BadgeId = 'top_rated' | 'reliable' | 'regulars' | 'multilingual' | 'community';
+export const SALON_BADGES: Record<BadgeId, string> = {
+  top_rated: '⭐',
+  reliable: '✅',
+  regulars: '🔁',
+  multilingual: '🌍',
+  community: '🤝',
+};
+
+export function shopBadges(shopId: string, now = Date.now()): BadgeId[] {
+  const shop = shopById(shopId);
+  if (!shop) return [];
+  const out: BadgeId[] = [];
+  if (shop.ratingAvg >= 4.7 && shop.ratingCount >= 20) out.push('top_rated');
+  // Reliable: over the last 90 days the salon (almost) never cancelled on a guest.
+  const since = now - 90 * 864e5;
+  let booked = 0;
+  let shopCancelled = 0;
+  const visits = new Map<string, number>();
+  for (const b of state.bookings.values()) {
+    if (b.shopId !== shopId || b.startsAt < since || b.startsAt > now) continue;
+    if (b.status === 'hold' || b.status === 'pending_payment') continue;
+    booked++;
+    if (b.status === 'cancelled_by_shop') shopCancelled++;
+    if (b.status === 'completed') visits.set(b.deviceId, (visits.get(b.deviceId) ?? 0) + 1);
+  }
+  if (booked >= 20 && shopCancelled / booked <= 0.02) out.push('reliable');
+  // Loved by regulars: at least 35 % of guests came back within 90 days.
+  if (visits.size >= 15 && [...visits.values()].filter((n) => n >= 2).length / visits.size >= 0.35) out.push('regulars');
+  if ((shop.languagesSpoken ?? []).length >= 3) out.push('multilingual');
+  if (state.salonReferrals.filter((r) => r.referrerShopId === shopId).length >= 3) out.push('community');
+  return out;
 }

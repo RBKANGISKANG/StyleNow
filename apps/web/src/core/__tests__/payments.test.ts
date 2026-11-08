@@ -198,16 +198,13 @@ assert.ok(csv.includes('"b;c"') && csv.includes('"d""e"') && csv.includes('"line
 
 // --- ten-features batch -------------------------------------------------------
 
-// Referrals: a friend saves once, the referrer earns on confirm — never sooner.
+// Referrals: no money — a friend's first COMPLETED visit raises the inviter's level.
 const refCode = myReferralCode('dev-referrer');
 assert.match(refCode, /^REF-[A-Z2-9]{4}$/);
 assert.equal(myReferralCode('dev-referrer'), refCode, 'the code is stable per device');
-assert.ok(!referralUsable(refCode, 'dev-referrer'), 'your own code is not a discount');
+assert.ok(!referralUsable(refCode, 'dev-referrer'), 'your own code does not count');
 assert.ok(referralUsable(refCode, 'dev-friend'), 'a stranger may use it once');
-const below = validateVoucher(refCode, 2000);
-assert.ok(!below.ok && below.reason === 'min_subtotal', 'below the minimum it refuses');
-const okRef = validateVoucher(refCode, 6000);
-assert.ok(okRef.ok && okRef.discountCents === 500, '€5 off above the minimum');
+assert.ok(!validateVoucher(refCode, 6000).ok, 'an invite code is not money');
 
 const rSlots = availability(shop.id, [svc.id], isoDateOf(b.startsAt), 'dev-friend', staff.id).slots;
 assert.ok(rSlots.length > 0, 'fixture needs a slot for the friend');
@@ -215,11 +212,11 @@ const rHold = createHold({
   shopId: shop.id, serviceIds: [svc.id], staffId: staff.id, startsAt: rSlots[0].start,
   deviceId: 'dev-friend', guestName: 'Freya', voucherCode: refCode, idempotencyKey: 'ref-t-1',
 });
-assert.equal(giftCardsForDevice('dev-referrer').length, 0, 'a hold earns nothing yet');
+assert.equal(getBooking(rHold.bookingId)!.quote.discountCents, 0, 'no discount for the friend');
+assert.equal(getBooking(rHold.bookingId)!.referredBy, 'dev-referrer', 'typed into the voucher field it is taken as an invite');
 confirmBooking(rHold.bookingId, { method: 'paypal', label: 'PayPal' });
-const rewards = giftCardsForDevice('dev-referrer');
-assert.equal(rewards.length, 1, 'confirm grants the referrer their gift card');
-assert.equal(rewards[0].balanceCents, 500);
+assert.equal(giftCardsForDevice('dev-referrer').length, 0, 'no gift card any more');
+assert.equal(storeAll.referralCount('dev-referrer'), 0, 'a confirmed booking does not count yet');
 assert.ok(!referralUsable(refCode, 'dev-friend'), 'the friend cannot use a second code');
 
 // Customer memo: private, guarded, round-trips.
@@ -2690,6 +2687,29 @@ if (walkInShop()) {
   assert.equal(salonReferralStats(hostId).bonusMonths, 12, 'capped at 12 extra months');
   assert.equal(salonReferralStats(hostId).invited, 7, 'every invite still counts');
   void claimShop;
+}
+
+// ---- customer levels from completed friend visits; salon badges ----
+{
+  const { customerLevel, referralCount, shopBadges, platformShareCents } = storeAll;
+  assert.equal(customerLevel('dev-nobody').id, 'member');
+  // the friend's visit from the referral block above is completed now
+  const fb = [...storeAll.bookingsForDevice('dev-friend')].find((x) => x.referredBy === 'dev-referrer')!;
+  storeAll.setBookingStatus(fb.shopId, fb.id, 'completed');
+  assert.equal(referralCount('dev-referrer'), 1);
+  assert.equal(customerLevel('dev-referrer').id, 'silver');
+  assert.equal(customerLevel('dev-referrer').next?.id, 'gold');
+  storeAll.setBookingStatus(fb.shopId, fb.id, 'completed');
+  assert.equal(referralCount('dev-referrer'), 1, 'a friend counts once');
+  // Diamond pays half the Prime extra; the salon still keeps half of the FULL price
+  const diamondQuote = { subtotalCents: 10000, travelFeeCents: 0, discountCents: 0, vatCents: 0, totalCents: 11500, depositCents: 0, breakdown: [], primeCents: 1500, primeListCents: 3000 };
+  const shopX = allShops()[4];
+  const freeYear = Date.parse(`${storeAll.commissionFreeUntil(shopX.id)}T00:00:00Z`) - 864e5;
+  assert.equal(platformShareCents({ shopId: shopX.id, startsAt: freeYear, quote: diamondQuote, source: 'marketplace' } as unknown as Booking), 0, 'StyleNow gives up its half, the salon keeps 15 €');
+  // badges are derived from data
+  const b1 = shopBadges(allShops()[0].id);
+  assert.ok(Array.isArray(b1));
+  assert.equal(shopBadges('no-such-shop').length, 0);
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

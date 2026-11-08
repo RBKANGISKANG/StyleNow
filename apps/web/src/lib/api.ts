@@ -3493,3 +3493,20 @@ export async function apiSalonReferrerName(code: string): Promise<string | null>
   await readyForRead();
   return store.salonReferrerName(code);
 }
+
+// ---- customer levels & salon badges -------------------------------------------------
+
+export type CustomerLevel = ReturnType<typeof store.customerLevel>;
+
+/** This device's invite code and level (Silver, Gold, …). */
+export async function apiMyReferralStatus(): Promise<{ code: string; level: CustomerLevel }> {
+  if (backendMode() === 'server') return okJson(await post('/api/me/lifecycle', { deviceId: deviceId() }));
+  await localWrite();
+  return { code: store.myReferralCode(deviceId()), level: store.customerLevel(deviceId()) };
+}
+
+export async function apiShopBadges(shopId: string): Promise<store.BadgeId[]> {
+  if (backendMode() === 'server') return (await getJson(`/api/shop/${shopId}/public`))?.badges ?? [];
+  await readyForRead();
+  return store.shopBadges(shopId);
+}
