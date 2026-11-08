@@ -27,7 +27,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-design="studio" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
@@ -36,6 +35,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        {/* First thing in <body>, not in <head>: it runs before any content is
+            painted (no theme flash), and React 19 hydrates cleanly around it.
+            Changing <html> from a script in <head> made React lose its place
+            there and report hydration errors (#418). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <I18nProvider>
           <AuthProvider>
             <DesignProvider>

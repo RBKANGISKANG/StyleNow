@@ -40,6 +40,17 @@ const DEFAULT_HOURS: Record<number, Hours> = Object.fromEntries(
   DOWS.map((d) => [d, { open: '09:00', close: '18:00', closed: d === 7 }]),
 ) as Record<number, Hours>;
 
+/** Countries a salon can sign up from (EU + neighbours). Germany first. */
+const SALON_COUNTRIES = ['DE', 'AT', 'CH', 'NL', 'BE', 'LU', 'FR', 'DK', 'PL', 'CZ', 'IT', 'ES', 'PT', 'IE', 'SE', 'FI', 'NO', 'GB', 'HU', 'SK', 'SI', 'HR', 'RO', 'BG', 'GR', 'EE', 'LV', 'LT', 'MT', 'CY'];
+
+function countryName(code: string, lang: string): string {
+  try {
+    return new Intl.DisplayNames([lang], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export default function PartnerPage() {
   const { t, lang } = useI18n();
   const { user } = useAuth();
@@ -62,6 +73,8 @@ export default function PartnerPage() {
   const [website, setWebsite] = useState('');
   const [instagram, setInstagram] = useState('');
   const [vatId, setVatId] = useState('');
+  // The salon's country decides cash-register notices, payouts and VAT wording.
+  const [country, setCountry] = useState('DE');
   const [registerNo, setRegisterNo] = useState('');
   const [smallBusiness, setSmallBusiness] = useState(false);
   // location — a company can operate several branches (a chain)
@@ -158,7 +171,7 @@ export default function PartnerPage() {
     }
     setBusy(true);
     const app = await apiPartnerApply({
-      business: { legalName, displayName, categories, logoUrl, contactName, email, phone, website, instagram, vatId, registerNo, smallBusiness },
+      business: { legalName, displayName, categories, logoUrl, contactName, email, phone, website, instagram, vatId, registerNo, smallBusiness, country },
       locations: isMobile
         ? [{ mobile: true, radiusKm: Number(radiusKm), city }]
         : locations.map((l) => ({ mobile: false, ...l })),
@@ -356,6 +369,14 @@ export default function PartnerPage() {
             <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t('p_website')} value={website} onChange={(e) => setWebsite(e.target.value)} />
             <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t('p_instagram')} value={instagram} onChange={(e) => setInstagram(e.target.value)} />
           </div>
+          <label className="chip" style={{ justifyContent: 'space-between', gap: 8 }}>
+            {t('p_country')}
+            <select value={country} onChange={(e) => setCountry(e.target.value)} aria-label={t('p_country')}>
+              {SALON_COUNTRIES.map((c) => (
+                <option key={c} value={c}>{countryName(c, lang)}</option>
+              ))}
+            </select>
+          </label>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t('p_vat')} value={vatId} onChange={(e) => setVatId(e.target.value)} />
             <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t('p_register_no')} value={registerNo} onChange={(e) => setRegisterNo(e.target.value)} />

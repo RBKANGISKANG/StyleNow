@@ -9,7 +9,7 @@
  * terms checkbox — that acceptance (date + IP) is recorded on the account.
  */
 import type Stripe from 'stripe';
-import { payoutAccount, shopById } from '@/core/store';
+import { payoutAccount, shopById, shopCountry } from '@/core/store';
 import { stripe, syncPayoutAccount, releaseWaitingPayouts } from './stripe-server';
 
 export interface SignupDetails {
@@ -23,6 +23,8 @@ export interface SignupDetails {
   street?: string;
   zip?: string;
   city?: string;
+  /** ISO country of the salon (default DE) */
+  country?: string;
   accountHolder?: string;
   iban?: string;
 }
@@ -32,7 +34,7 @@ export const ibanOk = (iban: string) => /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(ib
 
 function address(d: SignupDetails): Stripe.AddressParam | undefined {
   if (!d.street && !d.zip && !d.city) return undefined;
-  return { line1: clean(d.street) || undefined, postal_code: clean(d.zip, 12) || undefined, city: clean(d.city, 60) || undefined, country: 'DE' };
+  return { line1: clean(d.street) || undefined, postal_code: clean(d.zip, 12) || undefined, city: clean(d.city, 60) || undefined, country: (d.country || 'DE').toUpperCase() };
 }
 
 /** Pull the details out of a partner application's data blob. */
@@ -48,6 +50,7 @@ export function detailsFromApplication(data: Record<string, unknown>): SignupDet
     website: clean(biz.website),
     vatId: clean(biz.vatId, 20),
     smallBusiness: Boolean(biz.smallBusiness),
+    country: /^[A-Za-z]{2}$/.test(String(biz.country ?? '')) ? String(biz.country).toUpperCase() : 'DE',
     street: clean(loc?.street),
     zip: clean(loc?.zip, 12),
     city: clean(loc?.city, 60),
@@ -65,7 +68,7 @@ export async function createCustomAccount(shopId: string, d: SignupDetails, ip: 
   const acct = await stripe().accounts.create(
     {
       type: 'custom',
-      country: 'DE',
+      country: (d.country || 'DE').toUpperCase(),
       email: d.email || undefined,
       business_type: individual ? 'individual' : 'company',
       business_profile: { name: d.displayName || shop.name, mcc: '7230', url: d.website || undefined, product_description: 'Hair & beauty salon services booked through StyleNow' },
@@ -130,6 +133,10 @@ export async function updateAccount(
 ): Promise<void> {
   const a = payoutAccount(shopId);
   if (!a) throw new Error('not_connected');
+  // Addresses are in the salon's own country unless the form says otherwise.
+  const home = shopCountry(shopId);
+  if (input.company) input.company = { country: home, ...input.company };
+  if (input.person) input.person = { ...input.person };
   const s = stripe();
   const acct = await s.accounts.retrieve(a.accountId);
   const individual = acct.business_type === 'individual';
@@ -159,7 +166,7 @@ export async function updateAccount(
       email: p?.email || undefined,
       phone: p?.phone || undefined,
       ...(dob ? { dob: { year: dob[0], month: dob[1], day: dob[2] } } : {}),
-      ...(p?.street || p?.zip || p?.city ? { address: address(p as SignupDetails) } : {}),
+      ...(p?.street || p?.zip || p?.city ? { address: address({ ...(p as SignupDetails), country: home }) } : {}),
       ...(input.documentFileId ? { verification: { document: { front: input.documentFileId } } } : {}),
     };
     if (individual) {

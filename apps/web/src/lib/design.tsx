@@ -43,8 +43,26 @@ export function useStudio(): boolean {
 export type ThemePref = 'light' | 'dark' | 'system';
 const THEME_KEY = 'stylenow.theme';
 
-/** Runs inline in <head> so the first paint is already in the right theme. */
-export const THEME_BOOT = `try{var p=localStorage.getItem('${THEME_KEY}')||'system';var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}`;
+/** The theme choice also lives in a tiny cookie, which THEME_BOOT can read instantly. */
+const THEME_COOKIE = 'sn_theme';
+
+/**
+ * Runs inline in <head> so the first paint is already in the right theme.
+ *
+ * It reads a cookie, never localStorage: the first localStorage access on a
+ * page loads the origin's whole storage synchronously — megabytes in the
+ * static build, where all bookings live there — and stalling the parser in
+ * <head> let React start hydrating a half-parsed page (React 19 error #418).
+ */
+export const THEME_BOOT = `try{var m=document.cookie.match(/(?:^|; )${THEME_COOKIE}=(light|dark|system)/);var p=m?m[1]:'system';var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}`;
+
+function writeThemeCookie(p: ThemePref): void {
+  try {
+    document.cookie = `${THEME_COOKIE}=${p}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch {
+    // cookies blocked — the effect after hydration still applies the theme
+  }
+}
 
 let themePref: ThemePref = 'system';
 let themeLoaded = false;
@@ -55,7 +73,15 @@ function readPref(): ThemePref {
     themeLoaded = true;
     try {
       const s = localStorage.getItem(THEME_KEY);
-      if (s === 'light' || s === 'dark' || s === 'system') themePref = s;
+      const c = document.cookie.match(new RegExp(`(?:^|; )${THEME_COOKIE}=(light|dark|system)`))?.[1] as ThemePref | undefined;
+      if (c) {
+        // the cookie is the newest choice (it is written first)
+        themePref = c;
+      } else if (s === 'light' || s === 'dark' || s === 'system') {
+        themePref = s;
+        // carry an older choice over to the cookie the boot script reads
+        writeThemeCookie(s);
+      }
     } catch {
       // storage blocked — follow the device
     }
@@ -93,6 +119,7 @@ export function useTheme(): { pref: ThemePref; dark: boolean; setPref: (p: Theme
   const setPref = useCallback((p: ThemePref) => {
     themePref = p;
     themeLoaded = true;
+    writeThemeCookie(p); // first: a full localStorage must not lose the choice
     try {
       localStorage.setItem(THEME_KEY, p);
     } catch {
