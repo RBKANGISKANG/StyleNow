@@ -9046,6 +9046,10 @@ export interface SalonPayout {
   receivedCents: number;
   /** commission owed from earlier pay-at-salon visits, collected out of this payout */
   nettedOwedCents?: number;
+  /** the business's part of the card fee, deducted at cost */
+  cardFeeCents?: number;
+  /** StyleNow's part of the card fee (on its own share) */
+  platformFeeCents?: number;
   status: 'pending' | 'sent' | 'held' | 'failed';
   transferId?: string;
   at: number;
@@ -9076,13 +9080,30 @@ export function platformShareCents(b: Booking): number {
 }
 
 /** The split of the online money for one booking. Pure — derived, never guessed. */
+/**
+ * Card processing (Stripe, EU cards): passed on at cost, never marked up.
+ * Each side pays the fee on its own part of the money, so in the free year
+ * the business pays the whole card fee and StyleNow pays nothing — and a
+ * visit paid at the salon has no card fee at all.
+ */
+export const CARD_FEE_PCT = 1.5;
+export const CARD_FEE_FIXED_CENTS = 25;
+
+export function cardFeeCents(chargedCents: number): number {
+  return chargedCents > 0 ? Math.round((chargedCents * CARD_FEE_PCT) / 100) + CARD_FEE_FIXED_CENTS : 0;
+}
+
 export function computeSalonPayout(b: Booking): Omit<SalonPayout, 'status' | 'at' | 'transferId'> {
   const card = b.stripe ? Math.max(0, b.stripe.chargedCents - b.stripe.refundedCents) : 0;
   const voucher = voucherPaidOnline(b.voucherCode) ? b.giftCents ?? 0 : 0;
   const received = card + voucher;
   if (received <= 0) return { cents: 0, platformCents: 0, receivedCents: 0 };
   const platformCents = Math.min(received, platformShareCents(b));
-  return { cents: received - platformCents, platformCents, receivedCents: received };
+  const salonGross = received - platformCents;
+  // Stripe keeps its fee on the full charge, even after a partial refund.
+  const fee = cardFeeCents(b.stripe?.chargedCents ?? 0);
+  const salonFee = fee ? Math.min(salonGross, Math.round((fee * salonGross) / received)) : 0;
+  return { cents: salonGross - salonFee, platformCents, receivedCents: received, ...(fee ? { cardFeeCents: salonFee, platformFeeCents: fee - salonFee } : {}) };
 }
 
 /**
@@ -9953,6 +9974,7 @@ export interface ValuationInput {
   extrasPct: number; // Prime share, no-show fees, unused vouchers — on top of commission
   costsPerYearCents: [number, number, number];
   multiple: number; // revenue multiple a buyer or investor might pay
+  cardSharePct?: number; // share of bookings paid by card (the rest at the salon / by voucher)
 }
 
 export function valuationModel(i: ValuationInput) {
@@ -9965,9 +9987,12 @@ export function valuationModel(i: ValuationInput) {
     const extrasOnly = (end + start) / 2 - paying; // newcomers still earn Prime/no-show/voucher income
     const revenue = Math.round(paying * perBizYear + Math.max(0, extrasOnly) * i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (i.extrasPct / 100));
     const costs = i.costsPerYearCents[y];
+    // StyleNow pays the card fee only on its own share: 1.5 % plus its pro-rata part of the 25 ct
+    const feeRate = ((i.cardSharePct ?? 70) / 100) * (CARD_FEE_PCT / 100 + (i.avgPriceCents > 0 ? CARD_FEE_FIXED_CENTS / i.avgPriceCents : 0));
+    const gross = Math.round(revenue * (1 - feeRate));
     // everything customers pay through StyleNow that year — most of it is paid out to the businesses
     const gmv = Math.round(((start + end) / 2) * i.bookingsPerBusiness * 12 * i.avgPriceCents);
-    return { year: y + 1, businessesEnd: end, paying, gmvCents: gmv, revenueCents: revenue, costsCents: costs, profitCents: revenue - costs };
+    return { year: y + 1, businessesEnd: end, paying, gmvCents: gmv, revenueCents: revenue, grossProfitCents: gross, costsCents: costs, profitCents: gross - costs };
   });
   // run-rate at the end of year 3: everyone live a year earlier now pays
   const runRateCents = Math.round(i.businesses[1] * perBizYear + (i.businesses[2] - i.businesses[1]) * i.bookingsPerBusiness * 12 * i.avgPriceCents * (i.commissionPct / 100) * (i.extrasPct / 100));

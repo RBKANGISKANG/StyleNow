@@ -177,6 +177,7 @@ export default function GrowthPage() {
           <Num label={t('og_in_price')} value={Math.round(inp.avgPriceCents / 100)} onChange={(n) => setInp((x) => ({ ...x, avgPriceCents: n * 100 }))} suffix="€" />
           <Num label={t('og_in_comm')} value={inp.commissionPct} onChange={(n) => setInp((x) => ({ ...x, commissionPct: n }))} suffix="%" />
           <Num label={t('og_in_extras')} value={inp.extrasPct} onChange={(n) => setInp((x) => ({ ...x, extrasPct: n }))} suffix="%" />
+          <Num label={t('og_in_card')} value={inp.cardSharePct ?? 70} onChange={(n) => setInp((x) => ({ ...x, cardSharePct: Math.min(100, n) }))} suffix="%" />
           <Num label={t('og_in_multiple')} value={inp.multiple} onChange={(n) => setInp((x) => ({ ...x, multiple: n }))} step={0.5} suffix="×" />
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
@@ -194,6 +195,7 @@ export default function GrowthPage() {
                 <th>{t('og_col_paying')}</th>
                 <th>{t('og_col_gmv')}</th>
                 <th>{t('og_col_rev')}</th>
+                <th>{t('og_col_gross')}</th>
                 <th>{t('og_col_costs')}</th>
                 <th>{t('og_col_profit')}</th>
               </tr>
@@ -206,6 +208,7 @@ export default function GrowthPage() {
                   <td>{y.paying.toLocaleString()}</td>
                   <td style={{ color: 'var(--ink-soft)' }}>{big(y.gmvCents)}</td>
                   <td>{big(y.revenueCents)}</td>
+                  <td>{big(y.grossProfitCents)}</td>
                   <td>{big(y.costsCents)}</td>
                   <td style={{ color: y.profitCents < 0 ? 'var(--rose, #c2416b)' : 'inherit', fontWeight: 600 }}>{big(y.profitCents)}</td>
                 </tr>

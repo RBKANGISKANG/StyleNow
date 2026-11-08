@@ -2515,13 +2515,15 @@ if (walkInShop()) {
       stripe: { sessionId: 's', paymentIntentId: 'pi', chargedCents: 10000, refundedCents: 0 },
       ...over,
     }) as Booking;
-  // After the free year: 12 % of a plain €100 visit.
-  assert.deepEqual(computeSalonPayout(mk({})), { cents: 8800, platformCents: 1200, receivedCents: 10000 });
-  // Inside the free year the salon gets everything.
-  assert.equal(computeSalonPayout(mk({ startsAt: Date.parse(`${free}T10:00:00Z`) - 30 * 864e5 })).cents, 10000);
+  // After the free year: 12 % of a plain €100 visit; the card fee (1.5 % + 25 ct = 1.75 €) is split by share.
+  assert.deepEqual(computeSalonPayout(mk({})), { cents: 8800 - 154, platformCents: 1200, receivedCents: 10000, cardFeeCents: 154, platformFeeCents: 21 });
+  // Inside the free year: no commission — only the card fee, at cost.
+  assert.equal(computeSalonPayout(mk({ startsAt: Date.parse(`${free}T10:00:00Z`) - 30 * 864e5 })).cents, 10000 - 175);
   // Prime: €100 service + €30 premium → 12 % of 100, plus half of 30.
   const prime = computeSalonPayout(mk({ quote: { subtotalCents: 10000, travelFeeCents: 0, discountCents: 0, vatCents: 0, totalCents: 13000, depositCents: 0, breakdown: [], primeCents: 3000 }, stripe: { sessionId: 's', paymentIntentId: 'pi', chargedCents: 13000, refundedCents: 0 } }));
-  assert.deepEqual(prime, { cents: 10000 - 1200 + 1500, platformCents: 1200 + 1500, receivedCents: 13000 });
+  assert.deepEqual(prime, { cents: 10000 - 1200 + 1500 - 174, platformCents: 1200 + 1500, receivedCents: 13000, cardFeeCents: 174, platformFeeCents: 46 });
+  // An online voucher has no card fee on the visit.
+  assert.equal(storeAll.cardFeeCents(0), 0);
   // Paid at the salon: nothing online, nothing to pay out.
   assert.equal(computeSalonPayout(mk({ stripe: undefined })).receivedCents, 0);
   // A refunded part never reaches the salon.
@@ -2641,9 +2643,11 @@ if (walkInShop()) {
   setBookingStatus(shop.id, b2.id, 'completed');
   assert.equal(b2.commission!.shareCents, 0, 'own-link booking: no commission');
   const p2 = preparePayout(b2.id)!;
-  const netted = Math.min(owedBefore + share1, b2.quote.totalCents);
+  const fee2 = storeAll.cardFeeCents(b2.quote.totalCents); // own link: the business pays the whole card fee, at cost
+  assert.equal(p2.cardFeeCents, fee2);
+  const netted = Math.min(owedBefore + share1, b2.quote.totalCents - fee2);
   assert.equal(p2.nettedOwedCents ?? 0, netted, 'the open commission is collected from this payout');
-  assert.equal(p2.cents, b2.quote.totalCents - netted);
+  assert.equal(p2.cents, b2.quote.totalCents - fee2 - netted);
   assert.equal(commissionOwedBy(shop.id), owedBefore + share1 - netted);
   assert.equal(preparePayout(b2.id)!.cents, p2.cents, 'preparing again never nets twice');
 
@@ -2794,6 +2798,12 @@ if (walkInShop()) {
   assert.equal(m.years[1].paying, 400, 'year 2: last year’s businesses pay');
   assert.equal(m.runRateCents, 2500 * 142560 + 4500 * 12960, 'run-rate: year-2 base pays commission, newcomers only extras');
   assert.equal(m.valueCents, m.runRateCents * 5);
+  const all = storeAll.valuationModel({ businesses: [400, 2500, 7000], bookingsPerBusiness: 20, avgPriceCents: 4500, commissionPct: 12, extrasPct: 10, costsPerYearCents: [100, 0, 0], multiple: 5, cardSharePct: 100 });
+  const y2 = all.years[1];
+  assert.equal(y2.grossProfitCents, Math.round(y2.revenueCents * (1 - (0.015 + 25 / 4500))), 'all by card: StyleNow pays 1.5 % + its share of 25 ct on its income');
+  assert.equal(all.years[0].profitCents, all.years[0].grossProfitCents - 100, 'profit = gross profit − costs');
+  const cash = storeAll.valuationModel({ businesses: [400, 2500, 7000], bookingsPerBusiness: 20, avgPriceCents: 4500, commissionPct: 12, extrasPct: 10, costsPerYearCents: [0, 0, 0], multiple: 5, cardSharePct: 0 });
+  assert.equal(cash.years[1].grossProfitCents, cash.years[1].revenueCents, 'all paid at the salon: no card fees');
 }
 
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');
