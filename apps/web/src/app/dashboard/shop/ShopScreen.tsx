@@ -12,6 +12,8 @@ import {
   apiSetShopLogo,
   apiPayoutStatus,
   apiShopSlug,
+  apiSalonReferralStats,
+  type SalonReferralStats,
   apiSavePayoutDetails,
   apiUploadPayoutDocument,
   type PayoutStatus,
@@ -278,6 +280,11 @@ function ShopTab({
       <section className="section">
         <h2>📣 {t('gr_title')}</h2>
         <BookingLinkPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+      </section>
+
+      <section className="section">
+        <h2>🤝 {t('sref_title')}</h2>
+        <InviteSalonPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1558,6 +1565,47 @@ function BookingLinkPanel({ shopId, onChanged }: { shopId: string; onChanged: (m
           <li>{t('gr_step_whatsapp')}</li>
         </ol>
       </div>
+    </div>
+  );
+}
+
+/** Salon invites salon: 3 more free months per salon that goes live (up to 12), 1 for the newcomer. */
+function InviteSalonPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+  const { t, lang } = useI18n();
+  const [st, setSt] = useState<SalonReferralStats | null>(null);
+  useEffect(() => {
+    let live = true;
+    void apiSalonReferralStats(shopId).then((r) => live && setSt(r));
+    return () => {
+      live = false;
+    };
+  }, [shopId]);
+  if (!st) return <p className="muted">…</p>;
+  const link = `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/partner?salon_ref=${st.code}`;
+  const until = new Date(`${st.freeUntil}T12:00:00Z`).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const msg = t('sref_share_text', { link });
+  return (
+    <div className="stack">
+      <p className="muted">{t('sref_sub')}</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input className="input" readOnly value={link} onFocus={(e) => e.target.select()} />
+        <button
+          className="btn btn-primary sm"
+          onClick={() => {
+            void navigator.clipboard?.writeText(link);
+            onChanged('✓ ' + t('gr_copied'));
+          }}
+        >
+          {t('gr_copy')}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <a className="btn btn-soft sm" href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
+        <a className="btn btn-soft sm" href={`mailto:?subject=${encodeURIComponent(t('sref_mail_subject'))}&body=${encodeURIComponent(msg)}`}>✉️ {t('po_email')}</a>
+      </div>
+      <p>
+        <b>{t('sref_stats', { n: st.invited, months: st.bonusMonths })}</b> · {t('sref_free_until', { date: until })}
+      </p>
     </div>
   );
 }

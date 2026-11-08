@@ -2664,4 +2664,32 @@ if (walkInShop()) {
   if (uk.shopId) assert.equal(shopCountry(uk.shopId), 'GB');
 }
 
+// ---- salon invites salon ----
+{
+  const { salonReferralCode, shopForSalonReferralCode, salonReferralStats, submitShopApplication, commissionFreeUntil, claimShop } = storeAll;
+  const offer = { services: [{ name: 'Cut', priceCents: 3000, durationMin: 30 }], staffCount: 1, openingHours: {} };
+  const host = submitShopApplication('dev-host', { business: { displayName: 'Host Salon', categories: ['hair'] }, locations: [{ street: 'A 1', zip: '22041', city: 'Hamburg' }], offer, ownerKey: 'host@test.de' });
+  const hostId = host.shopId!;
+  const code = salonReferralCode(hostId);
+  assert.match(code, /^SAL-[A-Z0-9]{6}$/);
+  assert.equal(shopForSalonReferralCode(code.toLowerCase()), hostId, 'codes are case-insensitive');
+  const before = commissionFreeUntil(hostId);
+  const guest = submitShopApplication('dev-guest', { business: { displayName: 'Guest Salon', categories: ['hair'] }, locations: [{ street: 'B 2', zip: '22041', city: 'Hamburg' }], offer, ownerKey: 'guest@test.de', salonRef: code });
+  assert.equal(salonReferralStats(hostId).invited, 1);
+  assert.equal(salonReferralStats(hostId).bonusMonths, 3, 'the inviter earns 3 free months');
+  assert.ok(commissionFreeUntil(hostId) > before, 'and the free period really moves');
+  assert.equal(salonReferralStats(guest.shopId!).bonusMonths, 1, 'the newcomer earns 1');
+  // the same owner opening another salon earns nothing
+  const self = submitShopApplication('dev-host', { business: { displayName: 'Host Two', categories: ['hair'] }, locations: [{ street: 'C 3', zip: '22041', city: 'Hamburg' }], offer, ownerKey: 'host@test.de', salonRef: code });
+  assert.ok(self.shopId);
+  assert.equal(salonReferralStats(hostId).invited, 1, 'no self-invites');
+  // the cap: at most 12 extra months
+  for (let i = 0; i < 6; i++) {
+    submitShopApplication(`dev-g${i}`, { business: { displayName: `G${i}`, categories: ['hair'] }, locations: [{ street: `D ${i}`, zip: '22041', city: 'Hamburg' }], offer, ownerKey: `g${i}@test.de`, salonRef: code });
+  }
+  assert.equal(salonReferralStats(hostId).bonusMonths, 12, 'capped at 12 extra months');
+  assert.equal(salonReferralStats(hostId).invited, 7, 'every invite still counts');
+  void claimShop;
+}
+
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

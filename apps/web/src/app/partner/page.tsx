@@ -7,7 +7,7 @@
  * mirror the admin-review flow from the OpenAPI contract
  * (GET /admin/shops/pending → decision).
  */
-import { apiLeadPrefill } from '@/lib/api';
+import { apiLeadPrefill, apiSalonReferrerName } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
@@ -99,6 +99,13 @@ export default function PartnerPage() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [acceptTruth, setAcceptTruth] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Invited by another salon (/partner?salon_ref=SAL-…): both earn free months.
+  const [invitedBy, setInvitedBy] = useState<{ code: string; name: string } | null>(null);
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('salon_ref');
+    if (code) void apiSalonReferrerName(code).then((name) => name && setInvitedBy({ code: code.toUpperCase(), name }));
+  }, []);
 
   // An invite link (/partner?lead=…) opens the form with what we already know.
   const [prefilledFor, setPrefilledFor] = useState<string | null>(null);
@@ -195,6 +202,7 @@ export default function PartnerPage() {
       consents: { partnerTerms: acceptTerms, accuracy: acceptTruth, submittedAt: new Date().toISOString() },
       locale: lang,
       leadId: new URLSearchParams(window.location.search).get('lead') ?? undefined,
+      salonRef: invitedBy?.code,
       // the key the dashboard scopes by, so the new salon shows up there
       ownerKey: user?.email ?? deviceId(),
     }, { iban: iban.replace(/\s/g, '').toUpperCase() });
@@ -249,6 +257,7 @@ export default function PartnerPage() {
         <h1>💼 {t('partner_title')}</h1>
         <p style={{ color: 'var(--ink-soft)', fontSize: '0.88rem', marginTop: 4 }}>{t('partner_sub')}</p>
         {prefilledFor && <div className="alert" style={{ marginTop: 10 }}>✨ {t('ld_prefilled', { name: prefilledFor })}</div>}
+        {invitedBy && <div className="alert" style={{ marginTop: 10, background: 'var(--teal-soft)', borderColor: 'var(--teal)', color: 'var(--teal)' }}>🤝 {t('sref_invited', { name: invitedBy.name })}</div>}
       </div>
 
       <div className="pt-perks">

@@ -3477,3 +3477,19 @@ export async function apiShopCountry(shopId: string): Promise<string> {
   await readyForRead();
   return store.shopCountry(shopId);
 }
+
+// ---- salon invites salon ----------------------------------------------------------
+
+export type SalonReferralStats = ReturnType<typeof store.salonReferralStats>;
+
+export async function apiSalonReferralStats(shopId: string): Promise<SalonReferralStats | null> {
+  if (backendMode() === 'server') return getJson(`/api/shop/${shopId}/salon-referral`);
+  await readyForRead();
+  return store.shopById(shopId) ? store.salonReferralStats(shopId) : null;
+}
+
+export async function apiSalonReferrerName(code: string): Promise<string | null> {
+  if (backendMode() === 'server') return (await getJson(`/api/salon-ref/${encodeURIComponent(code)}`))?.name ?? null;
+  await readyForRead();
+  return store.salonReferrerName(code);
+}

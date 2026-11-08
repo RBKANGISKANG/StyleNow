@@ -501,6 +501,8 @@ interface State {
   serverSecret: string; // signs session cookies when STYLENOW_SESSION_SECRET is unset
   staffLogins: Map<string, StaffLogin[]>; // shopId → team members who may sign in to My day
   commissionOwed: Map<string, number>; // shopId → commission on pay-at-salon visits, netted from the next payout
+  salonReferrals: SalonReferral[]; // salon-invites-salon: who brought whom
+  bonusFreeMonths: Map<string, number>; // shopId → extra commission-free months earned
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
@@ -601,6 +603,8 @@ const state: State =
     serverSecret: '',
     staffLogins: new Map(),
     commissionOwed: new Map(),
+    salonReferrals: [],
+    bonusFreeMonths: new Map(),
     pausedShops: new Set(),
     shopLiveSince: new Map(),
     platform: { requireApproval: false },
@@ -724,6 +728,8 @@ function persist(): boolean {
         serverSecret: state.serverSecret,
         staffLogins: [...state.staffLogins.entries()],
         commissionOwed: [...state.commissionOwed.entries()],
+        salonReferrals: state.salonReferrals,
+        bonusFreeMonths: [...state.bonusFreeMonths.entries()],
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
@@ -805,6 +811,8 @@ function restoreSnapshot(raw: string | null): void {
         serverSecret?: string;
         staffLogins?: Array<[string, StaffLogin[]]>;
         commissionOwed?: Array<[string, number]>;
+        salonReferrals?: SalonReferral[];
+        bonusFreeMonths?: Array<[string, number]>;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
@@ -874,6 +882,8 @@ function restoreSnapshot(raw: string | null): void {
       state.serverSecret = d.serverSecret ?? '';
       state.staffLogins = new Map(d.staffLogins ?? []);
       state.commissionOwed = new Map(d.commissionOwed ?? []);
+      state.salonReferrals = d.salonReferrals ?? [];
+      state.bonusFreeMonths = new Map(d.bonusFreeMonths ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
@@ -6656,6 +6666,7 @@ export function approveApplication(id: string): ShopApplication {
   app.shopId = shop.id;
   app.decidedAt = Date.now();
   delete app.rejectReason;
+  creditSalonReferral(app, shop.id, ownerKey);
   persist();
   return app;
 }
@@ -6684,7 +6695,7 @@ export function shopLiveSince(shopId: string): string {
 /** First day commission is charged: the live date plus the free months. */
 export function commissionFreeUntil(shopId: string): string {
   const [y, m, d] = shopLiveSince(shopId).split('-').map(Number);
-  const months = m - 1 + COMMISSION_FREE_MONTHS;
+  const months = m - 1 + COMMISSION_FREE_MONTHS + (state.bonusFreeMonths.get(shopId) ?? 0);
   const ny = y + Math.floor(months / 12);
   const nm = (months % 12) + 1;
   const last = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
@@ -9465,4 +9476,73 @@ export function shopCountry(shopId: string): string {
     if (/^[A-Za-z]{2}$/.test(c)) return c.toUpperCase();
   }
   return 'DE';
+}
+
+// ---- salon invites salon ------------------------------------------------------
+//
+// A salon shares its invite link (/partner?salon_ref=SAL-XXXXXX). When the
+// invited salon goes live, the inviter earns 3 more commission-free months
+// (up to 12 extra) and the newcomer 1 extra month. Free months cost nothing
+// today and salons recruiting salons is the cheapest growth there is.
+
+export const SALON_REF_BONUS_MONTHS = 3;
+export const SALON_REF_WELCOME_MONTHS = 1;
+export const SALON_REF_MAX_BONUS_MONTHS = 12;
+
+export interface SalonReferral {
+  referrerShopId: string;
+  newShopId: string;
+  at: number;
+  /** false when the cap was reached — the referral still counts, no more months */
+  credited: boolean;
+}
+
+/** A short, stable invite code per salon (no secrets in it). */
+export function salonReferralCode(shopId: string): string {
+  let h = 2166136261;
+  for (const ch of shopId) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += A[h % A.length];
+    h = Math.floor(h / A.length) + (i + 1) * 7919;
+  }
+  return `SAL-${code}`;
+}
+
+export function shopForSalonReferralCode(code: string): string | null {
+  const c = code.trim().toUpperCase();
+  if (!/^SAL-[A-Z0-9]{6}$/.test(c)) return null;
+  return allShops().find((s) => salonReferralCode(s.id) === c)?.id ?? null;
+}
+
+function creditSalonReferral(app: ShopApplication, newShopId: string, newOwnerKey: string): void {
+  const code = typeof app.data.salonRef === 'string' ? app.data.salonRef : '';
+  const referrer = code ? shopForSalonReferralCode(code) : null;
+  if (!referrer || referrer === newShopId) return;
+  // No inviting yourself: the same owner opening a second salon earns nothing.
+  if (isShopOwner(referrer, newOwnerKey)) return;
+  if (state.salonReferrals.some((r) => r.newShopId === newShopId)) return;
+  const had = state.bonusFreeMonths.get(referrer) ?? 0;
+  const add = Math.max(0, Math.min(SALON_REF_BONUS_MONTHS, SALON_REF_MAX_BONUS_MONTHS - had));
+  if (add > 0) state.bonusFreeMonths.set(referrer, had + add);
+  state.bonusFreeMonths.set(newShopId, (state.bonusFreeMonths.get(newShopId) ?? 0) + SALON_REF_WELCOME_MONTHS);
+  state.salonReferrals.push({ referrerShopId: referrer, newShopId, at: Date.now(), credited: add > 0 });
+}
+
+/** The salon's invite stats for its dashboard. */
+export function salonReferralStats(shopId: string): { code: string; invited: number; bonusMonths: number; maxBonusMonths: number; freeUntil: string } {
+  return {
+    code: salonReferralCode(shopId),
+    invited: state.salonReferrals.filter((r) => r.referrerShopId === shopId).length,
+    bonusMonths: state.bonusFreeMonths.get(shopId) ?? 0,
+    maxBonusMonths: SALON_REF_MAX_BONUS_MONTHS + SALON_REF_WELCOME_MONTHS,
+    freeUntil: commissionFreeUntil(shopId),
+  };
+}
+
+/** Public: who is inviting (for the "invited by …" banner on the sign-up page). */
+export function salonReferrerName(code: string): string | null {
+  const id = shopForSalonReferralCode(code);
+  return id ? shopById(id)?.name ?? null : null;
 }
