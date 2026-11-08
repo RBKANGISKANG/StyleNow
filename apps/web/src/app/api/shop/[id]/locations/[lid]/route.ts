@@ -4,7 +4,8 @@ import { patchLocation, deleteLocation } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string; lid: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string; lid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -12,7 +13,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string; lid: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string; lid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   try {

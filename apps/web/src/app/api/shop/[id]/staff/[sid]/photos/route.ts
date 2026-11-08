@@ -8,13 +8,15 @@ export const dynamic = 'force-dynamic';
 /** Same ceiling as the salon gallery: anything larger skipped the client downscaler. */
 const MAX_BYTES = 900_000;
 
-type P = { params: { id: string; sid: string } };
+type P = { params: Promise<{ id: string; sid: string }> };
 
-export async function GET(_req: NextRequest, { params }: P) {
+export async function GET(_req: NextRequest, props: P) {
+  const params = await props.params;
   return NextResponse.json({ photos: staffPhotos(params.sid) });
 }
 
-export async function POST(req: NextRequest, { params }: P) {
+export async function POST(req: NextRequest, props: P) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -27,7 +29,8 @@ export async function POST(req: NextRequest, { params }: P) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: P) {
+export async function DELETE(req: NextRequest, props: P) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const photoId = req.nextUrl.searchParams.get('photoId');

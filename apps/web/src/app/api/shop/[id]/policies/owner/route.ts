@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  * write in this app shares that limitation), but at minimum the read should
  * not be reachable from the URL the public booking flow already calls.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   return NextResponse.json({

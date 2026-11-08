@@ -60,6 +60,8 @@ export function StripeCheckout({
     return () => { alive = false; };
   }, [publishableKey]);
 
+  // A stable key for the basket: the array is rebuilt on every render.
+  const idsKey = bookingIds.join(',');
   const fetchClientSecret = useCallback(async () => {
     const res = await fetch('/api/stripe/session', {
       method: 'POST',
@@ -73,8 +75,7 @@ export function StripeCheckout({
       throw new Error(String(data.error ?? 'stripe_error'));
     }
     return String(data.clientSecret ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingIds.join(','), onExpired]);
+  }, [idsKey, onExpired]);
 
   // Card payments finish inside the iframe without ever leaving the page, so
   // there is no redirect to learn from — poll the session until the server

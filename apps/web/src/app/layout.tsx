@@ -5,6 +5,7 @@ import { AuthProvider } from '@/lib/auth';
 import { DesignProvider, THEME_BOOT } from '@/lib/design';
 import { Header, BottomNav } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { ServiceWorker } from '@/components/ServiceWorker';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -33,11 +34,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Inter:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('${BASE}/sw.js').catch(function(){})})}`,
-          }}
-        />
       </head>
       <body>
         <I18nProvider>
@@ -47,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <main className="shell">{children}</main>
               <Footer />
               <BottomNav />
+              <ServiceWorker />
             </DesignProvider>
           </AuthProvider>
         </I18nProvider>

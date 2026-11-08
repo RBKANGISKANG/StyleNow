@@ -276,7 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginSocial = useCallback(async (provider: 'google' | 'apple' | 'facebook'): Promise<AuthResult> => {
     if (serverAuth()) {
       if (provider !== 'google' || !(await authCall('providers', 'GET')).data.google) return { ok: false, error: 'social_not_available' };
-      window.location.href = `/api/auth/google/start?device=${encodeURIComponent(deviceId())}&back=${encodeURIComponent(window.location.pathname)}`;
+      window.location.assign(`/api/auth/google/start?device=${encodeURIComponent(deviceId())}&back=${encodeURIComponent(window.location.pathname)}`);
       return { ok: true };
     }
     if (sb.isConfigured()) {

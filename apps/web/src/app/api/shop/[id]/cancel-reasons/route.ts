@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
  * process's own copy, since cancellations go through /api/bookings/[id]/cancel
  * and land there, never in the browser's seed-only mirror.
  */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  return NextResponse.json({ rows: cancelReasonStats(params.id) });
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+ const params = await props.params;
+ return NextResponse.json({ rows: cancelReasonStats(params.id) });
 }

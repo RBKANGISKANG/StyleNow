@@ -15,11 +15,13 @@ export const dynamic = 'force-dynamic';
  *  client-side downscaler and should not be trusted with the quota. */
 const MAX_BYTES = 900_000;
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({ photos: shopPhotos(params.id) });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -33,7 +35,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ photo });
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -44,7 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const photoId = req.nextUrl.searchParams.get('photoId');

@@ -4,7 +4,8 @@ import { patchStaff, archiveStaff } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string; sid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -16,7 +17,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string; sid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   try {

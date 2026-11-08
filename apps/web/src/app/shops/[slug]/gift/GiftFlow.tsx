@@ -50,7 +50,7 @@ export function GiftFlow({
         );
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [shop.id]);
   const treat = services.find((sv) => sv.id === treatId) ?? null;
 

@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  * part of the answer: it is the shop's only credential, and a backup is a file
  * people email around.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   try {
@@ -22,7 +23,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 /** Restore from { doc, ownerKey } — settings only; who owns the shop is not restorable. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (!body.doc || typeof body.doc !== 'object' || Array.isArray(body.doc)) return badRequest();
   const denied = requireShopAccess(req, params.id);

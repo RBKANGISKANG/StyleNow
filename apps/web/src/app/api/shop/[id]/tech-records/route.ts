@@ -6,7 +6,8 @@ import { badRequest, fail, isStr } from '@/app/api/_lib/guards';
 export const dynamic = 'force-dynamic';
 
 /** The newest formula card for ?customerKey= at this shop, or null. */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const customerKey = req.nextUrl.searchParams.get('customerKey');
@@ -15,7 +16,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 /** Write the card on { bookingId }: { formula, developer?, processingMin?, note?, byStaffId }. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

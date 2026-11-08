@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 
 const KINDS = ['redo', 'goodwill', 'declined'] as const;
 
-export async function POST(req: NextRequest, { params }: { params: { id: string; did: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string; did: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

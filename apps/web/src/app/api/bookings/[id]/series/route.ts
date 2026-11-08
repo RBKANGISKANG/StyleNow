@@ -3,7 +3,8 @@ import { bookSeries } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const { everyWeeks, count, deviceId } = body;
   if (typeof everyWeeks !== 'number' || typeof count !== 'number' || typeof deviceId !== 'string') {

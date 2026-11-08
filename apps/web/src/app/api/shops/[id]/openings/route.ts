@@ -3,7 +3,8 @@ import { nextOpenings } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const q = req.nextUrl.searchParams;
   const serviceIds = (q.get('serviceIds') ?? '').split(',').filter(Boolean);
   if (serviceIds.length === 0) return NextResponse.json({ error: 'service_required' }, { status: 400 });

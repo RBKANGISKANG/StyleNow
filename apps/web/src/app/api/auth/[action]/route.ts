@@ -78,7 +78,8 @@ async function sendVerify(req: NextRequest, a: Account) {
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 
-export async function POST(req: NextRequest, { params }: { params: { action: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ action: string }> }) {
+  const params = await props.params;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
 
@@ -151,7 +152,8 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
   }
 }
 
-export async function GET(req: NextRequest, { params }: { params: { action: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ action: string }> }) {
+  const params = await props.params;
   const a = sessionAccount(req);
   if (params.action === 'me') return NextResponse.json({ user: a ? view(a) : null });
   if (params.action === 'export') {
@@ -166,7 +168,8 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
   return bad('not_found', 404);
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { action: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ action: string }> }) {
+  const params = await props.params;
   if (params.action !== 'me') return bad('not_found', 404);
   const a = sessionAccount(req);
   if (!a) return bad('login_required', 401);
@@ -179,7 +182,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { action: st
   return NextResponse.json({ user: view(updateAccount(a.email, { profile: cleanProfile(body.profile) })) });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { action: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ action: string }> }) {
+  const params = await props.params;
   if (params.action !== 'me') return bad('not_found', 404);
   const a = sessionAccount(req);
   if (!a) return bad('login_required', 401);

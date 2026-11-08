@@ -6,14 +6,16 @@ import { badRequest, fail, isDevice } from '@/app/api/_lib/guards';
 export const dynamic = 'force-dynamic';
 
 /** Has this device already had its consultation here? */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const deviceId = req.nextUrl.searchParams.get('deviceId');
   if (!isDevice(deviceId)) return badRequest();
   return NextResponse.json({ done: consultDone(deviceId, params.id) });
 }
 
 /** Make sure the free consultation service exists; returns it. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   try {

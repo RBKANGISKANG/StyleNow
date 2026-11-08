@@ -5,7 +5,8 @@ import { badRequest, cleanPayment, errStatus, fail, isStr, stripeGuard } from '@
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (typeof body.offerId !== 'string' || typeof body.deviceId !== 'string' || !body.deviceId) {
     return NextResponse.json({ error: 'bad_request' }, { status: 400 });
@@ -24,12 +25,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 /** The shop's offers, and its sold-package stats. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({ offers: packageOffers(params.id), stats: packagesForShop(params.id) });
 }
 
 /** Create or update an offer: { offer: { id?, serviceId, count, priceCents } }. */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -46,7 +49,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const offerId = req.nextUrl.searchParams.get('offerId');

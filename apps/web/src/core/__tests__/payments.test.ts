@@ -2602,6 +2602,8 @@ if (walkInShop()) {
   const base = { id: 'q', shopId: shop.id, startsAt: after, status: 'completed', quote: { subtotalCents: 10000, travelFeeCents: 0, discountCents: 0, vatCents: 0, totalCents: 10000, depositCents: 0, breakdown: [] } } as unknown as Booking;
   assert.equal(platformShareCents({ ...base, source: 'marketplace' } as Booking), 1200, 'a guest StyleNow brought: 12 %');
   assert.equal(platformShareCents({ ...base, source: 'salon_link' } as Booking), 0, 'the salon\'s own guest: free');
+  const firstYear = Date.parse(`${commissionFreeUntil(shop.id)}T10:00:00Z`) - 30 * 864e5;
+  assert.equal(platformShareCents({ ...base, source: 'marketplace', startsAt: firstYear, payment: { method: 'at_salon', label: 'x' } } as Booking), 0, 'pay at salon is free in the first year too');
   assert.equal(platformShareCents({ ...base, source: 'salon_link', quote: { ...base.quote, totalCents: 13000, primeCents: 3000 } } as Booking), 1500, 'Prime is shared 50/50 even for own guests');
   // A deposit-only online payment cannot cover the full share: the platform takes what it can now.
   assert.equal(computeSalonPayout({ ...base, source: 'marketplace', stripe: { sessionId: 's', paymentIntentId: 'p', chargedCents: 1000, refundedCents: 0 } } as Booking).platformCents, 1000);

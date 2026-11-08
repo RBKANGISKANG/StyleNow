@@ -6,13 +6,15 @@ import { cleanPayment, errStatus, stripeGuard } from '@/app/api/_lib/guards';
 export const dynamic = 'force-dynamic';
 
 /** The shop's B2B view: orders, revenue, outstanding liability. */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   return NextResponse.json(corporateBatchesForShop(params.id));
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const count = Number(body.count);
   const amountCents = Number(body.amountCents);

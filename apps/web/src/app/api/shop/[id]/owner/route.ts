@@ -6,7 +6,8 @@ import { provenKey } from '@/lib/session';
 export const dynamic = 'force-dynamic';
 
 /** Claim a shop; a real shop someone already owns answers 409 'already_owned'. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (!isStr(body.ownerKey) || !body.ownerKey) return badRequest();
   // You can only claim for yourself: your login or this browser.
@@ -21,7 +22,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 /** Release it — only with the key that holds it. */
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const ownerKey = req.nextUrl.searchParams.get('ownerKey') ?? '';
   if (!ownerKey) return badRequest();
   if (!provenKey(req, ownerKey)) return NextResponse.json({ error: 'login_required' }, { status: 401 });

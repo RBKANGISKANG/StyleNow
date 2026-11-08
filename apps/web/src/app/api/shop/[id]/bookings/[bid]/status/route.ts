@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
 
 const ALLOWED = ['completed', 'no_show', 'cancelled_by_shop'] as const;
 
-export async function POST(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string; bid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id, { staff: true });
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

@@ -6,7 +6,8 @@ import { refundThroughStripe } from '@/lib/stripe-server';
 export const dynamic = 'force-dynamic';
 
 /** Sell a shelf product onto a visit — see store.addRetail. */
-export async function POST(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string; bid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -22,7 +23,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
 }
 
 /** Undo a sale — see store.removeRetail. ?index=N, the line's position. */
-export async function DELETE(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string; bid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const index = Number(req.nextUrl.searchParams.get('index'));

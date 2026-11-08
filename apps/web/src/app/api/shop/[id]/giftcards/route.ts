@@ -6,13 +6,15 @@ import { badRequest, cleanPayment, isStr, stripeGuard } from '@/app/api/_lib/gua
 export const dynamic = 'force-dynamic';
 
 /** The shop's liability view: everything sold, and what is still unredeemed. */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   return NextResponse.json(giftCardsForShop(params.id));
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const amountCents = Number(body.amountCents);
   if (!Number.isInteger(amountCents) || amountCents < GIFT_MIN_CENTS || amountCents > GIFT_MAX_CENTS) {
@@ -45,7 +47,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 /** A card sold over the counter (paid at the salon): { amountCents, toName? }. */
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

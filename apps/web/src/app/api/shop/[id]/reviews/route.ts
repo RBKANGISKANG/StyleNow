@@ -3,11 +3,13 @@ import { shopReviews, setReviewReply } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({ reviews: shopReviews(params.id) });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => null);
   if (typeof body?.bookingId !== 'string') {
     return NextResponse.json({ error: 'missing_booking' }, { status: 400 });

@@ -4,7 +4,8 @@ import { errStatus, ownBooking } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (typeof body.on !== 'boolean') return NextResponse.json({ error: 'bad_request' }, { status: 400 });
   const own = ownBooking(params.id, body.deviceId);

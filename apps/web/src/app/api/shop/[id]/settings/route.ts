@@ -17,7 +17,8 @@ import { badRequest, fail, isStr } from '@/app/api/_lib/guards';
 export const dynamic = 'force-dynamic';
 
 /** The shop's scalar settings: goal, announcement, quiet discount, resources, membership offer. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({
     goal: shopGoal(params.id),
     announcement: shopAnnouncement(params.id),
@@ -31,7 +32,8 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Set any of the GET keys — a key that is present is written. */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

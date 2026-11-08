@@ -9,11 +9,13 @@ export const dynamic = 'force-dynamic';
  * runs server-side in this mode, so a percent kept in the owner's browser
  * would be a promotion no customer could ever receive.
  */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({ pct: bundleDiscountOf(params.id) });
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

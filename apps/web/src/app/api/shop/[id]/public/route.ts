@@ -4,7 +4,8 @@ import { estimatedWaitMin, membersOfShop, publicQueue, shopById } from '@/core/s
 export const dynamic = 'force-dynamic';
 
 /** What a shop page may show anyone: queue, wait estimate, club size. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({
     queue: publicQueue(params.id),
     waitMin: estimatedWaitMin(params.id),

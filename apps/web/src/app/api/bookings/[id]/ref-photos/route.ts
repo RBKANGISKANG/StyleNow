@@ -4,7 +4,8 @@ import { addRefPhoto, removeRefPhoto } from '@/core/store';
 export const dynamic = 'force-dynamic';
 
 /** "This is what I mean" — see store.addRefPhoto. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const deviceId = typeof body.deviceId === 'string' ? body.deviceId : '';
   const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl : '';
@@ -18,7 +19,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const deviceId = req.nextUrl.searchParams.get('deviceId') ?? '';
   const photoId = req.nextUrl.searchParams.get('photoId') ?? '';
   if (!deviceId || !photoId) return NextResponse.json({ error: 'bad_request' }, { status: 400 });

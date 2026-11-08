@@ -940,7 +940,9 @@ function announceMessages(): void {
  */
 export function useMessagesChanged(fn: () => void): void {
   const latest = useRef(fn);
-  latest.current = fn;
+  useEffect(() => {
+    latest.current = fn;
+  });
   useEffect(() => {
     const run = () => latest.current();
     window.addEventListener(MESSAGES_CHANGED, run);

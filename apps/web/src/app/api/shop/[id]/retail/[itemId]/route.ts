@@ -4,7 +4,11 @@ import { deleteRetailItem } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string; itemId: string } }) {
+export async function DELETE(
+  req: NextRequest,
+  props: { params: Promise<{ id: string; itemId: string }> }
+) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   deleteRetailItem(params.id, params.itemId);

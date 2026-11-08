@@ -4,7 +4,8 @@ import { todayIso } from '@/core/time';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const today = todayIso();
   // ?prime=<iso date> asks only for that day's Prime-bookable windows.
   const primeIso = req.nextUrl.searchParams.get('prime');

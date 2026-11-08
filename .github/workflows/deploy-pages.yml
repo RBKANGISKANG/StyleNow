@@ -45,7 +45,7 @@ jobs:
           # API routes don't exist in a static export — the client runs the
           # same engine in-browser (Supabase-backed when configured).
           rm -rf src/app/api
-          npx next build
+          npx next build --webpack
 
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4

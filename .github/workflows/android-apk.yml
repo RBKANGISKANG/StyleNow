@@ -44,7 +44,7 @@ jobs:
           NEXT_PUBLIC_BACKEND: local
         run: |
           rm -rf src/app/api
-          npx next build
+          npx next build --webpack
 
       - name: Sync Capacitor
         working-directory: apps/mobile-shell

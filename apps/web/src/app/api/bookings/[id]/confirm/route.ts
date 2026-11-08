@@ -19,7 +19,8 @@ const ONLINE_METHODS: PaymentMethod[] = ['card', 'paypal', 'apple_pay', 'google_
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (stripeConfigured() && body?.payment && ONLINE_METHODS.includes(body.payment.method)) {
     return NextResponse.json({ error: 'use_stripe_checkout' }, { status: 403 });

@@ -4,13 +4,15 @@ import { addAbsence, absencesFor, requestAbsence, approveAbsence } from '@/core/
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string; sid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id, { staff: true, ownStaffId: params.sid });
   if (denied) return denied;
   return NextResponse.json({ absences: absencesFor(params.sid) });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string; sid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id, { staff: true, ownStaffId: params.sid });
   if (denied) return denied;
   const body = await req.json().catch(() => null);
@@ -21,7 +23,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
   return NextResponse.json({ absence }, { status: 201 });
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string; sid: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => null);

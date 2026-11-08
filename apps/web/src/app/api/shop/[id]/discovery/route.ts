@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
  * Booking-flow helpers that read live availability: { view, serviceIds,
  * deviceId, isoDate? } → { data }. POST because serviceIds is a list.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const ids = body.serviceIds;
   if (!Array.isArray(ids) || !ids.every(isStr) || ids.length > 20) return badRequest();

@@ -3,7 +3,8 @@ import { leaveWaitlist, waitlistEntry } from '@/core/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const deviceId = req.nextUrl.searchParams.get('deviceId');
   if (!deviceId) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
   const entry = waitlistEntry(params.id);

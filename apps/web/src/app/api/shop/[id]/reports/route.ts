@@ -27,7 +27,8 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
  * Read-only views derived from the shop's bookings and configuration, picked
  * with ?view=. Every answer is { data } so the wrappers unwrap one key.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const q = req.nextUrl.searchParams;
   const id = params.id;
   const from = q.get('from') ?? '';

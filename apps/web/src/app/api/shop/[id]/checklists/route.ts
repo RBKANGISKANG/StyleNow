@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Templates; with ?iso= also that day's ticks and completion. */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const iso = req.nextUrl.searchParams.get('iso');
@@ -27,7 +28,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 /** Save (create or replace) a template. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -54,7 +56,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 /** Toggle the tick on { iso, itemId } for { staffId }. */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -63,7 +66,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const checklistId = req.nextUrl.searchParams.get('checklistId');

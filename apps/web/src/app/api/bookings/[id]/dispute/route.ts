@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
 
 const KINDS: DisputeKind[] = ['result', 'fee', 'other'];
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (!KINDS.includes(body.kind) || typeof body.text !== 'string') {
     return NextResponse.json({ error: 'bad_request' }, { status: 400 });

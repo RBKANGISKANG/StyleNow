@@ -4,7 +4,8 @@ import { errStatus, ownBooking } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (typeof body.tipCents !== 'number' || body.tipCents < 0) {
     return NextResponse.json({ error: 'invalid_tip' }, { status: 400 });

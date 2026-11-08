@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
  * that holds a live booking (arrivalNoteFor's own gate), and the owner's raw
  * copy lives behind the separate /owner route instead of riding along here.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const p = req.nextUrl.searchParams;
   const deviceId = p.get('deviceId') ?? '';
   const serviceIds = (p.get('serviceIds') ?? '').split(',').filter(Boolean);
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   });
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

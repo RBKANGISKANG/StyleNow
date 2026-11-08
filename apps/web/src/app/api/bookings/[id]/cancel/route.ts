@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
  * Customer-side cancellation only — the booking's own device. The shop calls
  * a visit off through /api/shop/[id]/bookings/[bid]/status (cancelled_by_shop).
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const own = ownBooking(params.id, body.deviceId);
   if ('error' in own) return own.error;

@@ -5,12 +5,14 @@ import { badRequest, fail } from '@/app/api/_lib/guards';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return NextResponse.json({ birthdayPerk: birthdayPerkOf(params.id), accessFacts: accessFactsOf(params.id) });
 }
 
 /** Set any of { birthdayPerk, accessFacts } — a key that is present is written. */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const denied = requireShopAccess(req, params.id);
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

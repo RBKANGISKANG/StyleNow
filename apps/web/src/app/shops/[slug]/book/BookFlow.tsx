@@ -138,6 +138,9 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [step, setStep] = useState(
     initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? 1 : 0,
   );
+  const [serviceIds, setServiceIds] = useState<string[]>(
+    initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
+  );
   // Live menu: the shop may have added or archived services since build time.
   const [menu, setMenu] = useState<Svc[]>(shop.services);
   useEffect(() => {
@@ -152,9 +155,6 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop.id]);
-  const [serviceIds, setServiceIds] = useState<string[]>(
-    initialServiceId && shop.services.some((s) => s.id === initialServiceId) ? [initialServiceId] : [],
-  );
   // "Book again with Lena" arrives with the stylist already chosen.
   const [staffId, setStaffId] = useState<string | null>(
     initialStaff && shop.staff.some((s) => s.id === initialStaff) ? initialStaff : null,
@@ -270,7 +270,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const [newPersonName, setNewPersonName] = useState('');
   useEffect(() => {
     if (step === 2) void apiSavedPeople().then(setPeople);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [step]);
 
   // Consultation-first: a complex treatment with no prior visit here offers
@@ -307,7 +307,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [step, serviceIds, menu, shop.id]);
 
   const bookConsultInstead = () => {
@@ -345,7 +345,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [step, serviceIds, menu, shop.id, forPerson, duo]);
 
   const [alternatives, setAlternatives] = useState<Slot[] | null>(null);
@@ -1761,7 +1761,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
               <StripeCheckout
                 publishableKey={stripeKey}
                 bookingIds={[hold.bookingId, ...extraHolds.map((h) => h.bookingId)]}
-                onPaid={(reference) => setConfirmed({ reference })}
+                onPaid={(reference: string) => setConfirmed({ reference })}
                 onExpired={() => {
                   setHold(null);
                   setHold2(null);

@@ -7,7 +7,8 @@ export function generateStaticParams() {
   return allShops().map((s) => ({ slug: s.slug }));
 }
 
-export default function GiftPage({ params }: { params: { slug: string } }) {
+export default async function GiftPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const shop = shopBySlug(params.slug);
   if (!shop) notFound();
   return (

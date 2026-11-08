@@ -20,7 +20,7 @@ function guard(req: NextRequest, shopId: string): NextResponse | null {
   return requireShopAccess(req, shopId);
 }
 
-const clientIp = (req: NextRequest) => (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.ip || '';
+const clientIp = (req: NextRequest) => (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.headers.get('x-real-ip') || '';
 
 async function view(shopId: string) {
   const a = payoutAccount(shopId);
