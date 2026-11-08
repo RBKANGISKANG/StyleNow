@@ -2653,4 +2653,15 @@ if (walkInShop()) {
   assert.equal(staffLoginOf(shop.id, 'lea@test.de'), null);
 }
 
+// ---- cash-register notice follows the salon's country ----
+{
+  const { shopCountry, submitShopApplication } = storeAll;
+  assert.equal(shopCountry(allShops()[0].id), 'DE', 'StyleNow salons are German unless they say otherwise');
+  const svcs = { services: [{ name: 'Cut', priceCents: 3000, durationMin: 30 }], staffCount: 1, openingHours: {} };
+  const at = submitShopApplication('dev-at', { business: { displayName: 'Salon Wien', categories: ['hair'], country: 'at' }, locations: [{ street: 'Ring 1', zip: '1010', city: 'Wien' }], offer: svcs });
+  if (at.shopId) assert.equal(shopCountry(at.shopId), 'AT');
+  const uk = submitShopApplication('dev-uk', { business: { displayName: 'Salon London', categories: ['hair'] }, locations: [{ street: 'High St 1', zip: 'N1', city: 'London', country: 'GB' }], offer: svcs });
+  if (uk.shopId) assert.equal(shopCountry(uk.shopId), 'GB');
+}
+
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

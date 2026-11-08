@@ -465,7 +465,7 @@ function CashPanel({ shopId }: { shopId: string }) {
   return (
     <section className="section">
       <h2>💶 {t('cb_title')}</h2>
-      <FiscalNote variant="drawer" />
+      <FiscalNote variant="drawer" shopId={shopId} />
       <div className="panel">
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <input type="date" className="input" style={{ width: 'auto' }} value={iso} max={todayIso()} onChange={(e) => setIso(e.target.value)} />

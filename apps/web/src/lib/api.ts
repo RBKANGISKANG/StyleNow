@@ -3470,3 +3470,10 @@ export async function apiGrantStaffLogin(shopId: string, email: string, staffId:
 export async function apiRevokeStaffLogin(shopId: string, email: string): Promise<void> {
   await fetch(`/api/shop/${shopId}/staff-logins?email=${encodeURIComponent(email)}`, { method: 'DELETE' });
 }
+
+/** The salon's country code (decides which cash-register notice applies). */
+export async function apiShopCountry(shopId: string): Promise<string> {
+  if (backendMode() === 'server') return (await getJson(`/api/shop/${shopId}/public`))?.country ?? 'DE';
+  await readyForRead();
+  return store.shopCountry(shopId);
+}

@@ -9449,3 +9449,20 @@ export function staffShopsFor(email: string): Array<{ shopId: string; staffId: s
   for (const [shopId, list] of state.staffLogins) for (const l of list) if (l.email === key) out.push({ shopId, staffId: l.staffId });
   return out;
 }
+
+// ---- the salon's country (cash-register rules differ per country) ------------
+
+/**
+ * ISO country code of a salon. Sign-ups may name one (business.country or the
+ * first location's country); everything else on StyleNow today is German.
+ */
+export function shopCountry(shopId: string): string {
+  for (const app of state.applications.values()) {
+    if (app.shopId !== shopId) continue;
+    const biz = (app.data.business ?? {}) as Record<string, unknown>;
+    const loc = (Array.isArray(app.data.locations) ? app.data.locations[0] : {}) as Record<string, unknown>;
+    const c = typeof biz.country === 'string' ? biz.country : typeof loc?.country === 'string' ? loc.country : '';
+    if (/^[A-Za-z]{2}$/.test(c)) return c.toUpperCase();
+  }
+  return 'DE';
+}

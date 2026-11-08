@@ -68,7 +68,7 @@ export function DayClose({ shopId, iso, onClose }: { shopId: string; iso: string
                 <span>{t('zb_generated')}: {timeOf(report.generatedAt, lang)}</span>
               </div>
             </header>
-            <FiscalNote variant="summary" />
+            <FiscalNote variant="summary" shopId={shopId} />
 
             <div className="rc-meta">
               <div>

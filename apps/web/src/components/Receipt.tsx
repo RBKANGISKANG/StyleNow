@@ -132,7 +132,7 @@ export function Receipt({ data, onClose }: { data: ReceiptData; onClose: () => v
             {billing && <span>{t('rc_taxid')}: {billing.taxId}</span>}
           </div>
         </header>
-        <FiscalNote variant="receipt" />
+        <FiscalNote variant="receipt" shopId={data.shopId} />
 
         <div className="rc-meta">
           <div>
