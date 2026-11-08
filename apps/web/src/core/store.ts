@@ -9532,7 +9532,7 @@ export function salonReferrerName(code: string): string | null {
 
 /**
  * Levels are earned with points: 1 per completed visit at any salon or
- * business on StyleNow, 3 per friend whose first visit was completed.
+ * business on StyleNow, 3 per friend who completes 3 visits within 90 days.
  * Only the last 12 months count, so a customer who stops visiting slides
  * down. Derived from bookings every time — nothing to drift.
  */
@@ -9568,22 +9568,62 @@ export function referralCount(deviceId: string, now = Date.now(), allTime = fals
   return state.referralWins.filter((w) => w.referrer === deviceId && (allTime || w.at >= since)).length;
 }
 
-export function customerLevel(deviceId: string, now = Date.now()): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null } {
+export function customerLevel(deviceId: string, now = Date.now()): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null; pending: Array<{ visits: number; daysLeft: number }> } {
   const referrals = referralCount(deviceId, now);
   const visits = completedVisits(deviceId, now);
   const points = visits * POINTS_PER_VISIT + referrals * POINTS_PER_FRIEND;
   let lvl = CUSTOMER_LEVELS[0];
   for (const l of CUSTOMER_LEVELS) if (points >= l.minPoints) lvl = l;
   const next = CUSTOMER_LEVELS.find((l) => l.minPoints > points) ?? null;
-  return { ...lvl, referrals, visits, points, next };
+  return { ...lvl, referrals, visits, points, next, pending: pendingReferrals(deviceId, now) };
 }
 
-/** At completion: the friend's FIRST completed visit counts for whoever invited them. */
+/** A friend counts once they complete this many visits (any business)… */
+export const FRIEND_VISITS_NEEDED = 3;
+/** …within this many days of their first completed visit. */
+export const FRIEND_WINDOW_DAYS = 90;
+
+function friendVisitTimes(friend: string): number[] {
+  const t: number[] = [];
+  for (const b of state.bookings.values()) if (b.deviceId === friend && b.status === 'completed') t.push(b.completedAt ?? b.startsAt);
+  return t.sort((a, b) => a - b);
+}
+
+function referrerOf(friend: string): string | undefined {
+  for (const b of state.bookings.values()) if (b.deviceId === friend && b.referredBy && b.referredBy !== friend) return b.referredBy;
+  return undefined;
+}
+
+/** Friends this person invited who are still on their way to 3 visits in 90 days. */
+export function pendingReferrals(deviceId: string, now = Date.now()): Array<{ visits: number; daysLeft: number }> {
+  const out: Array<{ visits: number; daysLeft: number }> = [];
+  const friends = new Set<string>();
+  for (const b of state.bookings.values()) if (b.referredBy === deviceId && b.deviceId !== deviceId) friends.add(b.deviceId);
+  for (const f of friends) {
+    if (state.referralWins.some((w) => w.friend === f)) continue;
+    const times = friendVisitTimes(f);
+    if (!times.length) {
+      out.push({ visits: 0, daysLeft: FRIEND_WINDOW_DAYS });
+      continue;
+    }
+    const end = times[0] + FRIEND_WINDOW_DAYS * 864e5;
+    if (now > end) continue; // window missed — this invite has expired
+    out.push({ visits: times.filter((t) => t <= end).length, daysLeft: Math.ceil((end - now) / 864e5) });
+  }
+  return out;
+}
+
+/** At completion: credit the inviter once the friend reaches 3 visits within 90 days of their first. */
 function creditReferral(b: Booking): void {
-  const referrer = b.referredBy;
-  if (!referrer || referrer === b.deviceId) return;
-  if (state.referralWins.some((w) => w.friend === b.deviceId)) return;
-  state.referralWins.push({ referrer, friend: b.deviceId, at: Date.now() });
+  const friend = b.deviceId;
+  if (state.referralWins.some((w) => w.friend === friend)) return;
+  const referrer = referrerOf(friend);
+  if (!referrer) return;
+  const times = friendVisitTimes(friend);
+  if (times.length < FRIEND_VISITS_NEEDED) return;
+  const end = times[0] + FRIEND_WINDOW_DAYS * 864e5;
+  if (times.filter((t) => t <= end).length < FRIEND_VISITS_NEEDED) return;
+  state.referralWins.push({ referrer, friend, at: Date.now() });
 }
 
 // ---- salon badges (derived, never set by hand) --------------------------------------

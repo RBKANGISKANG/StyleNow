@@ -46,6 +46,11 @@ export function ReferralPanel() {
           </span>
         </div>
       </div>
+      {level.pending.map((f, i) => (
+        <div key={i} style={{ fontSize: '0.78rem', margin: '2px 0' }}>
+          👤 {t('ref_pending', { visits: f.visits, days: f.daysLeft })} {'✓'.repeat(Math.min(f.visits, 3))}{'○'.repeat(Math.max(0, 3 - f.visits))}
+        </div>
+      ))}
       <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '6px 0 10px', lineHeight: 1.55 }}>{t('ref_body')}</p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <span className="gc-row-code" style={{ fontSize: '1.05rem' }}>{code}</span>

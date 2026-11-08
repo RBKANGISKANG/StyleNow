@@ -2696,7 +2696,30 @@ if (walkInShop()) {
   // the friend's visit from the referral block above is completed now
   const fb = [...storeAll.bookingsForDevice('dev-friend')].find((x) => x.referredBy === 'dev-referrer')!;
   storeAll.setBookingStatus(fb.shopId, fb.id, 'completed');
-  assert.equal(referralCount('dev-referrer'), 1);
+  assert.equal(referralCount('dev-referrer'), 0, 'one visit is not enough — 3 in 90 days');
+  assert.deepEqual(customerLevel('dev-referrer').pending.map((p) => p.visits), [1], 'the inviter sees 1 of 3');
+  // two more real visits for the friend, on later days
+  const extra: Booking[] = [];
+  for (let d = 2; d <= 45 && extra.length < 2; d++) {
+    const iso = isoDateOf(fb.startsAt + d * 864e5);
+    const sl = storeAll.availability(fb.shopId, fb.serviceIds, iso, 'dev-friend').slots;
+    if (!sl.length) continue;
+    const h = storeAll.createHold({ shopId: fb.shopId, serviceIds: fb.serviceIds, startsAt: sl[0].start, deviceId: 'dev-friend', guestName: 'Freya', idempotencyKey: `ref-x-${d}` });
+    storeAll.confirmBooking(h.bookingId, { method: 'paypal', label: 'PayPal' });
+    extra.push(getBooking(h.bookingId)!);
+  }
+  assert.equal(extra.length, 2, 'fixture needs two more slots');
+  storeAll.setBookingStatus(fb.shopId, extra[0].id, 'completed');
+  assert.equal(referralCount('dev-referrer'), 0, 'two visits: still pending');
+  // a third visit after the 90-day window would not count
+  const savedAt = fb.completedAt;
+  fb.completedAt = Date.now() - 100 * 864e5;
+  storeAll.setBookingStatus(fb.shopId, extra[1].id, 'completed');
+  assert.equal(referralCount('dev-referrer'), 0, '3 visits but not within 90 days → no credit');
+  fb.completedAt = savedAt;
+  storeAll.setBookingStatus(fb.shopId, extra[1].id, 'completed');
+  assert.equal(referralCount('dev-referrer'), 1, 'third visit inside 90 days → the friend counts');
+  assert.equal(customerLevel('dev-referrer').pending.length, 0);
   assert.equal(customerLevel('dev-referrer').id, 'silver');
   assert.equal(customerLevel('dev-referrer').next?.id, 'gold');
   // visits count too: 1 point per completed visit anywhere
