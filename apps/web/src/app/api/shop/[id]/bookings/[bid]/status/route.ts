@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 const ALLOWED = ['completed', 'no_show', 'cancelled_by_shop'] as const;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string; bid: string } }) {
-  const denied = requireShopAccess(req, params.id);
+  const denied = requireShopAccess(req, params.id, { staff: true });
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   if (!ALLOWED.includes(body.status)) {

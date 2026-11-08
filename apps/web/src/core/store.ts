@@ -105,6 +105,10 @@ export interface Booking {
   paidCents: number;
   /** The salon's share of the online money, once the visit happened. */
   payout?: SalonPayout;
+  /** Where the guest came from: the salon's own link/QR (no commission) or StyleNow's marketplace. */
+  source?: 'salon_link' | 'marketplace';
+  /** Set once at completion: what StyleNow earns on this visit and how it is collected. */
+  commission?: { shareCents: number; fromOnlineCents: number; owedCents: number };
   /** money actually returned to the customer after a cancellation */
   refundedCents?: number;
   guestName: string;
@@ -495,6 +499,8 @@ interface State {
   accounts: Map<string, Account>; // email → login (server mode; password hash only)
   authTokens: Map<string, AuthToken>; // sha256(token) → password-reset / email-verify token
   serverSecret: string; // signs session cookies when STYLENOW_SESSION_SECRET is unset
+  staffLogins: Map<string, StaffLogin[]>; // shopId → team members who may sign in to My day
+  commissionOwed: Map<string, number>; // shopId → commission on pay-at-salon visits, netted from the next payout
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
   platform: { requireApproval: boolean };
@@ -593,6 +599,8 @@ const state: State =
     accounts: new Map(),
     authTokens: new Map(),
     serverSecret: '',
+    staffLogins: new Map(),
+    commissionOwed: new Map(),
     pausedShops: new Set(),
     shopLiveSince: new Map(),
     platform: { requireApproval: false },
@@ -714,6 +722,8 @@ function persist(): boolean {
         accounts: [...state.accounts.entries()],
         authTokens: [...state.authTokens.entries()],
         serverSecret: state.serverSecret,
+        staffLogins: [...state.staffLogins.entries()],
+        commissionOwed: [...state.commissionOwed.entries()],
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
         platform: state.platform,
@@ -793,6 +803,8 @@ function restoreSnapshot(raw: string | null): void {
         accounts?: Array<[string, Account]>;
         authTokens?: Array<[string, AuthToken]>;
         serverSecret?: string;
+        staffLogins?: Array<[string, StaffLogin[]]>;
+        commissionOwed?: Array<[string, number]>;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
         platform?: { requireApproval: boolean };
@@ -860,6 +872,8 @@ function restoreSnapshot(raw: string | null): void {
       state.accounts = new Map(d.accounts ?? []);
       state.authTokens = new Map(d.authTokens ?? []);
       state.serverSecret = d.serverSecret ?? '';
+      state.staffLogins = new Map(d.staffLogins ?? []);
+      state.commissionOwed = new Map(d.commissionOwed ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
       state.platform = { requireApproval: d.platform?.requireApproval === true };
@@ -3299,6 +3313,8 @@ export interface HoldInput {
   guestPhone?: string;
   guestEmail?: string;
   guestNote?: string;
+  /** 'salon_link' when the guest arrived through the salon's own link or QR code */
+  source?: 'salon_link' | 'marketplace';
   voucherCode?: string;
   pointsToSpend?: number;
   /** Spend a stamp-card reward: this visit's services are free. */
@@ -3586,6 +3602,7 @@ export function createHold(input: HoldInput): HoldResult {
     paidCents: 0,
     guestName: input.guestName,
     guestPhone: input.guestPhone?.trim() || undefined,
+    source: input.source === 'salon_link' ? 'salon_link' : 'marketplace',
     guestEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.guestEmail?.trim() ?? '') ? input.guestEmail!.trim().slice(0, 120) : undefined,
     guestNote: input.guestNote?.trim() || undefined,
     pointsSpent: pointsSpent || undefined,
@@ -4388,6 +4405,7 @@ export function setBookingStatus(
     b.completedAt = Date.now();
     b.paidCents = b.quote.totalCents;
     if (settledBy) b.settledBy = settledBy;
+    accrueCommission(b);
     persist();
     return b;
   }
@@ -6690,6 +6708,8 @@ export interface PlatformShopRow {
   freeUntil: string;
   /** automatic payouts through the salon's own Stripe account */
   payouts: 'ready' | 'pending' | 'none';
+  /** commission on pay-at-salon visits not yet collected */
+  owedCents: number;
 }
 
 /**
@@ -6698,7 +6718,7 @@ export interface PlatformShopRow {
  * completed bookings paid online, so pay-at-salon visits carry none, and
  * nothing at all during a salon's first year on the platform.
  */
-export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg' | 'liveSince' | 'freeUntil' | 'payouts'> } {
+export function platformOverview(fromIso: string, toIso: string): { rows: PlatformShopRow[]; totals: Omit<PlatformShopRow, 'shopId' | 'name' | 'district' | 'registered' | 'paused' | 'noShowPct' | 'ratingAvg' | 'liveSince' | 'freeUntil' | 'payouts' | 'owedCents'> } {
   const from = dayStart(fromIso);
   const to = dayStart(addDays(toIso, 1));
   const rows = new Map<string, PlatformShopRow & { noShows: number; settled: number; chargeable: number }>();
@@ -6707,7 +6727,7 @@ export function platformOverview(fromIso: string, toIso: string): { rows: Platfo
       shopId: s.id, name: s.name, district: s.district, registered: state.registeredShops.has(s.id),
       paused: state.pausedShops.has(s.id), bookings: 0, volumeCents: 0, onlineCompletedCents: 0,
       commissionCents: 0, noShowPct: null, ratingAvg: s.ratingAvg, noShows: 0, settled: 0,
-      liveSince: shopLiveSince(s.id), freeUntil: commissionFreeUntil(s.id), chargeable: 0,
+      liveSince: shopLiveSince(s.id), freeUntil: commissionFreeUntil(s.id), chargeable: 0, owedCents: commissionOwedBy(s.id),
       payouts: (() => {
         const a = state.payoutAccounts.get(s.id);
         return !a ? 'none' : a.payoutsEnabled ? 'ready' : 'pending';
@@ -6722,16 +6742,16 @@ export function platformOverview(fromIso: string, toIso: string): { rows: Platfo
     if (b.status === 'confirmed' || b.status === 'completed') r.volumeCents += b.quote.totalCents;
     if (b.status === 'completed' || b.status === 'no_show') r.settled += 1;
     if (b.status === 'no_show') r.noShows += 1;
-    if (b.status === 'completed' && b.payment && b.payment.method !== 'at_salon') {
-      r.onlineCompletedCents += b.quote.totalCents;
-      // the first year on the platform is commission-free
-      if (b.startsAt >= dayStart(r.freeUntil)) r.chargeable += b.quote.totalCents;
+    if (b.status === 'completed') {
+      if (b.payment && b.payment.method !== 'at_salon') r.onlineCompletedCents += b.quote.totalCents;
+      // StyleNow's share: marketplace guests after the free year + half the Prime premium
+      r.chargeable += b.commission?.shareCents ?? platformShareCents(b);
     }
   }
   const out: PlatformShopRow[] = [];
   const totals = { bookings: 0, volumeCents: 0, onlineCompletedCents: 0, commissionCents: 0 };
   for (const r of rows.values()) {
-    r.commissionCents = Math.round((r.chargeable * PLATFORM_COMMISSION_PCT) / 100);
+    r.commissionCents = r.chargeable;
     r.noShowPct = r.settled ? Math.round((r.noShows / r.settled) * 100) : null;
     const { noShows: _n, settled: _s, chargeable: _c, ...row } = r;
     out.push(row);
@@ -9016,6 +9036,8 @@ export interface SalonPayout {
   platformCents: number;
   /** online money this visit brought in: card + voucher part */
   receivedCents: number;
+  /** commission owed from earlier pay-at-salon visits, collected out of this payout */
+  nettedOwedCents?: number;
   status: 'pending' | 'sent' | 'held' | 'failed';
   transferId?: string;
   at: number;
@@ -9027,21 +9049,47 @@ function voucherPaidOnline(code?: string): boolean {
   return Boolean(c?.payment && ONLINE_PAY.includes(c.payment.method));
 }
 
-/** The split for one booking, from what actually happened. Pure — derived, never guessed. */
+/**
+ * What StyleNow earns on one visit, whatever way it was paid:
+ *   - guests who came through the salon's own link or QR code: no commission
+ *   - guests StyleNow brought: the commission % (0 in the free year) of the price
+ *   - the Prime premium: half, either way
+ */
+export function platformShareCents(b: Booking): number {
+  const prime = Math.min(b.quote.primeCents ?? 0, b.quote.totalCents);
+  const normal = b.quote.totalCents - prime;
+  const iso = new Date(b.startsAt).toISOString().slice(0, 10);
+  const pct = b.source === 'salon_link' ? 0 : commissionPctOn(b.shopId, iso);
+  return Math.round((normal * pct) / 100) + Math.round((prime * PRIME_PLATFORM_SHARE_PCT) / 100);
+}
+
+/** The split of the online money for one booking. Pure — derived, never guessed. */
 export function computeSalonPayout(b: Booking): Omit<SalonPayout, 'status' | 'at' | 'transferId'> {
   const card = b.stripe ? Math.max(0, b.stripe.chargedCents - b.stripe.refundedCents) : 0;
   const voucher = voucherPaidOnline(b.voucherCode) ? b.giftCents ?? 0 : 0;
   const received = card + voucher;
   if (received <= 0) return { cents: 0, platformCents: 0, receivedCents: 0 };
-  const total = Math.max(1, b.quote.totalCents);
-  // the Prime premium rides pro rata on whatever was paid online
-  const primePart = Math.min(received, Math.round((received * (b.quote.primeCents ?? 0)) / total));
-  const normal = received - primePart;
-  const iso = new Date(b.startsAt).toISOString().slice(0, 10);
-  const commission = Math.round((normal * commissionPctOn(b.shopId, iso)) / 100);
-  const primeToPlatform = Math.round((primePart * PRIME_PLATFORM_SHARE_PCT) / 100);
-  const platformCents = commission + primeToPlatform;
+  const platformCents = Math.min(received, platformShareCents(b));
   return { cents: received - platformCents, platformCents, receivedCents: received };
+}
+
+/**
+ * At completion: fix StyleNow's share. What the online money cannot cover
+ * (a pay-at-salon visit, a deposit-only booking) is owed by the salon and
+ * netted from its next payout.
+ */
+function accrueCommission(b: Booking): void {
+  if (b.commission) return;
+  const share = platformShareCents(b);
+  const fromOnline = computeSalonPayout(b).platformCents;
+  const owed = Math.max(0, share - fromOnline);
+  b.commission = { shareCents: share, fromOnlineCents: fromOnline, owedCents: owed };
+  if (owed > 0) state.commissionOwed.set(b.shopId, (state.commissionOwed.get(b.shopId) ?? 0) + owed);
+}
+
+/** Commission on pay-at-salon visits not yet collected from this salon. */
+export function commissionOwedBy(shopId: string): number {
+  return state.commissionOwed.get(shopId) ?? 0;
 }
 
 /**
@@ -9057,7 +9105,20 @@ export function preparePayout(bookingId: string): SalonPayout | null {
   const split = computeSalonPayout(b);
   if (split.receivedCents <= 0) return null;
   const acct = state.payoutAccounts.get(b.shopId);
-  b.payout = { ...split, status: acct?.payoutsEnabled ? 'pending' : 'held', at: Date.now(), transferId: b.payout?.transferId };
+  // Collect commission still owed from pay-at-salon visits out of this payout.
+  const already = b.payout?.nettedOwedCents ?? 0;
+  const owed = commissionOwedBy(b.shopId);
+  const net = already > 0 ? already : Math.min(owed, split.cents);
+  if (net > 0 && already === 0) state.commissionOwed.set(b.shopId, owed - net);
+  b.payout = {
+    ...split,
+    cents: split.cents - net,
+    platformCents: split.platformCents + net,
+    nettedOwedCents: net || undefined,
+    status: acct?.payoutsEnabled ? 'pending' : 'held',
+    at: Date.now(),
+    transferId: b.payout?.transferId,
+  };
   persist();
   return b.payout;
 }
@@ -9340,4 +9401,51 @@ export function shopContactEmail(shopId: string): string | null {
   }
   const owner = state.shopOwners.get(shopId);
   return owner && owner.includes('@') ? owner : null;
+}
+
+// ---- staff logins ---------------------------------------------------------------
+//
+// A team member signs in with their own email and sees their own day. They are
+// not owners: the server lets them use only the My-day routes, for their own
+// staff id.
+
+export interface StaffLogin {
+  email: string;
+  staffId: string;
+  grantedAt: number;
+}
+
+export function staffLoginsFor(shopId: string): StaffLogin[] {
+  return state.staffLogins.get(shopId) ?? [];
+}
+
+export function grantStaffLogin(shopId: string, email: string, staffId: string): StaffLogin {
+  const key = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key)) throw new Error('bad_email');
+  if (!effectiveStaff(shopId).some((m) => m.id === staffId)) throw new Error('staff_not_found');
+  const list = staffLoginsFor(shopId).filter((l) => l.email !== key && l.staffId !== staffId);
+  const login: StaffLogin = { email: key, staffId, grantedAt: Date.now() };
+  state.staffLogins.set(shopId, [...list, login]);
+  persist();
+  return login;
+}
+
+export function revokeStaffLogin(shopId: string, email: string): void {
+  const key = email.trim().toLowerCase();
+  state.staffLogins.set(shopId, staffLoginsFor(shopId).filter((l) => l.email !== key));
+  persist();
+}
+
+/** The staff seat this email holds at this shop, or null. */
+export function staffLoginOf(shopId: string, email: string): StaffLogin | null {
+  const key = email.trim().toLowerCase();
+  return staffLoginsFor(shopId).find((l) => l.email === key) ?? null;
+}
+
+/** Every shop where this email may sign in as staff. */
+export function staffShopsFor(email: string): Array<{ shopId: string; staffId: string }> {
+  const key = email.trim().toLowerCase();
+  const out: Array<{ shopId: string; staffId: string }> = [];
+  for (const [shopId, list] of state.staffLogins) for (const l of list) if (l.email === key) out.push({ shopId, staffId: l.staffId });
+  return out;
 }

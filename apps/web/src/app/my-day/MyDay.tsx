@@ -16,14 +16,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { money, timeOf, weekdayShort, dayNum, monthShort } from '@/lib/format';
 import { StaffWeekGrid } from '@/components/StaffWeekGrid';
-import { apiOverview, apiHrOverview, apiSetStatus, apiSetCustomerNote, type HrRow } from '@/lib/api';
+import { apiOverview, apiHrOverview, apiSetStatus, apiSetCustomerNote, type HrRow, apiMyStaffSeats, type StaffSeat } from '@/lib/api';
 import { apiStaffAbsences, apiRequestAbsence, type Absence, type AbsenceKind } from '@/lib/api';
 import { todayIso, addDays } from '@/core/time';
 import type { Overview } from '../dashboard/shell';
 
 const PICK_KEY = 'stylenow.myday.staff';
 
-export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoji: string }> }) {
+export function MyDay({ shops: seedShops }: { shops: Array<{ id: string; name: string; emoji: string }> }) {
   const { t, lang } = useI18n();
   const [shopId, setShopId] = useState('');
   const [staffId, setStaffId] = useState('');
@@ -32,6 +32,21 @@ export function MyDay({ shops }: { shops: Array<{ id: string; name: string; emoj
   const [hr, setHr] = useState<HrRow | null>(null);
   const [restored, setRestored] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  // A signed-in team member: their salon and their own name, without picking.
+  const [seats, setSeats] = useState<StaffSeat[]>([]);
+  const shops = useMemo(
+    () => [...seats.filter((x) => !seedShops.some((s) => s.id === x.shopId)).map((x) => ({ id: x.shopId, name: x.name, emoji: x.emoji })), ...seedShops],
+    [seats, seedShops],
+  );
+  useEffect(() => {
+    void apiMyStaffSeats().then((list) => {
+      setSeats(list);
+      if (list.length) {
+        setShopId((cur) => (cur && list.some((x) => x.shopId === cur) ? cur : list[0].shopId));
+        setStaffId((cur) => (cur && list.some((x) => x.staffId === cur) ? cur : list[0].staffId));
+      }
+    });
+  }, []);
 
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayIso(), i)), []);
 

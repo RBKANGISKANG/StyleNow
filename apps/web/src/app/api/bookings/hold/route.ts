@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
       guestName: body.guestName ?? 'Guest',
       guestPhone: body.guestPhone || undefined,
       guestEmail: typeof body.guestEmail === 'string' && body.guestEmail ? body.guestEmail : sessionAccount(req)?.email,
+      source: body.source === 'salon_link' ? 'salon_link' : 'marketplace',
       guestNote: body.guestNote || undefined,
       voucherCode: body.voucherCode || undefined,
       pointsToSpend: typeof body.pointsToSpend === 'number' ? body.pointsToSpend : undefined,

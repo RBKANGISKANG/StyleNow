@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
-import { useAuth, emptyProfile, type Profile, requestPasswordReset, confirmPasswordReset, confirmEmail, usesServerAccounts } from '@/lib/auth';
+import { useAuth, emptyProfile, type Profile, requestPasswordReset, confirmPasswordReset, confirmEmail, usesServerAccounts, serverProviders } from '@/lib/auth';
 import { apiMyBookings, apiRecordExitFeedback, apiExportMyData, apiEraseMyData, apiCareProfile, apiSetBirthday, apiSetAccessNeeds, apiSetAllergies } from '@/lib/api';
 import { ReferralPanel } from '@/components/ReferralPanel';
 import { useTheme, type ThemePref } from '@/lib/design';
@@ -103,6 +103,12 @@ function SocialRow() {
   const { t } = useI18n();
   const { loginSocial } = useAuth();
   const [hint, setHint] = useState<string | null>(null);
+  // On a real server only the providers it is configured for are shown.
+  const [allowed, setAllowed] = useState<string[] | null>(usesServerAccounts() ? null : ['google', 'apple', 'facebook']);
+  useEffect(() => {
+    if (usesServerAccounts()) void serverProviders().then((p) => setAllowed(p.google ? ['google'] : []));
+  }, []);
+  if (!allowed || allowed.length === 0) return null;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '16px 0 10px' }}>
@@ -111,7 +117,7 @@ function SocialRow() {
         <span style={{ flex: 1, height: 1, background: 'var(--line)' }} />
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        {SOCIALS.map((s) => (
+        {SOCIALS.filter((s) => allowed.includes(s.id)).map((s) => (
           <button
             key={s.id}
             className="btn"
@@ -136,7 +142,7 @@ function SocialRow() {
       {hint && (
         <p style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--danger)', fontWeight: 600 }}>{hint}</p>
       )}
-      <p style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--ink-soft)' }}>{t('acc_social_hint_demo')}</p>
+      {!usesServerAccounts() && <p style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--ink-soft)' }}>{t('acc_social_hint_demo')}</p>}
     </>
   );
 }
@@ -258,7 +264,7 @@ function AuthForms() {
       )}
       {tab === 'register' && <p style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 6 }}>{t('acc_pw_rule')}</p>}
 
-      {!usesServerAccounts() && <SocialRow />}
+      <SocialRow />
     </div>
   );
 }

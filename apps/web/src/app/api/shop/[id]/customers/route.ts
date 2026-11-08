@@ -11,7 +11,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = requireShopAccess(req, params.id);
+  const denied = requireShopAccess(req, params.id, { staff: true });
   if (denied) return denied;
   const body = await req.json().catch(() => null);
   if (typeof body?.key !== 'string') return NextResponse.json({ error: 'missing_key' }, { status: 400 });

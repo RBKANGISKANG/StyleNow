@@ -97,6 +97,11 @@ export async function confirmEmail(token: string): Promise<boolean> {
   return (await authCall('verify', 'POST', { token })).ok;
 }
 export const usesServerAccounts = () => serverAuth();
+/** Social sign-ins this server offers (server mode). */
+export async function serverProviders(): Promise<{ google: boolean }> {
+  const r = await authCall('providers', 'GET');
+  return { google: Boolean(r.data.google) };
+}
 const SESSION_KEY = 'sn-session';
 
 interface StoredAccount extends Profile {
@@ -269,7 +274,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginSocial = useCallback(async (provider: 'google' | 'apple' | 'facebook'): Promise<AuthResult> => {
-    if (serverAuth()) return { ok: false, error: 'social_not_available' };
+    if (serverAuth()) {
+      if (provider !== 'google' || !(await authCall('providers', 'GET')).data.google) return { ok: false, error: 'social_not_available' };
+      window.location.href = `/api/auth/google/start?device=${encodeURIComponent(deviceId())}&back=${encodeURIComponent(window.location.pathname)}`;
+      return { ok: true };
+    }
     if (sb.isConfigured()) {
       try {
         const client = await sb.authClient();

@@ -110,6 +110,19 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
   const lineLabel = (line: BreakdownLine) => (line.key ? t(line.key as MsgKeyT, line.vars) : line.label);
   const { user } = useAuth();
   const params = useSearchParams();
+  // Came through the salon's own link or QR code? Then this guest is the
+  // salon's own customer and the booking is commission-free. Remembered for
+  // the visit, so browsing back and forth doesn't lose it.
+  const sourceKey = `sn-src-${shop.id}`;
+  const source = useMemo<'salon_link' | 'marketplace'>(() => {
+    if (typeof window === 'undefined') return 'marketplace';
+    try {
+      if (params.get('utm_source') === 'salon') window.sessionStorage.setItem(sourceKey, 'salon_link');
+      return window.sessionStorage.getItem(sourceKey) === 'salon_link' ? 'salon_link' : 'marketplace';
+    } catch {
+      return params.get('utm_source') === 'salon' ? 'salon_link' : 'marketplace';
+    }
+  }, [params, sourceKey]);
   const initialServiceId = params.get('service');
   // A tap on a time on the shop's own page arrives here already decided: which
   // service, which day, which minute. Re-asking all three would throw that away.
@@ -625,6 +638,7 @@ function BookFlowInner({ shop }: { shop: ShopInfo }) {
       guestName: name.trim() || 'Guest',
       guestPhone: phone.trim() || undefined,
       guestEmail: email.trim() || user?.email || undefined,
+      source,
       guestNote: note.trim() || undefined,
       voucherCode: useStamp || usePackage ? undefined : voucher?.code,
       pointsToSpend: useStamp || usePackage || !usePoints ? undefined : points,

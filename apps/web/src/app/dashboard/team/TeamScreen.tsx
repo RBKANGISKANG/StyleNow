@@ -8,7 +8,8 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { Glyph } from '@/components/Icon';
 import { usePaged, Pager } from '@/components/Pager';
-import { apiAddStaff, apiPatchStaff, apiArchiveStaff , apiStaffPhotos, apiAddStaffPhoto, apiDeleteStaffPhoto } from '@/lib/api';
+import { apiAddStaff, apiPatchStaff, apiArchiveStaff , apiStaffPhotos, apiAddStaffPhoto, apiDeleteStaffPhoto, apiStaffLogins, apiGrantStaffLogin, apiRevokeStaffLogin, backendMode } from '@/lib/api';
+import type { StaffLogin } from '@/core/store';
 import { ConflictGuard } from '@/components/ConflictGuard';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
@@ -54,6 +55,13 @@ function TeamTab({ shopId }: { shopId: string }) {
           }}
         />
       </section>
+
+      {backendMode() === 'server' && (
+        <section className="section">
+          <h2>🔑 {t('sl_title')}</h2>
+          <StaffLoginsPanel shopId={shopId} staff={data.staffRows.map((r) => ({ id: r.staffId, name: r.name }))} onChanged={setToast} />
+        </section>
+      )}
 
       {/* One person's week, sold against rostered — the roster above says who
           is meant to be in; this says whether anybody is buying that time. */}
@@ -515,6 +523,66 @@ function PortfolioEditor({ shopId, staffId }: { shopId: string; staffId: string 
             />
           </>
         )}
+      </div>
+    </div>
+  );
+}
+/** Give a team member their own login for My day (their schedule, notes, time off — nothing else). */
+function StaffLoginsPanel({ shopId, staff, onChanged }: { shopId: string; staff: Array<{ id: string; name: string }>; onChanged: (msg: string) => void }) {
+  const { t } = useI18n();
+  const [logins, setLogins] = useState<StaffLogin[]>([]);
+  const [email, setEmail] = useState('');
+  const [who, setWho] = useState('');
+  const load = useCallback(() => void apiStaffLogins(shopId).then(setLogins), [shopId]);
+  useEffect(load, [load]);
+  const nameOf = (id: string) => staff.find((s) => s.id === id)?.name ?? id;
+  return (
+    <div className="panel">
+      <p className="muted" style={{ marginBottom: 10 }}>{t('sl_sub')}</p>
+      {logins.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
+          {logins.map((l) => (
+            <li key={l.email} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+              <span><b>{nameOf(l.staffId)}</b> · {l.email}</span>
+              <button
+                className="btn btn-ghost sm"
+                onClick={async () => {
+                  await apiRevokeStaffLogin(shopId, l.email);
+                  onChanged('✓ ' + t('sl_revoked'));
+                  load();
+                }}
+              >
+                {t('sl_revoke')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <label className="chip">
+          <select value={who} onChange={(e) => setWho(e.target.value)}>
+            <option value="">{t('sl_pick')}</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </label>
+        <input className="input" style={{ flex: 1, minWidth: 200 }} type="email" placeholder={t('sl_email')} value={email} onChange={(e) => setEmail(e.target.value)} />
+        <button
+          className="btn btn-primary sm"
+          disabled={!who || !/.+@.+\..+/.test(email)}
+          onClick={async () => {
+            const r = await apiGrantStaffLogin(shopId, email, who);
+            if (r.ok) {
+              onChanged('✓ ' + t('sl_sent'));
+              setEmail('');
+              setWho('');
+              load();
+            } else onChanged('⚠️ ' + r.error);
+          }}
+        >
+          {t('sl_invite')}
+        </button>
       </div>
     </div>
   );

@@ -388,6 +388,13 @@ function FreeBadge({ row }: { row: PlatformRow }) {
 }
 
 /** Whether the salon gets its money automatically through its own Stripe account. */
+/** Commission from pay-at-salon visits still to collect (netted from the next payout). */
+function OwedBadge({ row }: { row: PlatformRow }) {
+  const { t, lang } = useI18n();
+  const owed = (row as { owedCents?: number }).owedCents ?? 0;
+  return owed > 0 ? <span className="adm-badge warn">{t('adm_owed', { amount: money(owed, lang) })}</span> : null;
+}
+
 function PayoutBadge({ row }: { row: PlatformRow }) {
   const { t } = useI18n();
   const p = (row as { payouts?: string }).payouts;
@@ -492,7 +499,7 @@ function ShopDetail({ row, busy, onPause }: { row: PlatformRow; busy: boolean; o
   return (
     <div className="panel adm-card">
       <h3>
-        {row.name} {row.paused && <span className="adm-badge warn">{t('adm_paused')}</span>} <FreeBadge row={row} /> <PayoutBadge row={row} />
+        {row.name} {row.paused && <span className="adm-badge warn">{t('adm_paused')}</span>} <FreeBadge row={row} /> <PayoutBadge row={row} /> <OwedBadge row={row} />
       </h3>
       <p className="adm-muted">{row.district}</p>
       <div className="adm-stats">

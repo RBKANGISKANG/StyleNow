@@ -14,6 +14,7 @@ The server build (`npm run build && npm run start` in `apps/web`) is the real pr
 | `RESEND_API_KEY` **or** `SMTP_URL` | for email | Resend API key, or any SMTP server: `smtps://user:pass@smtp.ionos.de:465` |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | optional | SMS confirmations + reminders |
 | `STYLENOW_REMINDER_HOURS` | optional | Reminder lead time, default 24 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | optional | "Sign in with Google". Google Cloud Console → APIs & Services → Credentials → OAuth client (Web). Authorised redirect URI: `https://<your site>/api/auth/google/callback`. The button appears only when both are set. |
 | `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | for payments | Stripe keys. Webhook events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated`. Enable Connect → **Custom** accounts. |
 
 Leave `NEXT_PUBLIC_BACKEND` unset on a server deployment (the default is the server). Static builds set it to `local`.
@@ -41,3 +42,15 @@ It signs up a salon with a test IBAN, completes payout setup with Stripe's test 
 - Salon: new booking / cancelled / moved, to the email from its sign-up.
 
 `GET /api/admin/outbox` (with the admin key) lists the last 200 attempts and whether each was sent.
+
+## Commission rule (built in)
+
+- First 12 months on the platform: no commission.
+- After that, 12 % on completed bookings **StyleNow brought** (search, map, deals) — whether paid online or at the salon.
+- Bookings through the salon's **own link or QR code** (dashboard → Shop) are always commission-free.
+- The Prime extra is split 50/50.
+- Commission on visits paid at the salon is deducted from the salon's next payout; the admin shows what is still open per salon.
+
+## Staff
+
+Owners give team members a login under Dashboard → Team → Team logins. Staff sign in with that email and see only "My day" (their schedule, customer notes, time-off requests).

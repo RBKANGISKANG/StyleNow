@@ -5,13 +5,13 @@ import { addAbsence, absencesFor, requestAbsence, approveAbsence } from '@/core/
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
-  const denied = requireShopAccess(req, params.id);
+  const denied = requireShopAccess(req, params.id, { staff: true, ownStaffId: params.sid });
   if (denied) return denied;
   return NextResponse.json({ absences: absencesFor(params.sid) });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string; sid: string } }) {
-  const denied = requireShopAccess(req, params.id);
+  const denied = requireShopAccess(req, params.id, { staff: true, ownStaffId: params.sid });
   if (denied) return denied;
   const body = await req.json().catch(() => null);
   if (!body?.from || !body?.to) return NextResponse.json({ error: 'missing_params' }, { status: 400 });

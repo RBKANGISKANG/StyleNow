@@ -2594,4 +2594,61 @@ if (walkInShop()) {
   assert.equal(storeAll.getBooking(h2.bookingId)!.guestEmail, undefined, 'a malformed email is dropped');
 }
 
+// ---- the pay-at-salon gap: own-link guests are free, marketplace guests pay either way ----
+{
+  const { platformShareCents, computeSalonPayout, commissionOwedBy, commissionFreeUntil, preparePayout, setPayoutAccount, grantStaffLogin, staffLoginOf, staffShopsFor, revokeStaffLogin } = storeAll;
+  const shop = allShops()[3];
+  const after = Date.parse(`${commissionFreeUntil(shop.id)}T10:00:00Z`) + 864e5;
+  const base = { id: 'q', shopId: shop.id, startsAt: after, status: 'completed', quote: { subtotalCents: 10000, travelFeeCents: 0, discountCents: 0, vatCents: 0, totalCents: 10000, depositCents: 0, breakdown: [] } } as unknown as Booking;
+  assert.equal(platformShareCents({ ...base, source: 'marketplace' } as Booking), 1200, 'a guest StyleNow brought: 12 %');
+  assert.equal(platformShareCents({ ...base, source: 'salon_link' } as Booking), 0, 'the salon\'s own guest: free');
+  assert.equal(platformShareCents({ ...base, source: 'salon_link', quote: { ...base.quote, totalCents: 13000, primeCents: 3000 } } as Booking), 1500, 'Prime is shared 50/50 even for own guests');
+  // A deposit-only online payment cannot cover the full share: the platform takes what it can now.
+  assert.equal(computeSalonPayout({ ...base, source: 'marketplace', stripe: { sessionId: 's', paymentIntentId: 'p', chargedCents: 1000, refundedCents: 0 } } as Booking).platformCents, 1000);
+
+  // Real flow: a pay-at-salon marketplace visit accrues commission; the next online payout collects it.
+  const svc = effectiveServices(shop.id)[0];
+  const free = (from: number) => {
+    for (let d = from; d <= 60; d++) {
+      const sl = availability(shop.id, [svc.id], addDays(todayIso(), d), 'dev-gap').slots[0];
+      if (sl) return sl;
+    }
+    throw new Error('no slot');
+  };
+  const owedBefore = commissionOwedBy(shop.id);
+  const h1 = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: free(1).start, deviceId: 'dev-gap', guestName: 'G', idempotencyKey: 'paygap-test-1' });
+  const b1 = confirmBooking(h1.bookingId, { method: 'card', label: 'x' });
+  b1.startsAt = after; // fixture surgery: a visit after the free year
+  b1.stripe = undefined; // paid at the counter in the end
+  setBookingStatus(shop.id, b1.id, 'completed');
+  const share1 = b1.commission!.shareCents;
+  assert.ok(share1 > 0 && b1.commission!.owedCents === share1, 'nothing paid online → the whole share is owed');
+  assert.equal(commissionOwedBy(shop.id), owedBefore + share1);
+  setBookingStatus(shop.id, b1.id, 'completed');
+  assert.equal(commissionOwedBy(shop.id), owedBefore + share1, 're-completing never charges twice');
+
+  setPayoutAccount(shop.id, { accountId: 'acct_GapTest', chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true });
+  const h2 = createHold({ shopId: shop.id, serviceIds: [svc.id], staffId: null, startsAt: free(2).start, deviceId: 'dev-gap', guestName: 'G', idempotencyKey: 'paygap-test-2', source: 'salon_link' });
+  const b2 = confirmBooking(h2.bookingId, { method: 'card', label: 'x' });
+  b2.stripe = { sessionId: 's2', paymentIntentId: 'p2', chargedCents: b2.quote.totalCents, refundedCents: 0 };
+  setBookingStatus(shop.id, b2.id, 'completed');
+  assert.equal(b2.commission!.shareCents, 0, 'own-link booking: no commission');
+  const p2 = preparePayout(b2.id)!;
+  const netted = Math.min(owedBefore + share1, b2.quote.totalCents);
+  assert.equal(p2.nettedOwedCents ?? 0, netted, 'the open commission is collected from this payout');
+  assert.equal(p2.cents, b2.quote.totalCents - netted);
+  assert.equal(commissionOwedBy(shop.id), owedBefore + share1 - netted);
+  assert.equal(preparePayout(b2.id)!.cents, p2.cents, 'preparing again never nets twice');
+
+  // Staff logins
+  const staffId = effectiveStaff(shop.id)[0].id;
+  assert.throws(() => grantStaffLogin(shop.id, 'x', staffId), /bad_email/);
+  assert.throws(() => grantStaffLogin(shop.id, 'lea@test.de', 'nobody'), /staff_not_found/);
+  grantStaffLogin(shop.id, 'Lea@Test.de', staffId);
+  assert.equal(staffLoginOf(shop.id, 'lea@test.de')?.staffId, staffId);
+  assert.deepEqual(staffShopsFor('LEA@test.de'), [{ shopId: shop.id, staffId }]);
+  revokeStaffLogin(shop.id, 'lea@test.de');
+  assert.equal(staffLoginOf(shop.id, 'lea@test.de'), null);
+}
+
 console.log('OK — every batch checks out: payments, loyalty, floor, records, scheduling, money products, care & safety, discovery & ops, verticals, round 5, its review fixes, and paying at the salon');

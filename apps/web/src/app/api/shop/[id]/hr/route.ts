@@ -6,7 +6,7 @@ import { todayIso, addDays } from '@/core/time';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = requireShopAccess(req, params.id);
+  const denied = requireShopAccess(req, params.id, { staff: true });
   if (denied) return denied;
   const from = req.nextUrl.searchParams.get('from') ?? todayIso();
   const to = req.nextUrl.searchParams.get('to') ?? addDays(from, 30);

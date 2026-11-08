@@ -3444,3 +3444,27 @@ export async function apiShopSlug(shopId: string): Promise<string | null> {
   await readyForRead();
   return store.shopById(shopId)?.slug ?? null;
 }
+
+// ---- staff logins (My day) ---------------------------------------------------------
+
+export interface StaffSeat { shopId: string; staffId: string; name: string; emoji: string }
+
+/** Salons where the signed-in person works as staff (server mode only). */
+export async function apiMyStaffSeats(): Promise<StaffSeat[]> {
+  if (backendMode() !== 'server') return [];
+  return (await getJson('/api/me/shops'))?.staff ?? [];
+}
+
+export async function apiStaffLogins(shopId: string): Promise<store.StaffLogin[]> {
+  if (backendMode() !== 'server') return [];
+  return (await getJson(`/api/shop/${shopId}/staff-logins`))?.logins ?? [];
+}
+
+export async function apiGrantStaffLogin(shopId: string, email: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`/api/shop/${shopId}/staff-logins`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, staffId }) });
+  return res.ok ? { ok: true } : { ok: false, error: (await res.json().catch(() => ({}))).error ?? 'error' };
+}
+
+export async function apiRevokeStaffLogin(shopId: string, email: string): Promise<void> {
+  await fetch(`/api/shop/${shopId}/staff-logins?email=${encodeURIComponent(email)}`, { method: 'DELETE' });
+}
