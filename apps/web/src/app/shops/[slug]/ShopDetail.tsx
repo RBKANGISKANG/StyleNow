@@ -318,6 +318,10 @@ export function ShopDetail({ shop }: { shop: ShopData }) {
         ))}
       </section>
 
+      <p className="powered-by" style={{ textAlign: 'center', fontSize: '0.78rem', color: 'var(--ink-soft)', margin: '24px 0 8px' }}>
+        {t('vr_powered')} · <Link href="/partner?utm_source=powered_by">{t('vr_powered_join')}</Link>
+      </p>
+
       <div className="sx-bookbar">
         <div className="sx-bookbar-info">
           <b>{shop.name}</b>

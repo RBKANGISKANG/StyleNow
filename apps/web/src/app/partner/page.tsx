@@ -107,6 +107,13 @@ export default function PartnerPage() {
     if (code) void apiSalonReferrerName(code).then((name) => name && setInvitedBy({ code: code.toUpperCase(), name }));
   }, []);
 
+  // Invited by a customer (/partner?cust_ref=REF-…): the customer earns level points.
+  const [custRef, setCustRef] = useState<string | null>(null);
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get('cust_ref');
+    if (c && /^REF-[A-Z0-9]{4,12}$/i.test(c)) setCustRef(c.toUpperCase());
+  }, []);
+
   // An invite link (/partner?lead=…) opens the form with what we already know.
   const [prefilledFor, setPrefilledFor] = useState<string | null>(null);
   useEffect(() => {
@@ -203,6 +210,7 @@ export default function PartnerPage() {
       locale: lang,
       leadId: new URLSearchParams(window.location.search).get('lead') ?? undefined,
       salonRef: invitedBy?.code,
+      custRef: custRef ?? undefined,
       // the key the dashboard scopes by, so the new salon shows up there
       ownerKey: user?.email ?? deviceId(),
     }, { iban: iban.replace(/\s/g, '').toUpperCase() });
@@ -257,6 +265,7 @@ export default function PartnerPage() {
         <h1>💼 {t('partner_title')}</h1>
         <p style={{ color: 'var(--ink-soft)', fontSize: '0.88rem', marginTop: 4 }}>{t('partner_sub')}</p>
         {prefilledFor && <div className="alert" style={{ marginTop: 10 }}>✨ {t('ld_prefilled', { name: prefilledFor })}</div>}
+        {custRef && !invitedBy && <div className="alert" style={{ marginTop: 10, background: 'var(--teal-soft)', borderColor: 'var(--teal)', color: 'var(--teal)' }}>💌 {t('vr_biz_invited')}</div>}
         {invitedBy && <div className="alert" style={{ marginTop: 10, background: 'var(--teal-soft)', borderColor: 'var(--teal)', color: 'var(--teal)' }}>🤝 {t('sref_invited', { name: invitedBy.name })}</div>}
       </div>
 

@@ -5,6 +5,7 @@
  * Nothing here is part of running today, which is why it is not on the Today
  * tab getting in the way.
  */
+import { shareImage, stickerPng, storyPng } from '@/lib/share-images';
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { shopHref } from '@/lib/shop-href';
@@ -279,7 +280,7 @@ function ShopTab({
 
       <section className="section">
         <h2>📣 {t('gr_title')}</h2>
-        <BookingLinkPanel shopId={shopId} onChanged={(msg) => setToast(msg)} />
+        <BookingLinkPanel shopId={shopId} shopName={data.shop.name} onChanged={(msg) => setToast(msg)} />
       </section>
 
       <section className="section">
@@ -1513,7 +1514,7 @@ function PayoutsPanel({ shopId, ownerKey, onChanged }: { shopId: string; ownerKe
  * customers onto StyleNow — Google Business Profile "booking link", Instagram
  * bio, WhatsApp status, and a QR sign at the counter.
  */
-function BookingLinkPanel({ shopId, onChanged }: { shopId: string; onChanged: (msg: string) => void }) {
+function BookingLinkPanel({ shopId, shopName, onChanged }: { shopId: string; shopName: string; onChanged: (msg: string) => void }) {
   const { t } = useI18n();
   const [link, setLink] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -1541,6 +1542,26 @@ function BookingLinkPanel({ shopId, onChanged }: { shopId: string; onChanged: (m
           <img src={qr} alt={t('gr_qr_alt')} width={160} height={160} style={{ borderRadius: 12, background: '#fff' }} />
           <div>
             <a className="btn btn-soft sm" href={qr} download="stylenow-booking-qr.png" style={{ marginTop: 6 }}>⬇ {t('gr_qr_download')}</a>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            <button
+              className="btn btn-soft sm"
+              onClick={async () => {
+                const png = await stickerPng({ shopName, title: t('vr_sticker_title'), sub: t('vr_sticker_sub'), link: link.replace('utm_medium=link', 'utm_medium=sticker') });
+                await shareImage(png, 'stylenow-sticker.png', shopName);
+              }}
+            >
+              🖨 {t('vr_sticker_btn')}
+            </button>
+            <button
+              className="btn btn-soft sm"
+              onClick={async () => {
+                const png = await storyPng({ shopName, title: t('vr_sticker_title'), sub: t('vr_story_sub'), link: link.replace('utm_medium=link', 'utm_medium=story') });
+                await shareImage(png, 'stylenow-story.png', `${shopName} — ${link}`);
+              }}
+            >
+              📱 {t('vr_story_btn')}
+            </button>
           </div>
         </div>
       )}

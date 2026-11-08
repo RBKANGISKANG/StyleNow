@@ -37,7 +37,9 @@ import {
   apiLeaveBy,
   apiArrivalNote,
   type GiftCard,
+  apiMyReferralStatus,
 } from '@/lib/api';
+import { shareLink } from '@/lib/share-images';
 import type { DueRebook, SavedPerson, YearRecap, ReviewTag, CancelReason } from '@/core/store';
 import { REVIEW_TAGS } from '@/core/store';
 import { icsHref } from '@/lib/ics';
@@ -800,6 +802,38 @@ export default function BookingsPage() {
   );
 }
 
+/** After a visit: share it (optionally with a photo) — the link books the same place and carries your invite. */
+function ShareVisit({ booking }: { booking: Bk }) {
+  const { t } = useI18n();
+  const photo = useRef<HTMLInputElement>(null);
+  if (!booking.shop) return null;
+  const shop = booking.shop;
+  const go = async (file: File | null) => {
+    const r = await apiMyReferralStatus().catch(() => null);
+    const base = `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}`;
+    const url = `${base}${shopHref(shop.slug, '', `utm_source=share&utm_medium=visit${r?.code ? `&ref=${r.code}` : ''}`)}`;
+    await shareLink({ text: t('vr_visit_text', { name: shop.name }), url, photo: file });
+  };
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+      <span style={{ fontSize: '0.85rem' }}>✨ {t('vr_visit_title')}</span>
+      <button className="btn btn-soft sm" onClick={() => void go(null)}>📤 {t('vr_visit_share')}</button>
+      <button className="btn btn-soft sm" onClick={() => photo.current?.click()}>📷 {t('vr_visit_photo')}</button>
+      <input
+        ref={photo}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0] ?? null;
+          e.target.value = '';
+          if (f) void go(f);
+        }}
+      />
+    </div>
+  );
+}
+
 function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () => void }) {
   const { t, lang } = useI18n();
   const [rating, setRating] = useState(0);
@@ -826,6 +860,7 @@ function CompletedExtras({ booking, onChanged }: { booking: Bk; onChanged: () =>
 
   return (
     <div style={{ padding: '0 18px 16px', borderTop: '1px dashed var(--line)', marginTop: 4 }}>
+      <ShareVisit booking={booking} />
       {booking.review ? (
         <p style={{ marginTop: 10, fontSize: '0.85rem' }}>
           <strong>{t('your_review')}:</strong>{' '}

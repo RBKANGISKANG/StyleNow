@@ -81,10 +81,19 @@ function texts(event: BookingEvent | 'reminder', b: Booking) {
   }
 }
 
+/** Every guest email carries a quiet "own a business? join free" line. */
+function poweredBy(b: Booking): string {
+  const de = lang(b) === 'de';
+  const url = `${siteOrigin()}/partner?utm_source=email`;
+  return de
+    ? `\n\n—\nGebucht mit StyleNow. Eigenes Studio oder eigener Salon? 12 Monate ohne Provision starten:\n${url}`
+    : `\n\n—\nBooked with StyleNow. Own a salon or studio? Start with 12 months commission-free:\n${url}`;
+}
+
 async function tellGuest(event: BookingEvent | 'reminder', b: Booking): Promise<boolean> {
   const t = texts(event, b);
   let sent = false;
-  if (b.guestEmail) sent = (await sendEmail(b.guestEmail, t.subject, t.text)) || sent;
+  if (b.guestEmail) sent = (await sendEmail(b.guestEmail, t.subject, `${t.text}${poweredBy(b)}`)) || sent;
   // SMS only for the two that prevent no-shows, so the salon's SMS bill stays small.
   if (b.guestPhone && (event === 'reminder' || event === 'confirmed')) sent = (await sendSms(b.guestPhone, t.sms)) || sent;
   return sent;

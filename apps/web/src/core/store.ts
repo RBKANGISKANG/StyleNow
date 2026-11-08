@@ -507,6 +507,7 @@ interface State {
   commissionOwed: Map<string, number>; // shopId → commission on pay-at-salon visits, netted from the next payout
   salonReferrals: SalonReferral[]; // salon-invites-salon: who brought whom
   referralWins: Array<{ referrer: string; friend: string; at: number }>; // a friend's first completed visit
+  bizInviteWins: Array<{ referrer: string; shopId: string; at: number }>; // a customer brought a business onto StyleNow
   bonusFreeMonths: Map<string, number>; // shopId → extra commission-free months earned
   pausedShops: Set<string>; // taken off search and booking by the platform
   shopLiveSince: Map<string, string>; // shopId → ISO date it went live (commission-free year starts here)
@@ -610,6 +611,7 @@ const state: State =
     commissionOwed: new Map(),
     salonReferrals: [],
     referralWins: [],
+    bizInviteWins: [],
     bonusFreeMonths: new Map(),
     pausedShops: new Set(),
     shopLiveSince: new Map(),
@@ -736,6 +738,7 @@ function persist(): boolean {
         commissionOwed: [...state.commissionOwed.entries()],
         salonReferrals: state.salonReferrals,
         referralWins: state.referralWins,
+        bizInviteWins: state.bizInviteWins,
         bonusFreeMonths: [...state.bonusFreeMonths.entries()],
         pausedShops: [...state.pausedShops],
         shopLiveSince: [...state.shopLiveSince.entries()],
@@ -820,6 +823,7 @@ function restoreSnapshot(raw: string | null): void {
         commissionOwed?: Array<[string, number]>;
         salonReferrals?: SalonReferral[];
         referralWins?: Array<{ referrer: string; friend: string; at: number }>;
+        bizInviteWins?: Array<{ referrer: string; shopId: string; at: number }>;
         bonusFreeMonths?: Array<[string, number]>;
         pausedShops?: string[];
         shopLiveSince?: Array<[string, string]>;
@@ -892,6 +896,7 @@ function restoreSnapshot(raw: string | null): void {
       state.commissionOwed = new Map(d.commissionOwed ?? []);
       state.salonReferrals = d.salonReferrals ?? [];
       state.referralWins = d.referralWins ?? [];
+      state.bizInviteWins = d.bizInviteWins ?? [];
       state.bonusFreeMonths = new Map(d.bonusFreeMonths ?? []);
       state.pausedShops = new Set(d.pausedShops ?? []);
       state.shopLiveSince = new Map(d.shopLiveSince ?? []);
@@ -6647,6 +6652,7 @@ export function approveApplication(id: string): ShopApplication {
   app.decidedAt = Date.now();
   delete app.rejectReason;
   creditSalonReferral(app, shop.id, ownerKey);
+  creditBusinessInvite(app, shop.id, ownerKey);
   persist();
   return app;
 }
@@ -9539,6 +9545,8 @@ export function salonReferrerName(code: string): string | null {
 export type LevelId = 'member' | 'silver' | 'gold' | 'platinum' | 'diamond';
 export const POINTS_PER_VISIT = 1;
 export const POINTS_PER_FRIEND = 3;
+/** A customer who brings their favourite business onto StyleNow. */
+export const POINTS_PER_BUSINESS = 5;
 export const CUSTOMER_LEVELS: Array<{ id: LevelId; minPoints: number; rank: number; primeDiscountPct: number; emoji: string }> = [
   { id: 'member', minPoints: 0, rank: 0, primeDiscountPct: 0, emoji: '' },
   { id: 'silver', minPoints: 3, rank: 1, primeDiscountPct: 0, emoji: '🥈' },
@@ -9568,14 +9576,15 @@ export function referralCount(deviceId: string, now = Date.now(), allTime = fals
   return state.referralWins.filter((w) => w.referrer === deviceId && (allTime || w.at >= since)).length;
 }
 
-export function customerLevel(deviceId: string, now = Date.now()): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null; pending: Array<{ visits: number; daysLeft: number }> } {
+export function customerLevel(deviceId: string, now = Date.now()): (typeof CUSTOMER_LEVELS)[number] & { referrals: number; visits: number; businesses: number; points: number; next: (typeof CUSTOMER_LEVELS)[number] | null; pending: Array<{ visits: number; daysLeft: number }> } {
   const referrals = referralCount(deviceId, now);
   const visits = completedVisits(deviceId, now);
-  const points = visits * POINTS_PER_VISIT + referrals * POINTS_PER_FRIEND;
+  const businesses = businessInviteCount(deviceId, now);
+  const points = visits * POINTS_PER_VISIT + referrals * POINTS_PER_FRIEND + businesses * POINTS_PER_BUSINESS;
   let lvl = CUSTOMER_LEVELS[0];
   for (const l of CUSTOMER_LEVELS) if (points >= l.minPoints) lvl = l;
   const next = CUSTOMER_LEVELS.find((l) => l.minPoints > points) ?? null;
-  return { ...lvl, referrals, visits, points, next, pending: pendingReferrals(deviceId, now) };
+  return { ...lvl, referrals, visits, businesses, points, next, pending: pendingReferrals(deviceId, now) };
 }
 
 /** A friend counts once they complete this many visits (any business)… */
@@ -9624,6 +9633,25 @@ function creditReferral(b: Booking): void {
   const end = times[0] + FRIEND_WINDOW_DAYS * 864e5;
   if (times.filter((t) => t <= end).length < FRIEND_VISITS_NEEDED) return;
   state.referralWins.push({ referrer, friend, at: Date.now() });
+}
+
+/** Businesses this customer brought onto StyleNow in the last 12 months (all-time when `allTime`). */
+export function businessInviteCount(deviceId: string, now = Date.now(), allTime = false): number {
+  const since = now - POINTS_WINDOW_DAYS * 864e5;
+  return state.bizInviteWins.filter((w) => w.referrer === deviceId && (allTime || w.at >= since)).length;
+}
+
+/**
+ * At approval: a business that signed up through a customer's invite link
+ * (/partner?cust_ref=REF-…) earns that customer points. Not for inviting your
+ * own business, and once per business.
+ */
+function creditBusinessInvite(app: ShopApplication, shopId: string, ownerKey: string): void {
+  const code = typeof app.data.custRef === 'string' ? app.data.custRef.trim().toUpperCase() : '';
+  const referrer = code ? state.referralCodes.get(code) : undefined;
+  if (!referrer || referrer === ownerKey || referrer === app.deviceId) return;
+  if (state.bizInviteWins.some((w) => w.shopId === shopId)) return;
+  state.bizInviteWins.push({ referrer, shopId, at: Date.now() });
 }
 
 // ---- salon badges (derived, never set by hand) --------------------------------------

@@ -9,13 +9,16 @@
 import { useEffect, useState } from 'react';
 import { useI18n, type MsgKey } from '@/lib/i18n';
 import { apiMyReferralStatus, type CustomerLevel } from '@/lib/api';
-import { CUSTOMER_LEVELS } from '@/core/store';
+import { CUSTOMER_LEVELS, POINTS_PER_BUSINESS } from '@/core/store';
+import { levelCardPng, shareImage } from '@/lib/share-images';
 
 export function ReferralPanel() {
   const { t } = useI18n();
   const [code, setCode] = useState('');
   const [level, setLevel] = useState<CustomerLevel | null>(null);
   const [copied, setCopied] = useState(false);
+  const [bizCopied, setBizCopied] = useState(false);
+  const [cardBusy, setCardBusy] = useState(false);
 
   useEffect(() => {
     void apiMyReferralStatus()
@@ -28,6 +31,7 @@ export function ReferralPanel() {
 
   if (!code || !level) return null;
   const link = `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/?ref=${code}`;
+  const bizLink = `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/partner?cust_ref=${code}`;
   const pct = level.next ? Math.round((level.points / level.next.minPoints) * 100) : 100;
   return (
     <div className="panel" style={{ marginTop: 14 }}>
@@ -71,6 +75,56 @@ export function ReferralPanel() {
         <a className="btn btn-soft sm" href={`https://wa.me/?text=${encodeURIComponent(t('ref_share_text', { link }))}`} target="_blank" rel="noreferrer">
           💬 WhatsApp
         </a>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <button
+          className="btn btn-soft sm"
+          disabled={cardBusy}
+          onClick={async () => {
+            setCardBusy(true);
+            try {
+              const png = await levelCardPng({
+                emoji: level.emoji,
+                levelName: t(`lvl_${level.id}` as MsgKey),
+                headline: t('vr_card_headline'),
+                points: t('vr_card_points', { n: level.points }),
+                cta: t('vr_card_cta'),
+                link,
+              });
+              await shareImage(png, `stylenow-${level.id}.png`, t('ref_share_text', { link }));
+            } finally {
+              setCardBusy(false);
+            }
+          }}
+        >
+          📸 {t('vr_card_btn')}
+        </button>
+      </div>
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <b style={{ fontSize: '0.9rem' }}>🏪 {t('vr_biz_title')}</b>
+        <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '4px 0 8px', lineHeight: 1.55 }}>
+          {t('vr_biz_body', { n: POINTS_PER_BUSINESS })}
+          {level.businesses > 0 && <> {t('vr_biz_count', { n: level.businesses })}</>}
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-soft sm"
+            onClick={() => {
+              try {
+                void navigator.clipboard.writeText(bizLink);
+                setBizCopied(true);
+                setTimeout(() => setBizCopied(false), 2000);
+              } catch {
+                /* the link is shared via WhatsApp instead */
+              }
+            }}
+          >
+            {bizCopied ? '✅' : '🔗'} {t('ref_copy')}
+          </button>
+          <a className="btn btn-soft sm" href={`https://wa.me/?text=${encodeURIComponent(t('vr_biz_share', { link: bizLink }))}`} target="_blank" rel="noreferrer">
+            💬 WhatsApp
+          </a>
+        </div>
       </div>
       <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', fontSize: '0.78rem', lineHeight: 1.7 }}>
         {CUSTOMER_LEVELS.filter((l) => l.id !== 'member').map((l) => (

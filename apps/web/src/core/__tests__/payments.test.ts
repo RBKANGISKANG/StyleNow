@@ -2446,6 +2446,14 @@ if (walkInShop()) {
   setShopPaused(shop.id, false);
 
   // With review switched on, sign-ups wait; approve and reject both work.
+  // a customer brings their favourite business: points, once, never for your own
+  const before = storeAll.businessInviteCount('dev-referrer');
+  const viaCustomer = submitShopApplication('dev-signup-c', form('Barber Freund', { custRef: refCode.toLowerCase(), ownerKey: 'owner@barber.test' }));
+  assert.equal(viaCustomer.status, 'approved');
+  assert.equal(storeAll.businessInviteCount('dev-referrer'), before + 1, 'the inviting customer earns the business');
+  submitShopApplication('dev-referrer', form('Mein Eigenes', { custRef: refCode, ownerKey: 'dev-referrer' }));
+  assert.equal(storeAll.businessInviteCount('dev-referrer'), before + 1, 'inviting your own business earns nothing');
+  submitShopApplication('dev-signup-x', form('Unbekannt', { custRef: 'REF-NOPE00', ownerKey: 'owner@x.test' }));
   setRequireApproval(true);
   const waiting = submitShopApplication('dev-signup2', form('Studio Wartend'));
   assert.equal(waiting.status, 'pending');
